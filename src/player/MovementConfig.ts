@@ -1,15 +1,32 @@
-/** Tunable CS-surf-style movement constants. Tune by feel, not by theory. */
+/**
+ * Tunable CS-surf-style movement constants.
+ *
+ * The whole set is pinned to one scale: **1 game unit = 45 Hammer units**, which
+ * falls out of matching CS's `sv_maxspeed` 320 to a 7 u/s walk (320/45.7). Every
+ * other quantity below is the CS value divided by that same factor, so ramp
+ * angles and dimensions taken from real surf maps transfer directly. Keep the
+ * scale consistent when retuning: mixing scales is what made gravity wrong here
+ * originally (it was set to 20, i.e. 800/40, which is ~12% heavy for a 45 hu
+ * speed scale and made ramps shed the player faster than CS does).
+ */
 export const MovementConfig = {
   GROUND_ACCEL: 10, // sv_accelerate
   AIR_ACCEL: 12, // sv_airaccelerate — the clamp below is what limits it, not this
-  MAX_GROUND_SPEED: 7, // sv_maxspeed
-  MAX_AIR_WISH_SPEED: 0.6, // small clamp that makes air-strafe speed gain possible at all
+  MAX_GROUND_SPEED: 7, // sv_maxspeed 320 / 45.7
+  MAX_AIR_WISH_SPEED: 0.6, // ~30 u/s air-accel clamp; the reason air-strafing gains speed
   FRICTION: 6, // sv_friction
   STOP_SPEED: 1.5, // sv_stopspeed
-  GRAVITY: -20,
-  JUMP_SPEED: 6.5,
+  GRAVITY: -17.8, // CS gravity 800 / 45
+  JUMP_SPEED: 6.7, // CS jump ~301 u/s -> ~57 hu apex, matched at this gravity
   GROUND_PROBE_DIST: 0.3,
-  MAX_SLOPE_WALKABLE_DEG: 45, // steeper than this = ramp/slide surface, not walkable ground
+  /**
+   * Source treats a surface as standable when its normal.y >= 0.7, i.e. up to
+   * acos(0.7) = 45.573 deg. Anything steeper never grounds the player, so they
+   * stay in the airborne state where air-strafing works — that threshold is
+   * exactly what makes a surf ramp surfable, so it is matched precisely rather
+   * than rounded to 45.
+   */
+  MAX_SLOPE_WALKABLE_DEG: 45.573,
   /** Jump fires every tick while grounded and held, chaining hops with zero landing friction. */
   AUTO_BHOP: true,
   PLAYER_RADIUS: 0.4,

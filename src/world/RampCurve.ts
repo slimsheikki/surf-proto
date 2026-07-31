@@ -22,6 +22,24 @@ export interface RampCurveParams {
   endPitchDeg?: number;
   /** Only used in 'horizontal' mode: total yaw change swept across the curve. */
   yawSweepDeg?: number;
+  /**
+   * Bank of the surfable face about the direction of travel, in degrees.
+   *
+   * This is what makes a piece a *surf ramp* rather than a chute. At 0 the face
+   * is a floor and the player walks on it; at 90 it is a vertical wall. In
+   * between — real surf ramps live around 45-70 — the face is an inclined wall
+   * whose fall line runs sideways, across the face, while the direction of
+   * travel runs along the ramp's length. The player slides down the face and
+   * air-strafes back up it, tracing an arc along the wall, which is the actual
+   * shape of surf movement.
+   *
+   * Sign picks which way the face leans: positive banks the surface so its
+   * downhill side is toward -right, negative toward +right. Two opposing pieces
+   * with equal and opposite roll form a channel the player can zig-zag along.
+   */
+  rollDeg?: number;
+  /** Sweeps the bank across the piece (defaults to `rollDeg`, i.e. constant). */
+  endRollDeg?: number;
   /** Approximate arc length of the whole curve. */
   length: number;
   width: number;
@@ -29,6 +47,10 @@ export interface RampCurveParams {
   /** Degrees of arc per segment — 2-5 deg matches real surf-map construction for a smooth feel. */
   angleStepDeg?: number;
   color?: number;
+  /** Surface material roughness; defaults to the original ramp look. */
+  roughness?: number;
+  /** Surface material metalness; defaults to the original ramp look. */
+  metalness?: number;
   guideWalls?: boolean;
 }
 
@@ -71,7 +93,11 @@ function forwardFromAngles(yawDeg: number, pitchDeg: number): Vector3 {
  * flat-ground normal of (0, 1, 0). So: `right` cross `normal` must equal
  * `+forward`, which means `right = worldUp x forward` (NOT `forward x worldUp`).
  */
-function basisFromForward(forward: Vector3, yawDeg: number): { right: Vector3; normal: Vector3 } {
+function basisFromForward(
+  forward: Vector3,
+  yawDeg: number,
+  rollDeg = 0,
+): { right: Vector3; normal: Vector3 } {
   const right = new Vector3().crossVectors(WORLD_UP, forward);
   if (right.lengthSq() < 1e-12) {
     // Degenerate case: `forward` is (near) vertical, so worldUp x forward
@@ -84,6 +110,15 @@ function basisFromForward(forward: Vector3, yawDeg: number): { right: Vector3; n
   }
   right.normalize();
   const normal = new Vector3().crossVectors(forward, right).normalize();
+
+  if (rollDeg !== 0) {
+    // Bank the face about the travel axis. Rotating both axes by the same
+    // rotation about `forward` keeps the triple right-handed (R(a) x R(b) =
+    // R(a x b) = R(forward) = forward), so the quaternion stays proper.
+    const roll = degToRad(rollDeg);
+    right.applyAxisAngle(forward, roll);
+    normal.applyAxisAngle(forward, roll);
+  }
   return { right, normal };
 }
 
@@ -101,17 +136,27 @@ export function buildRampCurve(
   const angleStepDeg = params.angleStepDeg ?? DEFAULT_ANGLE_STEP;
   const color = params.color ?? 0x4a7fb5;
 
-  const totalAngleChange =
+  const startRoll = params.rollDeg ?? 0;
+  const endRoll = params.endRollDeg ?? startRoll;
+
+  const totalAngleChange = Math.max(
     mode === 'vertical'
       ? Math.abs((params.endPitchDeg ?? params.startPitchDeg) - params.startPitchDeg)
       : mode === 'horizontal'
         ? Math.abs(params.yawSweepDeg ?? 0)
-        : 0;
+        : 0,
+    // A banked piece that also twists needs segments for the roll sweep alone.
+    Math.abs(endRoll - startRoll),
+  );
   const segmentCount = Math.max(1, Math.round(totalAngleChange / angleStepDeg) || 1);
   const segmentLength = params.length / segmentCount;
 
   const group = new Group();
-  const material = new MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05 });
+  const material = new MeshStandardMaterial({
+    color,
+    roughness: params.roughness ?? 0.75,
+    metalness: params.metalness ?? 0.05,
+  });
   const wallMaterial = new MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 });
 
   let curPos = params.start.clone();
@@ -125,8 +170,14 @@ export function buildRampCurve(
     const segPitch =
       mode === 'vertical' ? lerp(params.startPitchDeg, params.endPitchDeg ?? params.startPitchDeg, midT) : curPitch;
 
+    // Roll is sampled at the segment midpoint, exactly like pitch and yaw, so a
+    // banked piece that also twists hands each segment the bank its own centre
+    // sits at — the segments then meet with only half a step of bank mismatch at
+    // each seam instead of a full one.
+    const segRoll = lerp(startRoll, endRoll, midT);
+
     const forward = forwardFromAngles(segYaw, segPitch);
-    const { right, normal } = basisFromForward(forward, segYaw);
+    const { right, normal } = basisFromForward(forward, segYaw, segRoll);
 
     const pathMid = curPos.clone().addScaledVector(forward, segmentLength / 2);
     const boxCenter = pathMid.clone().addScaledVector(normal, -thickness / 2);
