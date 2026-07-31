@@ -34,6 +34,9 @@ const course = buildSurfCourse();
 scene.add(course.group);
 
 const game = new Game(scene, camera, course.stages, course.spawnPoint, course.spawnYawDeg);
+// The start overlay is up until the first click, so begin suspended rather than
+// simulating a run the user can't yet control.
+game.setPaused(true);
 
 const input = new InputSystem(canvas);
 const requestStart = () => {
@@ -43,6 +46,9 @@ canvas.addEventListener('click', requestStart);
 startOverlay.addEventListener('click', requestStart);
 document.addEventListener('pointerlockchange', () => {
   startOverlay.classList.toggle('hidden', input.isLocked());
+  // Don't simulate while the user isn't holding the controls — otherwise drones
+  // keep spawning and the player slides off a ramp behind the start overlay.
+  game.setPaused(!input.isLocked());
 });
 
 window.addEventListener('resize', () => {

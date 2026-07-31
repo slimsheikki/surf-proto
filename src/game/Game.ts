@@ -4,6 +4,7 @@ import { Weapon } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
+import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
 import { LevelSystem } from '../progression/LevelSystem';
 import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
@@ -15,10 +16,27 @@ import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
 
-const CONTACT_RADIUS = 0.9;
+/** Enemy sphere is r=0.45 and the player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing speed. */
+const CONTACT_RADIUS = 1.3;
 const XP_PER_KILL = 3;
 const RESPAWN_HEIGHT_OFFSET = new Vector3(0, 1.2, 0);
-const FALL_OUT_OF_BOUNDS_Y = -50;
+const BASE_MAX_HP = 100;
+
+/**
+ * How far below the lowest course stage the kill plane sits. Must clear the
+ * lowest ramp surface (which dips under its landing platform) with room to
+ * spare, while still catching a player who has genuinely fallen off the course.
+ */
+const OUT_OF_BOUNDS_MARGIN = 30;
+
+/**
+ * Distance at which entities are considered out of play and despawned. The
+ * player outruns drones permanently at surf speed, so anything this far away is
+ * dead weight — but both radii are well beyond the weapon's reach and beyond
+ * the furthest spawn distance, so nothing plausibly still in play is culled.
+ */
+const ENEMY_CULL_DISTANCE = 55;
+const ORB_CULL_DISTANCE = 40;
 
 /**
  * Composition root: owns every subsystem and ties them together in a fixed
@@ -28,7 +46,7 @@ const FALL_OUT_OF_BOUNDS_Y = -50;
 export class Game {
   readonly playerController: PlayerController;
   readonly cameraRig: CameraRig;
-  readonly playerHealth = new Health(100);
+  readonly playerHealth = new Health(BASE_MAX_HP);
   readonly weapon = new Weapon();
   readonly levelSystem = new LevelSystem();
   readonly entityManager: EntityManager;
@@ -36,7 +54,11 @@ export class Game {
 
   state: GameState = 'playing';
 
+  /** Kill plane, derived from the course so a redesigned course can't invalidate it. */
+  readonly outOfBoundsY: number;
+
   private lastStage: CourseStage;
+  private paused = false;
   private readonly hud = new Hud();
   private readonly upgradeMenu = new UpgradeMenu();
   private readonly gameOverScreen: GameOverScreen;
@@ -53,12 +75,29 @@ export class Game {
     this.entityManager = new EntityManager(scene);
     this.lastStage = stages[0];
     this.gameOverScreen = new GameOverScreen(() => this.restart());
+
+    const lowestStageY =
+      stages.length > 0 ? Math.min(...stages.map((stage) => stage.center.y)) : spawnPosition.y;
+    this.outOfBoundsY = lowestStageY - OUT_OF_BOUNDS_MARGIN;
+  }
+
+  /**
+   * Suspends simulation without changing `state` — used while pointer lock is
+   * released (the "click to start" overlay), so drones don't spawn and the
+   * player doesn't fall off a ramp while the user isn't holding the controls.
+   */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
   }
 
   tick(dt: number, input: InputFrame): void {
     if (input.cameraTogglePressed) this.cameraRig.toggle();
 
-    if (this.state === 'playing') {
+    if (this.state === 'playing' && !this.paused) {
       this.updateGameplay(dt, input);
     }
 
@@ -69,19 +108,26 @@ export class Game {
   private updateGameplay(dt: number, input: InputFrame): void {
     this.playerController.tick(dt, input);
     const playerPosition = this.playerController.position;
+    const playerVelocity = this.playerController.velocity;
 
     this.trackLastStage(playerPosition);
-    if (playerPosition.y < FALL_OUT_OF_BOUNDS_Y) {
+    if (playerPosition.y < this.outOfBoundsY) {
       this.playerController.teleport(this.lastStage.center.clone().add(RESPAWN_HEIGHT_OFFSET));
     }
 
-    const playerForward = this.currentForward();
-    this.spawnDirector.tick(dt, playerPosition, playerForward, (enemy) =>
-      this.entityManager.addEnemy(enemy),
+    this.spawnDirector.tick(
+      dt,
+      {
+        playerPosition,
+        travelDirection: this.travelDirection(),
+        playerSpeed: playerVelocity.length(),
+        liveEnemyCount: this.entityManager.enemies.length,
+      },
+      (enemy) => this.entityManager.addEnemy(enemy),
     );
 
     for (const enemy of this.entityManager.enemies) {
-      enemy.tick(dt, playerPosition);
+      enemy.tick(dt, playerPosition, playerVelocity);
       if (enemy.canDealContactDamage() && enemy.distanceToPlayer(playerPosition) < CONTACT_RADIUS) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
@@ -93,12 +139,16 @@ export class Game {
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
     });
+    // Runs after the kill pass so a drone that dies this tick still drops XP;
+    // distance culling itself awards nothing — leaving play is not a kill.
+    this.entityManager.cullDistantEnemies(playerPosition, ENEMY_CULL_DISTANCE);
 
     for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition);
 
     this.entityManager.cullCollectedOrbs((orb) => {
       this.levelSystem.addXp(orb.value, () => this.startLevelUp());
     });
+    this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
 
     if (this.playerHealth.isDead) {
       this.state = 'gameOver';
@@ -117,23 +167,30 @@ export class Game {
     });
   }
 
+  /**
+   * Restores every piece of run state that upgrades or progression mutated.
+   * Anything missed here compounds across runs, making each restart easier
+   * (stats) or harder (XP thresholds) than a fresh start.
+   */
   private restart(): void {
     this.entityManager.clear();
-    this.playerHealth.hp = this.playerHealth.maxHp;
+    this.playerHealth.maxHp = BASE_MAX_HP;
+    this.playerHealth.hp = BASE_MAX_HP;
     this.playerController.teleport(this.stages[0].center.clone().add(RESPAWN_HEIGHT_OFFSET));
+    this.lastStage = this.stages[0];
     this.spawnDirector.reset();
-    this.levelSystem.level = 1;
-    this.levelSystem.xp = 0;
+    this.levelSystem.reset();
+    this.weapon.reset();
+    resetMovementConfig();
+    this.upgradeMenu.hide();
     this.gameOverScreen.hide();
     this.state = 'playing';
   }
 
-  private currentForward(): Vector3 {
+  /** Unit vector along the player's actual 3D path, or their look direction when nearly still. */
+  private travelDirection(): Vector3 {
     const { velocity } = this.playerController;
-    const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
-    if (horizontalSpeed > 0.5) {
-      return new Vector3(velocity.x, 0, velocity.z).normalize();
-    }
+    if (velocity.lengthSq() > 0.25) return velocity.clone().normalize();
     const yaw = this.playerController.yaw;
     return new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
   }
@@ -142,8 +199,11 @@ export class Game {
     for (const stage of this.stages) {
       const dx = Math.abs(playerPosition.x - stage.center.x);
       const dz = Math.abs(playerPosition.z - stage.center.z);
-      const dy = Math.abs(playerPosition.y - stage.center.y);
-      if (dx < stage.halfWidth && dz < stage.halfDepth && dy < 2) {
+      const dy = playerPosition.y - stage.center.y;
+      // Feet are snapped to the platform top when standing, and respawns drop
+      // from RESPAWN_HEIGHT_OFFSET above it, so only a small band above the
+      // surface counts as "on this stage" — a player passing underneath must not.
+      if (dx < stage.halfWidth && dz < stage.halfDepth && dy > -0.5 && dy < 2) {
         this.lastStage = stage;
         break;
       }
