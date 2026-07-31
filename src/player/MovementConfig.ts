@@ -15,3 +15,24 @@ export const MovementConfig = {
   PLAYER_RADIUS: 0.4,
   PITCH_LIMIT_DEG: 89,
 };
+
+/**
+ * Snapshot of the authored defaults, taken at module load before any gameplay
+ * code can touch them. `MovementConfig` is a mutable singleton that the upgrade
+ * system writes into (MAX_GROUND_SPEED, MAX_AIR_WISH_SPEED, JUMP_SPEED, ...),
+ * so without this the buffs from one run would carry into the next and compound
+ * across restarts forever.
+ */
+const DEFAULTS: typeof MovementConfig = { ...MovementConfig };
+
+/**
+ * Restores every tuning field to its authored default. Call this whenever a run
+ * is (re)started, before any upgrades are applied.
+ *
+ * This copies the whole config rather than an explicit list of "upgradeable"
+ * fields, so it keeps working when someone adds a new upgrade that mutates a
+ * field nobody thought of.
+ */
+export function resetMovementConfig(): void {
+  Object.assign(MovementConfig, DEFAULTS);
+}

@@ -5,8 +5,31 @@ import { groundProbe, sweep } from '../engine/Raycast';
 import { MovementConfig } from './MovementConfig';
 
 const UP = new Vector3(0, 1, 0);
-const WALKABLE_NORMAL_Y = Math.cos(degToRad(MovementConfig.MAX_SLOPE_WALKABLE_DEG));
 const SKIN_WIDTH = 0.01;
+
+/**
+ * Tolerance on the walkable-slope test, expressed in normal.y (1e-4 of normal.y
+ * is ~0.008 deg of slope at the 45 deg limit — small enough not to retune the
+ * angle, large enough to swamp floating-point noise in the collider quaternions).
+ *
+ * A surface built at *exactly* MAX_SLOPE_WALKABLE_DEG sits precisely on the
+ * boundary, where rounding would otherwise decide unpredictably whether the
+ * player walks or surfs. Requiring the surface to be strictly shallower than the
+ * limit by this epsilon resolves the tie one way: a surface at exactly the
+ * configured angle is NOT walkable, i.e. it is surfable. That matches surf-map
+ * practice, where a 45 deg ramp is expected to be surfable.
+ */
+const WALKABLE_NORMAL_EPS = 1e-4;
+
+/**
+ * Read the limit off the config on each call rather than caching it at module
+ * load, so it stays correct if MAX_SLOPE_WALKABLE_DEG is retuned or reset at
+ * runtime. This runs a handful of times per tick; the cos() is free at that rate.
+ */
+function isWalkableNormal(normalY: number): boolean {
+  const limit = Math.cos(degToRad(MovementConfig.MAX_SLOPE_WALKABLE_DEG));
+  return normalY >= limit + WALKABLE_NORMAL_EPS;
+}
 
 function applyGroundFriction(velocity: Vector3, dt: number): void {
   const speed = Math.hypot(velocity.x, velocity.z);
@@ -97,7 +120,7 @@ export class PlayerController {
       return;
     }
     const hit = groundProbe(this.position, MovementConfig.PLAYER_RADIUS, MovementConfig.GROUND_PROBE_DIST);
-    if (hit && hit.normal.y >= WALKABLE_NORMAL_Y) {
+    if (hit && !hit.collider.isWall && isWalkableNormal(hit.normal.y)) {
       this.grounded = true;
       this.groundNormal.copy(hit.normal);
       this.position.y = hit.point.y;
@@ -116,13 +139,12 @@ export class PlayerController {
 
     const wishDir = this.wishDir(input);
 
-    if (this.grounded) {
-      applyGroundFriction(this.velocity, dt);
-      groundAccelerate(this.velocity, wishDir, dt);
-    } else {
-      airAccelerate(this.velocity, wishDir, dt);
-    }
-
+    // Order matters, and it mirrors CGameMovement::FullWalkMove(): the jump is
+    // resolved BEFORE anything tests the ground state, because CheckJumpButton()
+    // clears the ground entity and the friction check that follows is gated on
+    // "still on the ground". So the tick you jump on pays no ground friction and
+    // takes the air-movement path — that is exactly why bunnyhopping in CS
+    // preserves speed instead of bleeding a few percent on every landing.
     const wantsJump = MovementConfig.AUTO_BHOP
       ? input.jumpHeld
       : input.jumpHeld && !this.jumpHeldLastTick;
@@ -132,7 +154,19 @@ export class PlayerController {
     }
     this.jumpHeldLastTick = input.jumpHeld;
 
-    this.velocity.y += MovementConfig.GRAVITY * dt;
+    if (this.grounded) {
+      // Standing on ground: no vertical velocity, as in Source. Skipping this
+      // lets gravity pile up a downward velocity every grounded tick that the
+      // collision sweep then has to clip straight back off, burning a sweep
+      // iteration for nothing. Walking off a ledge still works — the ground
+      // probe stops finding a surface, grounded goes false, and gravity resumes.
+      this.velocity.y = 0;
+      applyGroundFriction(this.velocity, dt);
+      groundAccelerate(this.velocity, wishDir, dt);
+    } else {
+      airAccelerate(this.velocity, wishDir, dt);
+      this.velocity.y += MovementConfig.GRAVITY * dt;
+    }
 
     this.integrateMovement(dt);
     this.updateGroundState();

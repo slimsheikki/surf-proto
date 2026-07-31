@@ -45,6 +45,8 @@ const DEFAULT_ANGLE_STEP = 4;
 const GUIDE_WALL_HEIGHT = 1.4;
 const GUIDE_WALL_THICKNESS = 0.3;
 
+const WORLD_UP = new Vector3(0, 1, 0);
+
 function forwardFromAngles(yawDeg: number, pitchDeg: number): Vector3 {
   const yaw = degToRad(yawDeg);
   const pitch = degToRad(pitchDeg);
@@ -55,11 +57,33 @@ function forwardFromAngles(yawDeg: number, pitchDeg: number): Vector3 {
   ).normalize();
 }
 
-/** Builds the (right, normal, forward) orthonormal basis for a slope segment. */
-function basisFromForward(forward: Vector3): { right: Vector3; normal: Vector3 } {
-  const worldUp = new Vector3(0, 1, 0);
-  const right = new Vector3().crossVectors(forward, worldUp).normalize();
-  const normal = new Vector3().crossVectors(right, forward).normalize();
+/**
+ * Builds the (right, normal, forward) orthonormal basis for a slope segment,
+ * matching the box geometry's local axes: local +X = width, +Y = surface
+ * normal, +Z = forward/down-slope.
+ *
+ * The handedness here is load-bearing. `Matrix4.makeBasis(right, normal,
+ * forward)` is fed straight into `Quaternion.setFromRotationMatrix()`, which
+ * assumes a *proper* rotation (determinant +1). A left-handed triple gives
+ * determinant -1 and the quaternion extraction silently returns garbage — for a
+ * 45 deg slope it produces (0, 0, 0, 0.707), a non-unit scaled identity, so
+ * every collider and mesh ends up axis-aligned and every raycast reports a
+ * flat-ground normal of (0, 1, 0). So: `right` cross `normal` must equal
+ * `+forward`, which means `right = worldUp x forward` (NOT `forward x worldUp`).
+ */
+function basisFromForward(forward: Vector3, yawDeg: number): { right: Vector3; normal: Vector3 } {
+  const right = new Vector3().crossVectors(WORLD_UP, forward);
+  if (right.lengthSq() < 1e-12) {
+    // Degenerate case: `forward` is (near) vertical, so worldUp x forward
+    // collapses to a zero vector and normalizing it would yield NaN. Substitute
+    // the closed-form value of the same expression with the cos(pitch) scale
+    // factor divided out; it stays finite at pitch = +/-90 deg and keeps the
+    // width axis yaw-continuous with the neighbouring segments.
+    const yaw = degToRad(yawDeg);
+    right.set(-Math.cos(yaw), 0, -Math.sin(yaw));
+  }
+  right.normalize();
+  const normal = new Vector3().crossVectors(forward, right).normalize();
   return { right, normal };
 }
 
@@ -102,7 +126,7 @@ export function buildRampCurve(
       mode === 'vertical' ? lerp(params.startPitchDeg, params.endPitchDeg ?? params.startPitchDeg, midT) : curPitch;
 
     const forward = forwardFromAngles(segYaw, segPitch);
-    const { right, normal } = basisFromForward(forward);
+    const { right, normal } = basisFromForward(forward, segYaw);
 
     const pathMid = curPos.clone().addScaledVector(forward, segmentLength / 2);
     const boxCenter = pathMid.clone().addScaledVector(normal, -thickness / 2);
