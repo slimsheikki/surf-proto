@@ -34,10 +34,11 @@ const FACE_SIN = Math.sin(degToRad(FACE_ANGLE_DEG));
 const FACE_THICKNESS = 1.4;
 
 const PLATFORM_THICKNESS = 1.4;
-const PLATFORM_WIDTH = 14;
 /** Platform long axis runs along travel, so the player crosses it lengthways. */
 const PLATFORM_DEPTH = 18;
 const FINAL_PLATFORM_SIZE = 20;
+// A pad's width across travel is not a constant: an entry pad spans the channel
+// it feeds, so `entryPad()` derives it from that stage's face run and slot width.
 
 const RETAINING_WALL_HEIGHT = 12;
 const RETAINING_WALL_THICKNESS = 1.5;
@@ -151,6 +152,37 @@ function forwardXZ(yawDeg: number): Vector3 {
 function crossXZ(yawDeg: number): Vector3 {
   const yaw = degToRad(yawDeg);
   return new Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+}
+
+/**
+ * Lateral placement of a pad that a player *enters a channel from*.
+ *
+ * A pad centred on the channel centreline sits directly over the open slot
+ * between the two low edges, so walking straight off it drops the player through
+ * the gap without ever touching a face — an instant fall, which is a
+ * particularly bad way to open the tutorial stage. Real surf starts put the pad
+ * so the player steps off and lands *on a ramp face*.
+ *
+ * So an entry pad is shifted onto the left face and widened to span from the
+ * right-hand low edge across to the left-hand high edge. That keeps its far edge
+ * out over the channel, so it still catches a player arriving anywhere across
+ * the width, while everything left of the slot is face to step onto.
+ */
+function entryPad(spec: StageSpec): { width: number; lateralOffset: number; spawnLateral: number } {
+  const faceRun = FACE_COS * spec.faceWidth;
+  return {
+    width: spec.bottomGap + faceRun,
+    lateralOffset: -faceRun / 2,
+    /**
+     * Near the left face's *high* edge, not its middle. The pad's top is level
+     * with the high edge, so standing further down the face means falling the
+     * height difference before touching anything — from the midpoint that is
+     * most of the face, and the player arrives already low with little slope
+     * left to work. At 85% out the drop is a couple of units and they land high
+     * with the whole face beneath them.
+     */
+    spawnLateral: -(spec.bottomGap / 2 + faceRun * 0.85),
+  };
 }
 
 /**
@@ -346,18 +378,21 @@ export function buildSurfCourse(): SurfCourse {
   // edges, a face-height above the floor, because that is where a surf start
   // has to be: the player steps off and lands high on a face with the whole
   // slope beneath them to work with.
+  const firstPad = entryPad(STAGES[0]);
+  const firstPadTop = sectionStart
+    .clone()
+    .addScaledVector(forwardXZ(yawDeg), -PLATFORM_DEPTH / 2)
+    .addScaledVector(crossXZ(yawDeg), firstPad.lateralOffset)
+    .setY(bottomY + FACE_SIN * STAGES[0].faceWidth);
   stages.push(
-    buildPlatform(
-      group,
-      sectionStart
-        .clone()
-        .addScaledVector(forwardXZ(yawDeg), -PLATFORM_DEPTH / 2)
-        .setY(bottomY + FACE_SIN * STAGES[0].faceWidth),
-      PLATFORM_WIDTH,
-      PLATFORM_DEPTH,
-      yawDeg,
-    ),
+    buildPlatform(group, firstPadTop, firstPad.width, PLATFORM_DEPTH, yawDeg),
   );
+  // Stand the player over the left face rather than the pad's centre, so simply
+  // holding forward puts them on a ramp instead of into the slot.
+  const spawnPoint = firstPadTop
+    .clone()
+    .addScaledVector(crossXZ(yawDeg), firstPad.spawnLateral - firstPad.lateralOffset)
+    .add(new Vector3(0, 1.2, 0));
 
   for (let stageIndex = 0; stageIndex < STAGES.length; stageIndex++) {
     const spec = STAGES[stageIndex];
@@ -401,23 +436,21 @@ export function buildSurfCourse(): SurfCourse {
     // where a real surf map puts its landing pad, so the player arrives on it
     // rather than into its side. Doubles as the next stage's start platform.
     const isFinal = stageIndex === STAGES.length - 1;
-    const width = isFinal ? FINAL_PLATFORM_SIZE : PLATFORM_WIDTH;
     const depth = isFinal ? FINAL_PLATFORM_SIZE : PLATFORM_DEPTH;
-    stages.push(
-      buildPlatform(
-        group,
-        sectionStart.clone().addScaledVector(forwardXZ(yawDeg), depth / 2),
-        width,
-        depth,
-        yawDeg,
-      ),
-    );
+    // A non-final landing pad is also the next stage's entry pad, so it takes the
+    // entry offset for the channel it feeds. The final pad feeds nothing, so it
+    // stays centred and square.
+    const nextPad = isFinal ? null : entryPad(STAGES[stageIndex + 1]);
+    const width = nextPad ? nextPad.width : FINAL_PLATFORM_SIZE;
+    const padTop = sectionStart.clone().addScaledVector(forwardXZ(yawDeg), depth / 2);
+    if (nextPad) padTop.addScaledVector(crossXZ(yawDeg), nextPad.lateralOffset);
+    stages.push(buildPlatform(group, padTop, width, depth, yawDeg));
     sectionStart = sectionStart.addScaledVector(forwardXZ(yawDeg), depth);
   }
 
   return {
     group,
-    spawnPoint: stages[0].center.clone().add(new Vector3(0, 1.2, 0)),
+    spawnPoint,
     spawnYawDeg: 0,
     stages,
     surfPath,
