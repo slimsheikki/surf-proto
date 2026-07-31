@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>surf-proto</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="hud">
+      <div id="speed-readout">0 u/s</div>
+      <div id="bar-hp" class="bar"><div id="bar-hp-fill" class="bar-fill hp"></div></div>
+      <div id="bar-xp" class="bar"><div id="bar-xp-fill" class="bar-fill xp"></div></div>
+      <div id="level-readout">Lv 1</div>
+      <div id="wave-readout">0:00</div>
+    </div>
+    <div id="upgrade-menu" class="overlay hidden">
+      <h1>Level Up!</h1>
+      <div id="upgrade-choices"></div>
+    </div>
+    <div id="game-over" class="overlay hidden">
+      <h1>Wiped Out</h1>
+      <p id="game-over-stats"></p>
+      <button id="restart-button">Surf Again</button>
+    </div>
+    <div id="start-overlay" class="overlay">
+      <h1>surf-proto</h1>
+      <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
+      <p>Click to start</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
