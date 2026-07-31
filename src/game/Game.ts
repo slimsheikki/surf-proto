@@ -54,10 +54,8 @@ export class Game {
 
   state: GameState = 'playing';
 
-  /** Kill plane, derived from the course so a redesigned course can't invalidate it. */
-  readonly outOfBoundsY: number;
-
-  private lastStage: CourseStage;
+  /** Index into `stages` of the last rest platform the player stood on. */
+  private lastStageIndex = 0;
   private paused = false;
   private readonly hud = new Hud();
   private readonly upgradeMenu = new UpgradeMenu();
@@ -73,12 +71,27 @@ export class Game {
     this.playerController = new PlayerController(spawnPosition, spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
     this.entityManager = new EntityManager(scene);
-    this.lastStage = stages[0];
     this.gameOverScreen = new GameOverScreen(() => this.restart());
+  }
 
-    const lowestStageY =
-      stages.length > 0 ? Math.min(...stages.map((stage) => stage.center.y)) : spawnPosition.y;
-    this.outOfBoundsY = lowestStageY - OUT_OF_BOUNDS_MARGIN;
+  private get lastStage(): CourseStage {
+    return this.stages[this.lastStageIndex];
+  }
+
+  /**
+   * Kill plane, placed just below the platform the player is currently surfing
+   * *toward* rather than below the whole course.
+   *
+   * A single global plane derived from the lowest stage looks equivalent but
+   * isn't: this course descends over 1100 units, so falling off the first ramp
+   * would mean plummeting ~1000 units — about ten seconds of nothing — before
+   * the recovery triggered. Each stage's ramp stays above the platform it ends
+   * on, so a margin below that platform is below the whole ramp run and catches
+   * a fall promptly wherever it happens.
+   */
+  private get outOfBoundsY(): number {
+    const target = this.stages[Math.min(this.lastStageIndex + 1, this.stages.length - 1)];
+    return target.center.y - OUT_OF_BOUNDS_MARGIN;
   }
 
   /**
@@ -177,7 +190,7 @@ export class Game {
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
     this.playerController.teleport(this.stages[0].center.clone().add(RESPAWN_HEIGHT_OFFSET));
-    this.lastStage = this.stages[0];
+    this.lastStageIndex = 0;
     this.spawnDirector.reset();
     this.levelSystem.reset();
     this.weapon.reset();
@@ -196,7 +209,8 @@ export class Game {
   }
 
   private trackLastStage(playerPosition: Vector3): void {
-    for (const stage of this.stages) {
+    for (let i = 0; i < this.stages.length; i++) {
+      const stage = this.stages[i];
       const dx = Math.abs(playerPosition.x - stage.center.x);
       const dz = Math.abs(playerPosition.z - stage.center.z);
       const dy = playerPosition.y - stage.center.y;
@@ -204,7 +218,7 @@ export class Game {
       // from RESPAWN_HEIGHT_OFFSET above it, so only a small band above the
       // surface counts as "on this stage" — a player passing underneath must not.
       if (dx < stage.halfWidth && dz < stage.halfDepth && dy > -0.5 && dy < 2) {
-        this.lastStage = stage;
+        this.lastStageIndex = i;
         break;
       }
     }
