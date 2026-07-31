@@ -1,16 +1,93 @@
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three';
+import {
+  BoxGeometry,
+  Group,
+  Matrix4,
+  Mesh,
+  MeshStandardMaterial,
+  Quaternion,
+  Vector3,
+} from 'three';
 import { degToRad } from '../engine/MathUtils';
-import { registerCollider } from './Colliders';
+import { getColliders, registerCollider } from './Colliders';
 import { buildRampCurve } from './RampCurve';
 
-const PLATFORM_THICKNESS = 0.6;
-const IDENTITY = new Quaternion();
+/**
+ * Bank of a surfable face, measured from horizontal. This is the *only* angle in
+ * the course: every ramp face is pitched dead level along the direction of
+ * travel and rolled by this much about that direction.
+ *
+ * 51.34 deg is what real Momentum Mod / CS surf ramps measure: the face normal
+ * comes out at (0, 0.625, 0.781) in the wall's own frame — zero along travel,
+ * and an up component of 0.625 that sits below Source's 0.7 standable cutoff, so
+ * the player never grounds on the face and air-strafing stays available for the
+ * whole ride. Both of those properties are contract, not taste: a face whose
+ * normal leans along travel is a chute the player slides straight down, and a
+ * face shallower than acos(0.7) = 45.573 deg is a floor they walk on.
+ */
+const FACE_ANGLE_DEG = 51.34;
+/** Horizontal run per unit of face slope-extent: cos(51.34 deg) = 0.625. */
+const FACE_COS = Math.cos(degToRad(FACE_ANGLE_DEG));
+/** Vertical rise per unit of face slope-extent: sin(51.34 deg) = 0.781. */
+const FACE_SIN = Math.sin(degToRad(FACE_ANGLE_DEG));
+
+/** The 64 hu base plinth under a real ramp face, at 45 hu per game unit. */
+const FACE_THICKNESS = 1.4;
+
+const PLATFORM_THICKNESS = 1.4;
+const PLATFORM_WIDTH = 14;
+/** Platform long axis runs along travel, so the player crosses it lengthways. */
+const PLATFORM_DEPTH = 18;
+const FINAL_PLATFORM_SIZE = 20;
+
+const RETAINING_WALL_HEIGHT = 12;
+const RETAINING_WALL_THICKNESS = 1.5;
+
+const SECTION_LENGTH = 34;
+/**
+ * Ramps are level along travel, so a section cannot descend on its own. All net
+ * descent in the course comes from stepping the next section's bottom edge down
+ * by this much at the joint.
+ */
+const SECTION_DROP = 8;
+const SECTIONS_PER_STAGE = 3;
+
+const FACE_ROUGHNESS = 0.85;
+const FACE_METALNESS = 0;
+/**
+ * Greybox palette: one medium grey, nudged a couple of points toward a different
+ * hue per stage. Enough to tell at a glance which stage a screenshot is from,
+ * far too little to read as decoration.
+ */
+const STAGE_FACE_COLORS = [0x8a9299, 0x8a9a99, 0x8f929e, 0x958f96];
+const PLATFORM_COLOR = 0x6f7780;
+const RETAINING_WALL_COLOR = 0x3a4046;
+
+const WORLD_UP = new Vector3(0, 1, 0);
 
 export interface CourseStage {
   /** Top-surface center of the rest platform. */
   center: Vector3;
   halfWidth: number;
   halfDepth: number;
+}
+
+/**
+ * One surfable face, recorded so the geometry's defining property is checkable
+ * without re-deriving the layout: `normal` is read back off the *registered
+ * collider*, not from the numbers that built it, so a probe comparing it against
+ * `travelDir`/`crossDir` is testing what the player will actually ride.
+ */
+export interface BankedFace {
+  stageIndex: number;
+  sectionIndex: number;
+  /** Which wall of the V — the two must lean toward each other. */
+  side: 'left' | 'right';
+  /** Unit vector along the section's heading. */
+  travelDir: Vector3;
+  /** Unit horizontal vector across the section's heading (the player's right). */
+  crossDir: Vector3;
+  /** World-space normal of the surfable face. */
+  normal: Vector3;
 }
 
 export interface SurfCourse {
@@ -20,239 +97,322 @@ export interface SurfCourse {
   /** Rest-platform stages, in course order — used for the fall-out-of-bounds recovery. */
   stages: CourseStage[];
   /**
-   * The intended surf line: the top-surface path point at the start of every
-   * ramp piece, plus the final lip. Purely informational — nothing in the game
-   * loop needs it — but it makes the course's shape inspectable (headless
-   * physics tests fly a bot along it, and it is the natural input for any future
-   * ghost/AI or minimap work) without re-deriving the layout from the colliders.
+   * The intended surf line: the centreline point at the start of every channel
+   * section. Purely informational — nothing in the game loop needs it — but it
+   * makes the course's shape inspectable (headless physics tests fly a bot along
+   * it, and it is the natural input for any future ghost/AI or minimap work)
+   * without re-deriving the layout from the colliders.
    */
   surfPath: Vector3[];
+  /** Every banked face in the course, in build order. See `BankedFace`. */
+  faces: BankedFace[];
 }
 
 /**
- * Ramp surfaces are planes tilted about a horizontal axis, so the width is the
- * player's room for error across the surfable line. 9 units is ~11 player
- * widths: wide enough that a sloppy transfer still lands on the ramp, narrow
- * enough that the guide walls read as a channel to follow.
+ * A run of surf channel: two opposing banked walls forming a V along one
+ * heading, level from end to end.
+ *
+ * `faceWidth` is the face's slope-extent — its hypotenuse, not its horizontal
+ * span — so a wall spans `0.625 * faceWidth` horizontally and `0.781 *
+ * faceWidth` vertically. `bottomGap` is the width of the open slot between the
+ * two low edges; it is open on purpose, so falling out of the channel is
+ * possible and the player has to keep working the face.
  */
-const RAMP_WIDTH = 9;
-
-/**
- * Mirrors MovementConfig.PLAYER_RADIUS. Duplicated rather than imported so the
- * world module doesn't depend on player tuning; it is only used to pad
- * clearances, so a small drift between the two is harmless.
- */
-const PLAYER_RADIUS = 0.4;
-
-/** Extra clearance on top of the computed transfer drop, in world units. */
-const TRANSFER_CLEARANCE = 0.5;
-
-const RAMP_COLORS = [0x4a7fb5, 0x4a9f6b, 0xb5824a, 0x8f5fb5, 0x4aa5b5, 0xb5a24a];
-const PLATFORM_COLOR = 0x53627a;
-const START_PLATFORM_SIZE = 9;
-const REST_PLATFORM_SIZE = 9;
-const FINAL_PLATFORM_SIZE = 16;
-
-/**
- * One plane of surfable ramp. Pitch is constant across a piece — real surf
- * ramps are flat wedges, and a single collider per piece means a seam-free
- * surface for however long the piece runs.
- */
-interface PieceSpec {
-  /** Yaw change applied at the joint *before* this piece (deg, before the stage's turn sign). */
+interface StageSpec {
+  faceWidth: number;
+  bottomGap: number;
+  /** Yaw change applied at each joint *within* the stage (deg, signed). */
   yawStepDeg: number;
-  /** Slope of this piece (deg, positive = descending). Never below ~50: see STAGE_PIECES. */
-  pitchDeg: number;
-  /** Arc length of the piece. */
-  length: number;
 }
 
 /**
- * The repeating shape of a stage: two ramp pieces that get shallower as the
- * player descends (58 -> 50 deg), i.e. *concave*, the profile real surf maps
- * use. Riding it, the slope flattens out beneath you, so gravity keeps pressing
- * you into the surface and the ramp keeps redirecting speed along itself instead
- * of dropping away and leaving you in free fall. (Built the other way round —
- * steepening as you descend — the surface outruns the player and they simply
- * free-fall past it, which is what an earlier 45 -> 70 version of this course
- * did: zero ticks of surface contact.)
+ * Stage 1 is the tutorial: the same 51.34 deg face, but 20 units of slope-extent
+ * instead of 13.66 gives a ~15.6-unit vertical band to oscillate in rather than
+ * ~10.7, so a badly timed strafe still leaves face under the player instead of
+ * dropping them out of the bottom. Its turns are gentle for the same reason.
  *
- * Two properties of the joint between the pieces are load-bearing:
- *
- * 1. The pitch *must* drop across a joint that also turns. A player leaving
- *    piece N is travelling at piece N's slope; a piece N+1 that is yawed but
- *    equally steep descends more slowly along their path than they do, so they
- *    only rejoin it far downhill. Dropping pitch across the joint shortens that
- *    reunion to a brief air-strafe hop, which is what keeps ramp contact high.
- * 2. Pitch can only fall so far before the surface becomes walkable (45 deg) and
- *    the player lands and skids to a halt on friction, so the budget has to be
- *    reset. That is what the rest platform at the end of each stage is for:
- *    crossing it bleeds the speed and re-arms the whole 58 -> 50 sweep.
- *
- * Lengths grow down the stage because the player is faster there and a piece is
- * consumed in proportion to speed.
+ * Stages 2-4 run the canonical face width and alternate turn direction, so the
+ * player leads with the other hand each stage instead of learning one arc.
  */
-const STAGE_PIECES: readonly PieceSpec[] = [
-  // The first yaw step of a stage happens where the player is at walking speed
-  // on the platform, so it can be much larger than a mid-air transfer.
-  { yawStepDeg: 34, pitchDeg: 58, length: 95 },
-  { yawStepDeg: 18, pitchDeg: 50, length: 120 },
+const STAGES: readonly StageSpec[] = [
+  { faceWidth: 20, bottomGap: 5, yawStepDeg: 12 },
+  { faceWidth: 13.66, bottomGap: 4, yawStepDeg: -16 },
+  { faceWidth: 13.66, bottomGap: 4, yawStepDeg: 20 },
+  { faceWidth: 13.66, bottomGap: 4, yawStepDeg: -20 },
 ];
 
-const STAGE_COUNT = 6;
-/** The last stage runs longer: nothing follows it, so the player can just let it build. */
-const FINALE_LENGTH_SCALE = 1.5;
-
+/** Unit vector along the heading `yawDeg` (yaw 0 = -Z, matching the player's spawn look). */
 function forwardXZ(yawDeg: number): Vector3 {
   const yaw = degToRad(yawDeg);
   return new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
 }
 
-/**
- * Distance from the center of an axis-aligned square platform to the edge the
- * player leaves along `yawDeg`.
- *
- * Not `size / 2`: on a diagonal heading the boundary is up to sqrt(2) times
- * further out. Getting this wrong puts the top of the next ramp *inside* the
- * platform, so the player walks out over a surface that is already metres below
- * their feet and free-falls that much longer before the ramp catches them —
- * which measured as a full extra second of air at every stage entry.
- */
-function platformEdgeDistance(size: number, yawDeg: number): number {
+/** Unit horizontal vector across the heading — the player's right hand. */
+function crossXZ(yawDeg: number): Vector3 {
   const yaw = degToRad(yawDeg);
-  return size / 2 / Math.max(Math.abs(Math.sin(yaw)), Math.abs(Math.cos(yaw)));
+  return new Vector3(Math.cos(yaw), 0, Math.sin(yaw));
 }
 
 /**
- * Vertical offset applied to the start of a piece that turns, so the previous
- * piece's surface stays the higher of the two across the whole joint.
+ * Orientation for an un-banked box aligned to a heading: local +X across travel,
+ * +Y up, +Z along travel.
  *
- * Why it is needed: consecutive ramp boxes only share their top edge exactly
- * when they have the same yaw. Rotate one about the joint and its surface rises
- * above its neighbour on one side by tan(pitch) * yawStep * (distance from the
- * centreline) — and what pokes through is the new box's uphill end cap, a face
- * whose normal is exactly opposite the direction the player is travelling.
- * Hitting it deletes essentially all of their velocity (measured: a 90 deg turn
- * built without this offset drops a 30 u/s bot to under 1 u/s within a few
- * segments). Sinking the new piece by the worst-case rise buries that cap under
- * the previous surface, leaving a small step *down* — which costs a fraction of
- * a second of air instead of the whole run's speed.
+ * The `right` axis is `worldUp x forward` (which points along -cross, i.e. the
+ * player's left) rather than the cross vector itself, for the same reason
+ * `RampCurve.basisFromForward` does it: `makeBasis` feeding
+ * `setFromRotationMatrix` requires a proper rotation, and `cross x up` is
+ * left-handed. Every box built with it is symmetric in X, so which way the
+ * width axis points is immaterial — the handedness is not.
  */
-function transferDrop(prevPitchDeg: number, yawStepDeg: number): number {
-  if (yawStepDeg === 0) return 0;
-  return (
-    Math.tan(degToRad(prevPitchDeg)) *
-      Math.abs(degToRad(yawStepDeg)) *
-      (RAMP_WIDTH / 2 + PLAYER_RADIUS) +
-    TRANSFER_CLEARANCE
-  );
+function yawQuaternion(yawDeg: number): Quaternion {
+  const forward = forwardXZ(yawDeg);
+  const right = new Vector3().crossVectors(WORLD_UP, forward).normalize();
+  return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, WORLD_UP, forward));
 }
 
+function buildBox(
+  group: Group,
+  center: Vector3,
+  halfExtents: Vector3,
+  quaternion: Quaternion,
+  color: number,
+  isWall = false,
+): void {
+  registerCollider({ position: center.clone(), quaternion: quaternion.clone(), halfExtents, isWall });
+
+  const mesh = new Mesh(
+    new BoxGeometry(halfExtents.x * 2, halfExtents.y * 2, halfExtents.z * 2),
+    new MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 }),
+  );
+  mesh.position.copy(center);
+  mesh.quaternion.copy(quaternion);
+  group.add(mesh);
+}
+
+/** Platform, given the center of its *top* surface and the heading its long axis follows. */
 function buildPlatform(
   group: Group,
   topCenter: Vector3,
   width: number,
   depth: number,
-  color: number,
+  yawDeg: number,
 ): CourseStage {
-  const boxCenter = topCenter.clone().addScaledVector(new Vector3(0, 1, 0), -PLATFORM_THICKNESS / 2);
+  const center = topCenter.clone().addScaledVector(WORLD_UP, -PLATFORM_THICKNESS / 2);
   const halfExtents = new Vector3(width / 2, PLATFORM_THICKNESS / 2, depth / 2);
-  registerCollider({ position: boxCenter, quaternion: IDENTITY.clone(), halfExtents });
+  buildBox(group, center, halfExtents, yawQuaternion(yawDeg), PLATFORM_COLOR);
 
-  const mesh = new Mesh(
-    new BoxGeometry(width, PLATFORM_THICKNESS, depth),
-    new MeshStandardMaterial({ color, roughness: 0.85 }),
-  );
-  mesh.position.copy(boxCenter);
-  group.add(mesh);
-
-  return { center: topCenter.clone(), halfWidth: width / 2, halfDepth: depth / 2 };
+  // `Game.trackLastStage` tests the player against these half-extents on world
+  // axes, so a platform turned off-axis reports the half-extents of its
+  // world-space footprint rather than its own 14 x 18. Reporting the local
+  // values would shrink the checkpoint trigger on every diagonal heading, and a
+  // checkpoint the player can stand on without arming is worse than one that
+  // arms slightly early.
+  const yaw = degToRad(yawDeg);
+  const c = Math.abs(Math.cos(yaw));
+  const s = Math.abs(Math.sin(yaw));
+  return {
+    center: topCenter.clone(),
+    halfWidth: (width / 2) * c + (depth / 2) * s,
+    halfDepth: (width / 2) * s + (depth / 2) * c,
+  };
 }
 
 /**
- * Lays out the surf course: six stages of concave ramp, each stage two planes of
- * 58 then 50 deg linked by a short turning hop, each stage bookended by one small
- * rest platform. Roughly 1140 units of descent in total.
+ * One wall of a channel section: the banked face plus the retaining wall behind
+ * its high edge.
  *
- * The shape of the whole thing is set by two facts about the movement code.
- * First, speed on a surf ramp only comes from height: v = sqrt(2 g h), so a run
- * that never stops accelerating gets absurdly fast rather than long — a single
- * uninterrupted descent this tall would end well over 100 u/s. Second, flat
- * ground is the only thing here with friction. So the course is deliberately
- * *staged*: each stage is a continuous ~215-unit slide that takes the player
- * from walking pace to ~50 u/s, and the small platform at its end is both the
- * checkpoint, the speed bleed, and the reset of the concave pitch budget.
+ * `side` is -1 for the wall on the player's left, +1 for the right. The face's
+ * low edge sits `bottomGap / 2` out from the centreline at `bottomY` and the
+ * face climbs *outward* from there, so the surface leans back over the channel
+ * and its normal points up and inward — which is what puts the fall line across
+ * the face instead of along it.
  *
- * Measured with an autopilot that steers down the fall line: ~60% of ticks in
- * ramp contact, ~28% airborne between pieces, ~12% on flat platforms — about
- * 7:1 surfing to standing, which is the ratio this course exists to produce.
+ * The roll passed to `buildRampCurve` is `-side * FACE_ANGLE_DEG`: positive roll
+ * banks a face so its downhill side faces the player's right, which is the left
+ * wall of a channel.
+ */
+function buildChannelWall(
+  group: Group,
+  faces: BankedFace[],
+  sectionStart: Vector3,
+  yawDeg: number,
+  spec: StageSpec,
+  side: -1 | 1,
+  color: number,
+  stageIndex: number,
+  sectionIndex: number,
+): void {
+  const forward = forwardXZ(yawDeg);
+  const cross = crossXZ(yawDeg);
+  const horizontalSpan = FACE_COS * spec.faceWidth;
+  const verticalSpan = FACE_SIN * spec.faceWidth;
+
+  // `RampCurve` takes a point on the face's centreline, i.e. halfway up the
+  // slope, at the leading edge of the piece.
+  const faceStart = sectionStart
+    .clone()
+    .addScaledVector(cross, side * (spec.bottomGap / 2 + horizontalSpan / 2))
+    .addScaledVector(WORLD_UP, verticalSpan / 2);
+
+  const firstCollider = getColliders().length;
+  const piece = buildRampCurve(
+    {
+      start: faceStart,
+      startYawDeg: yawDeg,
+      startPitchDeg: 0,
+      rollDeg: -side * FACE_ANGLE_DEG,
+      length: SECTION_LENGTH,
+      width: spec.faceWidth,
+      thickness: FACE_THICKNESS,
+      // A guide rail along a banked face would fence off the low edge, turning
+      // the channel into a trough the player cannot fall out of — and the rail
+      // itself is a wall the player would grind along at the bottom of every arc.
+      guideWalls: false,
+      color,
+      roughness: FACE_ROUGHNESS,
+      metalness: FACE_METALNESS,
+    },
+    'straight',
+  );
+  group.add(piece.group);
+
+  for (const collider of getColliders().slice(firstCollider)) {
+    if (collider.isWall) continue;
+    faces.push({
+      stageIndex,
+      sectionIndex,
+      side: side < 0 ? 'left' : 'right',
+      travelDir: forward.clone(),
+      crossDir: cross.clone(),
+      normal: WORLD_UP.clone().applyQuaternion(collider.quaternion).normalize(),
+    });
+  }
+
+  // Retaining wall: a plain vertical slab standing on the face's high edge, so
+  // the corridor reads as enclosed and an over-strafe hits something instead of
+  // flying off into the skybox. No ceiling — the third-person camera rides above
+  // the player and would spend the whole run inside it.
+  const highEdgeLateral = spec.bottomGap / 2 + horizontalSpan;
+  const wallCenter = sectionStart
+    .clone()
+    .addScaledVector(cross, side * (highEdgeLateral + RETAINING_WALL_THICKNESS / 2))
+    .addScaledVector(WORLD_UP, verticalSpan + RETAINING_WALL_HEIGHT / 2)
+    .addScaledVector(forward, SECTION_LENGTH / 2);
+  buildBox(
+    group,
+    wallCenter,
+    new Vector3(RETAINING_WALL_THICKNESS / 2, RETAINING_WALL_HEIGHT / 2, SECTION_LENGTH / 2),
+    yawQuaternion(yawDeg),
+    RETAINING_WALL_COLOR,
+    true,
+  );
+}
+
+/**
+ * Lays out the surf course: four stages, each three sections of banked channel
+ * bookended by platforms, ~112 units of descent in total.
  *
- * Every platform is returned in `stages`, in course order, so the fall-out
- * plane and the checkpoint respawn both derive from real geometry.
+ * The shape follows from what a surf ramp actually is. A face is level along
+ * travel and rolled 51.34 deg about it, so it never accelerates the player
+ * forward and never grounds them: gravity pulls them sideways down the face,
+ * they air-strafe back up it, and the ride is an oscillation along a corridor
+ * rather than a slide down a chute. Two consequences drive the layout:
+ *
+ * 1. Level ramps cannot descend, so every unit of drop is a *step* — 8 units at
+ *    each joint inside a stage, plus one face-height at each stage boundary,
+ *    where the landing platform sits at the old channel's floor and the new
+ *    channel's floor starts a full face below it.
+ * 2. Turning is free. A joint that changes heading costs nothing in speed here,
+ *    because the surfaces meeting at it are both level — there is no pitched end
+ *    cap for the player to slam into, which is what made turns expensive on the
+ *    old fall-line course. So the course can turn at every joint.
+ *
+ * Every platform is returned in `stages`, in course order, so the fall-out plane
+ * and the checkpoint respawn both derive from real geometry.
  */
 export function buildSurfCourse(): SurfCourse {
   const group = new Group();
   const stages: CourseStage[] = [];
   const surfPath: Vector3[] = [];
-
-  let platformCenter = new Vector3(0, 0, 0);
-  let platformSize = START_PLATFORM_SIZE;
-  stages.push(buildPlatform(group, platformCenter, platformSize, platformSize, PLATFORM_COLOR));
+  const faces: BankedFace[] = [];
 
   let yawDeg = 0;
-  for (let stage = 0; stage < STAGE_COUNT; stage++) {
-    // Turn direction flips every two stages: long enough to feel like a sweeping
-    // spiral, often enough that the player isn't leaning the same way all run.
-    const turn = Math.floor(stage / 2) % 2 === 0 ? 1 : -1;
-    const lengthScale = stage === STAGE_COUNT - 1 ? FINALE_LENGTH_SCALE : 1;
-    const color = RAMP_COLORS[stage % RAMP_COLORS.length];
+  let bottomY = 0;
+  // Centreline point at the entrance of the section about to be built: the
+  // middle of the open slot between the two low edges, at the channel's floor.
+  let sectionStart = new Vector3(0, bottomY, 0);
 
-    let pieceStart = new Vector3();
-    let prevPitchDeg = 0;
-    for (let i = 0; i < STAGE_PIECES.length; i++) {
-      const spec = STAGE_PIECES[i];
-      // The very first piece runs dead ahead of the spawn heading so the player
-      // starts pointed down the course with nothing to correct.
-      const yawStepDeg = stage === 0 && i === 0 ? 0 : spec.yawStepDeg * turn;
-      yawDeg += yawStepDeg;
+  // Stage 1's start platform. Its top sits level with the channel's *high*
+  // edges, a face-height above the floor, because that is where a surf start
+  // has to be: the player steps off and lands high on a face with the whole
+  // slope beneath them to work with.
+  stages.push(
+    buildPlatform(
+      group,
+      sectionStart
+        .clone()
+        .addScaledVector(forwardXZ(yawDeg), -PLATFORM_DEPTH / 2)
+        .setY(bottomY + FACE_SIN * STAGES[0].faceWidth),
+      PLATFORM_WIDTH,
+      PLATFORM_DEPTH,
+      yawDeg,
+    ),
+  );
 
-      if (i === 0) {
-        // Launch off the far lip of the rest platform, along the new heading.
-        pieceStart = platformCenter
-          .clone()
-          .addScaledVector(forwardXZ(yawDeg), platformEdgeDistance(platformSize, yawDeg));
-      } else {
-        pieceStart.y -= transferDrop(prevPitchDeg, yawStepDeg);
-      }
+  for (let stageIndex = 0; stageIndex < STAGES.length; stageIndex++) {
+    const spec = STAGES[stageIndex];
+    const color = STAGE_FACE_COLORS[stageIndex % STAGE_FACE_COLORS.length];
 
-      surfPath.push(pieceStart.clone());
-      const piece = buildRampCurve(
-        {
-          start: pieceStart,
-          startYawDeg: yawDeg,
-          startPitchDeg: spec.pitchDeg,
-          length: spec.length * lengthScale,
-          width: RAMP_WIDTH,
-          guideWalls: true,
-          color,
-        },
-        'straight',
-      );
-      group.add(piece.group);
-      pieceStart = piece.endPosition.clone();
-      prevPitchDeg = spec.pitchDeg;
+    if (stageIndex > 0) {
+      // The previous stage's landing platform is this stage's start platform, so
+      // its top is already fixed: drop the new channel's floor a face-height
+      // below it, which is exactly the start-platform rule read backwards.
+      bottomY = stages[stages.length - 1].center.y - FACE_SIN * spec.faceWidth;
+      sectionStart.setY(bottomY);
     }
 
-    // The next platform's top sits flush with the lip the player arrives on, its
-    // near edge at that lip, so the ramp runs straight onto it: the landing
-    // clips off the vertical velocity, then friction does the rest.
-    const isFinal = stage === STAGE_COUNT - 1;
-    platformSize = isFinal ? FINAL_PLATFORM_SIZE : REST_PLATFORM_SIZE;
-    platformCenter = pieceStart
-      .clone()
-      .addScaledVector(forwardXZ(yawDeg), platformEdgeDistance(platformSize, yawDeg));
-    surfPath.push(pieceStart.clone());
-    stages.push(buildPlatform(group, platformCenter, platformSize, platformSize, PLATFORM_COLOR));
+    for (let sectionIndex = 0; sectionIndex < SECTIONS_PER_STAGE; sectionIndex++) {
+      if (sectionIndex > 0) {
+        yawDeg += spec.yawStepDeg;
+        bottomY -= SECTION_DROP;
+        sectionStart.setY(bottomY);
+      }
+
+      surfPath.push(sectionStart.clone());
+      for (const side of [-1, 1] as const) {
+        buildChannelWall(
+          group,
+          faces,
+          sectionStart,
+          yawDeg,
+          spec,
+          side,
+          color,
+          stageIndex,
+          sectionIndex,
+        );
+      }
+
+      // Sections butt end-to-end: the next one starts where this one ended.
+      sectionStart = sectionStart.addScaledVector(forwardXZ(yawDeg), SECTION_LENGTH);
+    }
+
+    // Landing platform, just past the channel's end and level with its floor —
+    // where a real surf map puts its landing pad, so the player arrives on it
+    // rather than into its side. Doubles as the next stage's start platform.
+    const isFinal = stageIndex === STAGES.length - 1;
+    const width = isFinal ? FINAL_PLATFORM_SIZE : PLATFORM_WIDTH;
+    const depth = isFinal ? FINAL_PLATFORM_SIZE : PLATFORM_DEPTH;
+    stages.push(
+      buildPlatform(
+        group,
+        sectionStart.clone().addScaledVector(forwardXZ(yawDeg), depth / 2),
+        width,
+        depth,
+        yawDeg,
+      ),
+    );
+    sectionStart = sectionStart.addScaledVector(forwardXZ(yawDeg), depth);
   }
 
   return {
@@ -261,5 +421,6 @@ export function buildSurfCourse(): SurfCourse {
     spawnYawDeg: 0,
     stages,
     surfPath,
+    faces,
   };
 }
