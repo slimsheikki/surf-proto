@@ -37,7 +37,12 @@ export const BOSS_MAX_HP = 2200;
  * ------------------------------------------------------------------ */
 
 /** ~7 units across, per the brief: big enough to read from across the loop. */
-const BODY_RADIUS = 3.5;
+/**
+ * Body radius. At the real fight distance (~91 units from the track) a 3.5
+ * radius subtends only ~4.5 deg — legible by colour, but it doesn't read as a
+ * boss. 5.5 roughly doubles that without crowding the island it hovers over.
+ */
+const BODY_RADIUS = 5.5;
 /** Height above the surf track's plane, not above the island mesh. */
 const HOVER_HEIGHT = 18;
 const BODY_COLOR = 0x161122;
@@ -82,13 +87,18 @@ const BEAM_DPS = 22;
  * slower than `v = w * D` and loses everyone faster. With the shipped loop
  * (track radius 90, boss 18 up => D = 91.8):
  *   phase 1: 0.20 rad/s -> escapes above ~18 u/s
- *   phase 2: 0.26 rad/s -> escapes above ~24 u/s
- *   phase 3: 0.32 rad/s -> escapes above ~29 u/s
+ *   phase 2: 0.28 rad/s -> escapes above ~26 u/s
+ *   phase 3: 0.45 rad/s -> escapes above ~41 u/s
  * Typical surf speed is 20-40 u/s and walking caps at 7, so surfing well is
- * always an answer and standing still never is — and phase 3 demands real
- * speed rather than a gentle cruise.
+ * always an answer and standing still never is.
+ *
+ * Phase 3 is deliberately set *above* a comfortable cruise. Measured at 0.32
+ * a player holding 32+ u/s took literally zero damage across a 40 s fight,
+ * which is not a boss — it's scenery. 0.45 means the last third of the fight
+ * has to be surfed near the top of the speed range, so the encounter finally
+ * has a failure mode for a good player rather than only for a bad one.
  */
-const BEAM_TURN_RATE_BY_PHASE = [0.2, 0.26, 0.32];
+const BEAM_TURN_RATE_BY_PHASE = [0.2, 0.28, 0.45];
 
 /**
  * How fast the beam's far end extends or retracts, in u/s. Only matters when
@@ -107,11 +117,17 @@ const BEAM_TELEGRAPH_SHELL_SCALE = 0.35;
  * ------------------------------------------------------------------ */
 
 /**
- * Projectiles per ring. Kept sparse on purpose so the ring is threadable — but
- * note that at a track radius of 90 this leaves ~47 units of arc between
- * neighbours, so threading it takes no real effort. See the report.
+ * Projectiles per ring.
+ *
+ * 12 was measured as pure decoration: at a track radius of 90 it leaves ~47
+ * units of arc between neighbours, so the ring landed 9 damage once across a
+ * 40 s fight. The gap between pellets has to be comparable to the player's own
+ * width for threading to mean anything, so this is set from the arc instead of
+ * picked: 36 pellets leaves ~15.7 units of arc, wide enough to fly through
+ * cleanly on a chosen line and narrow enough that drifting into one is a real
+ * possibility.
  */
-const RING_PROJECTILE_COUNT = 12;
+const RING_PROJECTILE_COUNT = 36;
 const RING_SPEED = 18;
 const RING_PROJECTILE_RADIUS = 0.8;
 const RING_HIT_RADIUS = 1.4;

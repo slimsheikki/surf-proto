@@ -245,8 +245,10 @@ export class Game {
     this.scene.remove(this.boss.group);
     this.boss.dispose();
     this.boss = null;
+    // Drops the weapon's sticky target without touching its stats: the boss is
+    // no longer in the target list, and `Weapon` re-targets whenever its current
+    // target isn't in the list it was handed.
     this.weaponTargets.length = 0;
-    this.weapon.reset();
     this.bossBar.hide();
   }
 
