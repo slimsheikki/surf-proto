@@ -1,6 +1,5 @@
 import {
-  AdditiveBlending,
-  CircleGeometry,
+  RingGeometry,
   DoubleSide,
   Mesh,
   MeshBasicMaterial,
@@ -14,8 +13,16 @@ import { WeaponTarget } from './Weapon';
 
 /** 3.5 units is ~158 Hammer units at this project's 1:45 scale — knife range. */
 export const KNIFE_RANGE = 3.5;
-/** Half-angle of the damage cone, measured off the yaw-plane forward vector. */
-export const KNIFE_CONE_HALF_ANGLE_DEG = 50;
+/**
+ * Half-angle of the swing arc, so the full sweep is twice this.
+ *
+ * 35 rather than the 50 this started at. At 50 the arc spanned 100 deg, which
+ * with a cleave meant a single swing deleted every drone in front of the player
+ * without their having to aim at any of them — the knife stopped being a melee
+ * weapon and became an area clear. 70 deg still forgives a sloppy pass at speed
+ * but asks the player to actually face what they are cutting.
+ */
+export const KNIFE_CONE_HALF_ANGLE_DEG = 35;
 export const KNIFE_COOLDOWN = 0.55;
 export const KNIFE_BASE_DAMAGE = 45;
 
@@ -189,9 +196,28 @@ export class Knife {
  * ------------------------------------------------------------------ */
 
 const CONE_FADE_SECONDS = 0.18;
-const CONE_START_OPACITY = 0.55;
-const CONE_END_SCALE = 1.12;
+const CONE_START_OPACITY = 0.6;
+/**
+ * The flash grows *into* its true size and stops there.
+ *
+ * It used to overshoot to 1.12, which drew a 3.92-unit reach for a 3.5-unit
+ * hitbox — the one part of this effect that was allowed to lie about the thing
+ * it exists to teach. Starting slightly under and settling at exactly 1 keeps
+ * the pop without the lie.
+ */
+const CONE_START_SCALE = 0.92;
+const CONE_END_SCALE = 1;
 const CONE_COLOR = 0x7fe8ff;
+/**
+ * The band is drawn as an arc at the *outer edge* of reach rather than a filled
+ * wedge, spanning this fraction of the radius inward.
+ *
+ * A filled sector is unreadable in first person: the player stands inside a
+ * 3.5-unit volume, so it covers the lower half of the screen as an additive
+ * wash instead of a shape. What actually needs communicating is where the reach
+ * *ends*, and an arc at that boundary says it without painting over the view.
+ */
+const CONE_BAND_INNER_FRACTION = 0.72;
 /** Roughly chest height on a 1.6-eye-height player whose origin is at the feet. */
 const CONE_HEIGHT = 1.1;
 const CONE_SEGMENTS = 40;
@@ -215,12 +241,22 @@ export class SlashCone {
     // The sector is built centred on local +Y. After the -90 deg X rotation
     // below that maps to world -Z, which is forward at yaw 0 — so applying the
     // player's yaw on top points the wedge exactly where the cone test does.
-    const geometry = new CircleGeometry(KNIFE_RANGE, CONE_SEGMENTS, Math.PI / 2 - half, half * 2);
+    const geometry = new RingGeometry(
+      KNIFE_RANGE * CONE_BAND_INNER_FRACTION,
+      KNIFE_RANGE,
+      CONE_SEGMENTS,
+      1,
+      Math.PI / 2 - half,
+      half * 2,
+    );
     this.material = new MeshBasicMaterial({
       color: CONE_COLOR,
       transparent: true,
       opacity: CONE_START_OPACITY,
-      blending: AdditiveBlending,
+      // Normal blending, deliberately not additive. Additive only adds light, so
+      // over the pale sky — which is most of what the player looks at while
+      // airborne — the band washed out to almost nothing. This effect exists to
+      // teach reach, so it has to read against sky and grey ramp alike.
       depthWrite: false,
       side: DoubleSide,
     });
@@ -235,7 +271,7 @@ export class SlashCone {
     this.timer = CONE_FADE_SECONDS;
     this.mesh.position.set(playerPosition.x, playerPosition.y + CONE_HEIGHT, playerPosition.z);
     this.mesh.rotation.set(-Math.PI / 2, yaw, 0, 'YXZ');
-    this.mesh.scale.setScalar(1);
+    this.mesh.scale.setScalar(CONE_START_SCALE);
     this.material.opacity = CONE_START_OPACITY;
     this.mesh.visible = true;
   }
@@ -250,7 +286,9 @@ export class SlashCone {
     // 1 at trigger, 0 at the end of the fade.
     const remaining = this.timer / CONE_FADE_SECONDS;
     this.material.opacity = CONE_START_OPACITY * remaining;
-    this.mesh.scale.setScalar(1 + (CONE_END_SCALE - 1) * (1 - remaining));
+    this.mesh.scale.setScalar(
+      CONE_START_SCALE + (CONE_END_SCALE - CONE_START_SCALE) * (1 - remaining),
+    );
   }
 
   hide(): void {

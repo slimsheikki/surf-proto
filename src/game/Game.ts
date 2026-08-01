@@ -127,6 +127,11 @@ export class Game {
     this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
     this.entityManager = new EntityManager(scene);
+    // The auto-weapon's tracers and impact flashes live in one Group it owns and
+    // pools. Without this the weapon is silent and invisible — a playtester
+    // reported "didn't see any projectiles", which was exactly this: hitscan
+    // damage with nothing drawn.
+    this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     this.victoryScreen = new VictoryScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
