@@ -1,0 +1,65 @@
+import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+
+const GEOMETRY = new SphereGeometry(0.18, 8, 8);
+const MATERIAL = new MeshStandardMaterial({
+  color: 0x7fe8ff,
+  emissive: 0x1a6b7a,
+  emissiveIntensity: 1.2,
+});
+
+/** Distance at which an orb notices the player and starts homing. */
+const MAGNET_RADIUS = 12;
+const COLLECT_RADIUS = 1;
+/**
+ * Homing speed must exceed the player's travel speed, or an orb can never close
+ * the gap on someone surfing away from it. Surf speeds reach ~40 u/s, so this
+ * sits above that. Note a *proportional* pull (lerping a fraction of the
+ * remaining distance each tick) is the wrong shape here: its closing speed
+ * vanishes exactly where it's needed most, right next to a fast-moving player.
+ */
+const MAGNET_SPEED = 55;
+/** Extra speed per unit of distance, so far-off orbs streak in rather than crawl. */
+const MAGNET_SPEED_PER_UNIT = 4;
+
+const toPlayer = new Vector3();
+
+export class XPOrb {
+  readonly mesh: Mesh;
+  readonly position: Vector3;
+  collected = false;
+
+  /**
+   * Latched once the player comes within MAGNET_RADIUS. Without the latch a
+   * player travelling faster than the orb closes would leave the radius again
+   * and strand it mid-flight.
+   */
+  private magnetised = false;
+
+  constructor(
+    position: Vector3,
+    public readonly value: number,
+  ) {
+    this.position = position.clone();
+    this.mesh = new Mesh(GEOMETRY, MATERIAL);
+    this.mesh.position.copy(this.position);
+  }
+
+  tick(dt: number, playerPosition: Vector3): void {
+    toPlayer.copy(playerPosition).sub(this.position);
+    let dist = toPlayer.length();
+
+    if (dist < MAGNET_RADIUS) this.magnetised = true;
+
+    if (this.magnetised && dist > 1e-6) {
+      const pullSpeed = MAGNET_SPEED + dist * MAGNET_SPEED_PER_UNIT;
+      // Clamp the step to the remaining distance so the orb settles on the
+      // player instead of overshooting past them at 128 Hz.
+      const step = Math.min(pullSpeed * dt, dist);
+      this.position.addScaledVector(toPlayer.divideScalar(dist), step);
+      dist -= step;
+    }
+
+    if (dist < COLLECT_RADIUS) this.collected = true;
+    this.mesh.position.copy(this.position);
+  }
+}

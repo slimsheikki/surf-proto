@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+
+# throwaway level-viewer used for screenshots
+_shots/
+
+# headless verification scratch (esbuild bundles for node probes)
+.probe.*
+.*check.*.mjs
