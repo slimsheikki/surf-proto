@@ -177,6 +177,27 @@ const APPROACH_DESCENT_LENGTH =
  * open low edge while doing it.
  */
 const APPROACH_STRAIGHT_LENGTH = 70;
+/**
+ * How far *back* the level straight is extended past the descent's trailing edge,
+ * so that its leading end cap ends up buried under the descent's slab instead of
+ * standing exposed in the player's path.
+ *
+ * A banked piece's trailing edge is not perpendicular to its travel once the
+ * piece is also pitched: rolling the width axis by `FACE_ANGLE_DEG` about a
+ * forward that is itself pitched down gives that axis an along-travel component
+ * of `sin(roll) * sin(pitch)`, so the edge rakes forward on the high side of the
+ * face and back on the low side by `(width / 2) * sin(roll) * sin(pitch)` — 2.63
+ * units here. Butt the two pieces at their nominal joint and that rake leaves the
+ * level piece's leading cap sticking up out of the descent's surface across the
+ * whole high half of the face: an uphill-facing wall the collision sweep hits,
+ * which `clipVelocity` resolves by deleting the player's entire forward velocity.
+ * Measured before this fix: a body riding in at 30 u/s came out the other side at
+ * 6.4 u/s. Overlapping the pieces by the rake plus a margin puts the cap under
+ * the descent everywhere, so the descent's surface hands over to the straight's
+ * from above and the transition costs only the 22 deg of velocity clip it should.
+ */
+const APPROACH_SEAM_BURY =
+  (RAMP_FACE_WIDTH / 2) * FACE_SIN * Math.sin(degToRad(APPROACH_DESCENT_PITCH_DEG)) + 1;
 
 const FACE_ROUGHNESS = 0.85;
 const FACE_METALNESS = 0;
@@ -698,11 +719,20 @@ export function buildSurfCourse(): SurfCourse {
     sectionIndex: 0,
     radius: 0,
   });
+  // Built from further back than its nominal start, so its leading end cap ends
+  // up under the descent's slab rather than protruding through the descent's
+  // surface as an uphill-facing wall. See `APPROACH_SEAM_BURY`. `approachForward`
+  // is horizontal, so stepping back along it keeps the piece level at TRACK_Y;
+  // the extra length keeps the far end exactly where it was.
+  const straightBuildStart = straightStart
+    .clone()
+    .addScaledVector(approachForward, -APPROACH_SEAM_BURY);
+
   buildBankedRamp(group, faces, {
-    start: straightStart,
+    start: straightBuildStart,
     yawDeg: approachYawDeg,
     pitchDeg: 0,
-    length: APPROACH_STRAIGHT_LENGTH,
+    length: APPROACH_STRAIGHT_LENGTH + APPROACH_SEAM_BURY,
     color: APPROACH_FACE_COLOR,
     segmentIndex: -1,
     sectionIndex: 1,
