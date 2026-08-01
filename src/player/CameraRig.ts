@@ -7,9 +7,22 @@ const THIRD_PERSON_HEIGHT = 1.5;
 
 export type CameraMode = 'first' | 'third';
 
+/**
+ * Look direction for a given yaw/pitch, in the *same* convention the rest of the
+ * movement code uses: forward at yaw 0 is -Z, and increasing yaw swings toward
+ * -X. Equivalent to `(0,0,-1).applyAxisAngle(UP, yaw)` with pitch applied, and
+ * to where `camera.rotation.set(pitch, yaw, 0, 'YXZ')` actually points.
+ *
+ * The X term is negative, and that sign matters. This previously read
+ * `+sin(yaw)`, which is mirrored about the X axis and therefore agrees with the
+ * real facing only at yaw 0 and 180. It went unnoticed because the old course was
+ * a straight run spawning at yaw 0; on a circular track the yaw sweeps through
+ * every heading, and a mirrored look vector puts the third-person camera on the
+ * wrong side of the player for three quarters of the loop.
+ */
 function lookDirFromAngles(yaw: number, pitch: number): Vector3 {
   return new Vector3(
-    Math.sin(yaw) * Math.cos(pitch),
+    -Math.sin(yaw) * Math.cos(pitch),
     Math.sin(pitch),
     -Math.cos(yaw) * Math.cos(pitch),
   ).normalize();

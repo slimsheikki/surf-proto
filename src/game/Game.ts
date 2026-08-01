@@ -296,8 +296,12 @@ export class Game {
   private travelDirection(): Vector3 {
     const { velocity } = this.playerController;
     if (velocity.lengthSq() > 0.25) return velocity.clone().normalize();
+    // Same yaw convention as PlayerController.wishDir: -Z at yaw 0, swinging
+    // toward -X as yaw increases. The mirrored `+sin(yaw)` form agrees only at
+    // yaw 0/180, which on a circular course would spawn drones behind the player
+    // for most of the ring.
     const yaw = this.playerController.yaw;
-    return new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+    return new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   }
 
   private trackLastStage(playerPosition: Vector3): void {
