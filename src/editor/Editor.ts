@@ -193,6 +193,15 @@ export class Editor {
     return this.map.pieces.length;
   }
 
+  /**
+   * Whether `deleteSelected` would do anything. The start pad and the boss
+   * cylinder are selectable and movable but never removable, so the toolbar
+   * button greys out on them rather than looking broken when it is pressed.
+   */
+  get canDeleteSelection(): boolean {
+    return this.selectedId !== null && this.selectedId !== SPAWN_ID && this.selectedId !== BOSS_ID;
+  }
+
   /** Human-readable description of what is selected, for the editor's status line. */
   get selectionSummary(): string {
     if (!this.selectedId) return 'Nothing selected — click a piece to move it.';

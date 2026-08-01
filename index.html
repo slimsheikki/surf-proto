@@ -58,7 +58,8 @@
           <span class="upgrade-key">2</span>
           <strong>Free mode</strong>
           <span class="mode-blurb">Fly a free camera and drag ramps out of the palette to build your
-          own run from the spawn pad to the boss cylinder. Save it and come back to it.</span>
+          own course, then surf it. Same run as Standard &mdash; drones, levels, and the Monolith
+          at level 10, over the cylinder you placed. Maps are saved for next time.</span>
         </button>
       </div>
     </div>
@@ -68,6 +69,7 @@
         <h2>Pieces</h2>
         <div id="editor-palette-items"></div>
         <p class="palette-hint">Drag a piece into the world.</p>
+        <button id="editor-delete-piece" class="danger" disabled>Delete selected piece</button>
         <div id="editor-help">
           <h3>Camera</h3>
           <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly &middot; <kbd>Space</kbd>/<kbd>C</kbd> up &amp; down
@@ -88,7 +90,7 @@
         <button id="editor-save">Save</button>
         <select id="map-list"></select>
         <button id="editor-load">Load</button>
-        <button id="editor-delete">Delete</button>
+        <button id="editor-delete">Delete map</button>
         <button id="editor-new">New</button>
         <button id="editor-play" class="primary">&#9654; Play</button>
         <button id="editor-menu">Menu</button>
@@ -96,6 +98,7 @@
 
       <div id="editor-footer">
         <span id="editor-snap">Grid snap: on</span>
+        <span id="editor-count">0 pieces</span>
         <span id="editor-status"></span>
       </div>
     </div>

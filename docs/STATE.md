@@ -67,8 +67,12 @@ speeds (100% collection), boss escape thresholds (25/30/45 u/s by phase).
 ## Free mode (new)
 
 Second game mode, chosen from the main menu at boot. The player flies a free camera,
-drags ramps out of a side palette into the world, moves them in 3D, and presses Play to
-surf what they built. Maps persist in `localStorage`.
+drags ramps out of a side palette into the world, moves them in 3D, deletes what they do
+not want, and presses Play to surf what they built. Maps persist in `localStorage`.
+
+**The run itself is exactly Standard's**: drones, XP, level-up choices, and the Monolith at
+level 10 — over whatever position the player dragged the boss cylinder to. Free mode
+changes the course, not the game.
 
 ```
 src/app/App.ts          menu / editor / play switcher; owns renderer, scene, the one camera
@@ -95,8 +99,14 @@ Things that are load-bearing, in the same sense as the invariants above:
 - **Free maps get one global kill plane** (`GameCourse.killPlaneY`), not the standard
   course's per-stage one — a player-built course can climb or loop, so there is no "next
   platform" to hang it under.
-- **The boss wakes on proximity, not on level** (`GameCourse.bossTriggerRadius`, 90 units).
-  The cylinder is the map's destination. Drones and levelling run normally on the way there.
+- **The boss cylinder is placeable**, and is the only thing that decides where the level-10
+  fight happens: `buildFreeWorld` hands its top-surface centre to `GameCourse.islandCenter`
+  and `trackY`, which is what `Boss` anchors its hover and engagement radius to. Its
+  `trackRadius` is the distance to the furthest piece, clamped to 50-140 so the boss can
+  cover a small arena without sniping across a large one.
+- **The start pad and the cylinder are selectable and movable but never deletable** —
+  no pad means nowhere to spawn, no cylinder means nowhere for the boss to arrive. The
+  toolbar's delete button disables itself on both rather than failing when pressed.
 - **Editor look is on the right mouse button, not pointer lock.** Under lock the cursor is
   hidden and every click goes to the canvas, so a palette to drag from could not coexist
   with it.
@@ -105,14 +115,14 @@ Things that are load-bearing, in the same sense as the invariants above:
   or the whole course foreshortens into a smear at the horizon.
 
 Verified in a browser: menu → both modes; drag-drop placement; drag-move in 3D; rotate /
-pitch / bank-flip / raise; save, load, delete, and survival across a page reload; Play and
-`M` back to the editor; a free run accelerating 7 → 16.9 u/s off the starter descent; fall
-recovery onto the start pad; the boss waking at 53 units from the cylinder. Standard mode
-behaves as before.
+pitch / bank-flip / raise; deletion by button and by `Del`, with both refused on the two
+fixtures; save, load, delete, and survival across a page reload; Play and `M` back to the
+editor; a free run accelerating 7 → 16.9 u/s off a descent; fall recovery onto the start
+pad. Standard mode behaves as before.
 
-Not done: no undo, no piece resize, no in-editor validation that a chain is actually
-rideable (the starter map is generated from the approach's own rules, which is the only
-worked example the player gets).
+Not done, deliberately: no undo, no piece resize, and **no in-editor check that a chain is
+rideable** — the player is trusted to sort that out, and the palette presets are all shapes
+that already work in the standard course.
 
 ## Current level constants (`src/world/SurfCourse.ts`)
 

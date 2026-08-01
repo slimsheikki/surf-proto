@@ -25,6 +25,10 @@ export class EditorUi {
   private readonly mapList = document.getElementById('map-list') as HTMLSelectElement;
   private readonly statusEl = document.getElementById('editor-status')!;
   private readonly snapEl = document.getElementById('editor-snap')!;
+  private readonly countEl = document.getElementById('editor-count')!;
+  private readonly deletePieceButton = document.getElementById(
+    'editor-delete-piece',
+  ) as HTMLButtonElement;
 
   constructor(
     private readonly editor: Editor,
@@ -51,6 +55,9 @@ export class EditorUi {
     this.statusEl.textContent = this.editor.selectionSummary;
     this.snapEl.textContent = this.editor.snapEnabled ? 'Grid snap: on' : 'Grid snap: off';
     this.snapEl.classList.toggle('off', !this.editor.snapEnabled);
+    const count = this.editor.pieceCount;
+    this.countEl.textContent = `${count} ${count === 1 ? 'piece' : 'pieces'}`;
+    this.deletePieceButton.disabled = !this.editor.canDeleteSelection;
   }
 
   private buildPalette(): void {
@@ -79,6 +86,11 @@ export class EditorUi {
     this.nameInput.addEventListener('input', () => {
       this.editor.mapName = this.nameInput.value.trim() || 'Untitled';
     });
+
+    // Deletion is also on Del/Backspace, but a key nobody is told about is a
+    // feature nobody has: the palette is where pieces come from, so it is where
+    // the control for getting rid of one belongs.
+    this.deletePieceButton.addEventListener('click', () => this.editor.deleteSelected());
 
     document.getElementById('editor-save')!.addEventListener('click', () => {
       const map = this.editor.getMap();

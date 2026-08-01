@@ -39,12 +39,19 @@ const SPAWN_PAD_DEPTH = 20;
  * Reserved ids for the two fixtures every map has exactly one of. They are
  * selectable and movable in the editor like any piece, but they are not in
  * `FreeMap.pieces` and cannot be deleted — a map with no start pad has nowhere
- * to spawn, and one with no cylinder has nothing to run toward.
+ * to spawn, and one with no cylinder has nowhere for the boss to arrive.
  */
 export const SPAWN_ID = '__spawn';
 export const BOSS_ID = '__boss';
 
-/** Boss cylinder: the goal marker every free map runs toward. */
+/**
+ * Boss cylinder: where the boss hovers when it arrives at level 10.
+ *
+ * Free mode runs the standard loop — survive drones, level up, fight the boss —
+ * so this is not a finish line the player races to. It is the arena they want
+ * to be able to reach and orbit by the time they hit level 10, which is why it
+ * is placeable: the whole point is choosing where that fight happens.
+ */
 const BOSS_PILLAR_RADIUS = 20;
 const BOSS_PILLAR_HEIGHT = 24;
 const BOSS_PILLAR_RIM_BOX_COUNT = 8;
@@ -72,9 +79,6 @@ const FREE_KILL_PLANE_MARGIN = 40;
  */
 const BOSS_RADIUS_MIN = 50;
 const BOSS_RADIUS_MAX = 140;
-
-/** How close the player has to get before the boss wakes. See `bossTriggerRadius`. */
-const BOSS_TRIGGER_MARGIN = 70;
 
 export interface FreeWorld {
   group: Group;
@@ -395,11 +399,6 @@ export function buildFreeWorld(map: FreeMap, colliders = true): FreeWorld {
       trackY: bossTop.y,
       trackRadius,
       killPlaneY: lowestY(map) - FREE_KILL_PLANE_MARGIN,
-      // The boss is the destination, not a level-10 reward: it wakes when the
-      // player gets near the cylinder. Until then a free map runs like the
-      // standard one — drones, XP, upgrades — so the ride there still levels
-      // the player up enough to have a chance.
-      bossTriggerRadius: BOSS_PILLAR_RADIUS + BOSS_TRIGGER_MARGIN,
     },
   };
 }

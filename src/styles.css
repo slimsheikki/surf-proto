@@ -216,6 +216,14 @@ html, body {
 
 /* ---------------------------------------------------------------- main menu */
 
+/* Lighter than the other overlays, and a gradient rather than a flat wash. The
+   menu's backdrop is the live course on a slow orbit, and at the shared 0.82
+   dim it read as a murky silhouette — the whole point of rendering it is that
+   it is visible. The gradient keeps the lower half dark enough for the cards. */
+#main-menu {
+  background: linear-gradient(to bottom, rgba(6, 10, 16, 0.3), rgba(6, 10, 16, 0.72));
+}
+
 #mode-choices {
   display: flex;
   gap: 18px;
@@ -229,7 +237,8 @@ html, body {
   gap: 8px;
   width: 320px;
   padding: 20px 22px;
-  background: rgba(255, 255, 255, 0.08);
+  /* Dark rather than the usual white-on-glass: these sit over a bright sky. */
+  background: rgba(8, 13, 20, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 10px;
   color: inherit;
@@ -239,7 +248,7 @@ html, body {
 }
 
 .mode-choice:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(18, 28, 40, 0.85);
 }
 
 .mode-choice strong {
@@ -441,4 +450,42 @@ html, body {
 
 #editor-status {
   opacity: 0.85;
+}
+
+/* Delete lives in the palette panel, with the pieces it acts on, rather than in
+   the map toolbar next to "Delete map" — two identically-styled Delete buttons
+   a few pixels apart is how a player loses a map they meant to keep. */
+#editor-delete-piece {
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 92, 122, 0.45);
+  background: rgba(255, 92, 122, 0.14);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#editor-delete-piece:hover:not(:disabled) {
+  background: rgba(255, 92, 122, 0.28);
+}
+
+/* Disabled whenever the selection is the start pad, the boss cylinder, or
+   nothing at all — none of which can be removed. */
+#editor-delete-piece:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#editor-count {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Title sits over open sky at the top of the menu, where the backdrop gradient
+   is at its lightest, so it needs its own shadow to stay readable. */
+#main-menu h1 {
+  text-shadow: 0 2px 12px rgba(6, 10, 16, 0.9);
 }

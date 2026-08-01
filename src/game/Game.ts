@@ -71,12 +71,6 @@ export interface GameCourse {
    * so it supplies one honest global plane instead.
    */
   killPlaneY?: number;
-  /**
-   * Horizontal distance from `islandCenter` at which the boss wakes, instead of
-   * waiting for `BOSS_SPAWN_LEVEL`. Set by free mode, where the boss cylinder is
-   * the map's destination rather than a reward for surviving ten levels.
-   */
-  bossTriggerRadius?: number;
 }
 
 /**
@@ -234,7 +228,7 @@ export class Game {
 
     // Checked before the spawn director runs, so the tick the boss arrives on is
     // already a tick with drone spawning suspended.
-    if (!this.boss && !this.bossDefeated && this.bossShouldWake(playerPosition)) {
+    if (!this.boss && !this.bossDefeated && this.levelSystem.level >= BOSS_SPAWN_LEVEL) {
       this.spawnBoss();
     }
 
@@ -298,22 +292,6 @@ export class Game {
     if (this.boss && !this.boss.isAlive) {
       this.winRun();
     }
-  }
-
-  /**
-   * Whether this is the tick the boss arrives on.
-   *
-   * The standard course gates the boss on level, because its ring is endless
-   * and there is nowhere to arrive at. A free map has a destination — the boss
-   * cylinder the player laid out their ramps toward — so it gates on getting
-   * there instead, measured horizontally so a player who overshoots high above
-   * the cylinder still triggers it.
-   */
-  private bossShouldWake(playerPosition: Vector3): boolean {
-    const radius = this.course.bossTriggerRadius;
-    if (radius === undefined) return this.levelSystem.level >= BOSS_SPAWN_LEVEL;
-    const { islandCenter } = this.course;
-    return Math.hypot(playerPosition.x - islandCenter.x, playerPosition.z - islandCenter.z) < radius;
   }
 
   /**

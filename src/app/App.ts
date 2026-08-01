@@ -26,10 +26,10 @@ import { clearColliders } from '../world/Colliders';
 const SKY_COLOR = 0x9fc8e8;
 
 /** Menu backdrop orbit: slow enough to read as a held shot rather than a spin. */
-const MENU_ORBIT_RADIUS = 190;
-const MENU_ORBIT_HEIGHT = 70;
+const MENU_ORBIT_RADIUS = 165;
+const MENU_ORBIT_HEIGHT = 95;
 const MENU_ORBIT_SPEED = 0.06;
-const MENU_LOOK_AT = new Vector3(0, 10, 0);
+const MENU_LOOK_AT = new Vector3(0, -6, 0);
 
 /**
  * Where the app is. `play` covers both game modes — what differs between them
