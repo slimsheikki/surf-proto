@@ -52,6 +52,17 @@ export interface RampCurveParams {
   /** Surface material metalness; defaults to the original ramp look. */
   metalness?: number;
   guideWalls?: boolean;
+  /**
+   * Whether the segments register collision boxes. Defaults to true, which is
+   * what every level piece wants.
+   *
+   * The map editor sets it false: it rebuilds a piece's meshes on every nudge of
+   * a drag, and `registerCollider` caches an inverse quaternion per box with no
+   * way to retire one, so an editing session would otherwise pile up thousands
+   * of stale colliders. The world is rebuilt from scratch — colliders and all —
+   * when the editor hands a map over to be played.
+   */
+  registerColliders?: boolean;
 }
 
 export interface RampCurveResult {
@@ -69,7 +80,16 @@ const GUIDE_WALL_THICKNESS = 0.3;
 
 const WORLD_UP = new Vector3(0, 1, 0);
 
-function forwardFromAngles(yawDeg: number, pitchDeg: number): Vector3 {
+/**
+ * Unit direction of travel for a heading/slope pair, in the same yaw convention
+ * `SurfCourse.forwardXZ` uses (yaw 0 = -Z) with positive pitch descending.
+ *
+ * Exported because anything that positions a ramp by its *centre* rather than by
+ * its leading edge — the map editor does, since a centre is what a user drags —
+ * has to step back along exactly this vector to recover the `start` this module
+ * takes.
+ */
+export function forwardFromAngles(yawDeg: number, pitchDeg: number): Vector3 {
   const yaw = degToRad(yawDeg);
   const pitch = degToRad(pitchDeg);
   return new Vector3(
@@ -135,6 +155,7 @@ export function buildRampCurve(
   const thickness = params.thickness ?? DEFAULT_THICKNESS;
   const angleStepDeg = params.angleStepDeg ?? DEFAULT_ANGLE_STEP;
   const color = params.color ?? 0x4a7fb5;
+  const withColliders = params.registerColliders ?? true;
 
   const startRoll = params.rollDeg ?? 0;
   const endRoll = params.endRollDeg ?? startRoll;
@@ -186,7 +207,7 @@ export function buildRampCurve(
     const quaternion = new Quaternion().setFromRotationMatrix(basisMatrix);
     const halfExtents = new Vector3(params.width / 2, thickness / 2, segmentLength / 2);
 
-    registerCollider({ position: boxCenter, quaternion, halfExtents });
+    if (withColliders) registerCollider({ position: boxCenter, quaternion, halfExtents });
 
     const geometry = new BoxGeometry(params.width, thickness, segmentLength);
     const mesh = new Mesh(geometry, material);
@@ -205,12 +226,14 @@ export function buildRampCurve(
           GUIDE_WALL_HEIGHT / 2,
           segmentLength / 2,
         );
-        registerCollider({
-          position: wallCenter,
-          quaternion,
-          halfExtents: wallHalfExtents,
-          isWall: true,
-        });
+        if (withColliders) {
+          registerCollider({
+            position: wallCenter,
+            quaternion,
+            halfExtents: wallHalfExtents,
+            isWall: true,
+          });
+        }
         const wallGeometry = new BoxGeometry(
           GUIDE_WALL_THICKNESS,
           GUIDE_WALL_HEIGHT,

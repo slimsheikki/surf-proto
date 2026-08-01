@@ -33,14 +33,14 @@ import { buildRampCurve } from './RampCurve';
  * cos(51.34) * cos(22) = 0.580, i.e. even further from standable. Trading a
  * little of the up component for forward drop is the whole point of that piece.
  */
-const FACE_ANGLE_DEG = 51.34;
+export const FACE_ANGLE_DEG = 51.34;
 /** Horizontal run per unit of face slope-extent: cos(51.34 deg) = 0.625. */
-const FACE_COS = Math.cos(degToRad(FACE_ANGLE_DEG));
+export const FACE_COS = Math.cos(degToRad(FACE_ANGLE_DEG));
 /** Vertical rise per unit of face slope-extent: sin(51.34 deg) = 0.781. */
-const FACE_SIN = Math.sin(degToRad(FACE_ANGLE_DEG));
+export const FACE_SIN = Math.sin(degToRad(FACE_ANGLE_DEG));
 
 /** The 64 hu base plinth under a real ramp face, at 45 hu per game unit. */
-const FACE_THICKNESS = 1.4;
+export const FACE_THICKNESS = 1.4;
 
 /** Number of ramps in the ring. The loop is endless, so there is no "last" one. */
 const LOOP_SEGMENT_COUNT = 10;
@@ -75,7 +75,7 @@ const TRACK_RADIUS_WOBBLE = 3;
  */
 const TRACK_Y = 0;
 
-const RAMP_LENGTH = 50;
+export const RAMP_LENGTH = 50;
 /**
  * Slope-extent of a face — its hypotenuse, not its horizontal span. 18 gives a
  * +/-7.03 vertical band around the centreline, which is the height a player who
@@ -83,7 +83,7 @@ const RAMP_LENGTH = 50;
  * were both raised (16 -> 18, 44 -> 50) against the same playtest note: more
  * ramp and more recoverable band per gap crossed.
  */
-const RAMP_FACE_WIDTH = 18;
+export const RAMP_FACE_WIDTH = 18;
 
 /**
  * Arc allotted to one segment of the ring, and the open air left over once a
@@ -119,10 +119,10 @@ const ISLAND_RIM_BOX_COUNT = 12;
 const ISLAND_SHELF_RADIUS = 47;
 const ISLAND_SHELF_HEIGHT = 5;
 
-const PLATFORM_THICKNESS = 1.4;
+export const PLATFORM_THICKNESS = 1.4;
 /** Platform long axis runs along travel, so the player crosses it lengthways. */
-const PLATFORM_DEPTH = 20;
-const PLATFORM_WIDTH = 14;
+export const PLATFORM_DEPTH = 20;
+export const PLATFORM_WIDTH = 14;
 /**
  * Height of a start platform's top surface above the centreline of the face it
  * hands the player onto.
@@ -134,7 +134,7 @@ const PLATFORM_WIDTH = 14;
  * and the player steps into a wall instead of onto a slope. 6 leaves a 1.6-unit
  * drop onto a point 5.6 slope-units above the centreline.
  */
-const PLATFORM_TOP_ABOVE_FACE = 6;
+export const PLATFORM_TOP_ABOVE_FACE = 6;
 /**
  * How far outboard of a face's centreline a start platform sits, measured across
  * travel (toward the face's high edge). At 70% of the face's horizontal half-span
@@ -143,7 +143,7 @@ const PLATFORM_TOP_ABOVE_FACE = 6;
  * the centreline instead would give a bigger drop but land the player mid-face at
  * walk speed, where they slide off the open low edge in about a second and a half.
  */
-const PLATFORM_OUTWARD_OFFSET = 3.5;
+export const PLATFORM_OUTWARD_OFFSET = 3.5;
 
 /**
  * The approach run: an elevated platform outside the ring, a banked ramp that
@@ -166,7 +166,7 @@ const PLATFORM_OUTWARD_OFFSET = 3.5;
  * rather than the 147 a full-55 centreline drop would need.)
  */
 const START_PLATFORM_TOP_Y = 55;
-const APPROACH_DESCENT_PITCH_DEG = 26;
+export const APPROACH_DESCENT_PITCH_DEG = 26;
 const APPROACH_DESCENT_START_Y = START_PLATFORM_TOP_Y - PLATFORM_TOP_ABOVE_FACE;
 
 /**
@@ -210,7 +210,7 @@ const APPROACH_DESCENT_FACE_COUNT = 2;
  * new face instead, which leaves room for the altitude the gap crossing costs and
  * still keeps most of the slope in hand.
  */
-const APPROACH_STAIR_DROP = FACE_SIN * RAMP_FACE_WIDTH * 0.75;
+export const APPROACH_STAIR_DROP = FACE_SIN * RAMP_FACE_WIDTH * 0.75;
 /**
  * Air gap between staircase faces — deliberately tighter than the ring's
  * `RAMP_ARC_GAP`.
@@ -222,7 +222,7 @@ const APPROACH_STAIR_DROP = FACE_SIN * RAMP_FACE_WIDTH * 0.75;
  * arrives. At the ring's 6.55 the slow crossings sailed past face 1 entirely; at 4
  * they land. The gap still has to be crossed by air, which is the point.
  */
-const APPROACH_STAIR_GAP = 4;
+export const APPROACH_STAIR_GAP = 4;
 /**
  * Sideways stagger between consecutive staircase faces, toward the direction the
  * player is already drifting.
@@ -239,7 +239,7 @@ const APPROACH_STAIR_GAP = 4;
  * where the player actually arrives rather than where they left. It is the same
  * trick as `TRACK_RADIUS_WOBBLE` in the ring, for the same reason.
  */
-const APPROACH_STAIR_LATERAL = 6;
+export const APPROACH_STAIR_LATERAL = 6;
 /**
  * Height the last staircase face's *centreline* finishes at, above `TRACK_Y`.
  *
@@ -285,19 +285,19 @@ const APPROACH_STAIR_LENGTH =
  */
 const APPROACH_STRAIGHT_LENGTH = 70;
 
-const FACE_ROUGHNESS = 0.85;
-const FACE_METALNESS = 0;
+export const FACE_ROUGHNESS = 0.85;
+export const FACE_METALNESS = 0;
 /**
  * Greybox palette: one medium grey, nudged a couple of points toward a different
  * hue per segment. Enough to tell at a glance which ramp of the loop a
  * screenshot is from, far too little to read as decoration.
  */
-const SEGMENT_FACE_COLORS = [0x8a9299, 0x8f929e, 0x8a9a99, 0x958f96];
+export const SEGMENT_FACE_COLORS = [0x8a9299, 0x8f929e, 0x8a9a99, 0x958f96];
 /** The approach reads as one continuous piece, so both of its ramps share a tint. */
-const APPROACH_FACE_COLOR = 0x9a8f86;
-const PLATFORM_COLOR = 0x6f7780;
-const ISLAND_COLOR = 0x5d646b;
-const ISLAND_SHELF_COLOR = 0x4d545a;
+export const APPROACH_FACE_COLOR = 0x9a8f86;
+export const PLATFORM_COLOR = 0x6f7780;
+export const ISLAND_COLOR = 0x5d646b;
+export const ISLAND_SHELF_COLOR = 0x4d545a;
 
 const WORLD_UP = new Vector3(0, 1, 0);
 

@@ -13,6 +13,13 @@ html, body {
   color: #e8edf4;
 }
 
+/* Global hide. Predates this only as `.overlay.hidden`, which quietly did
+   nothing for the HUD and the editor panels — both set their own `display`, so
+   an unqualified `.hidden` loses the specificity contest without `!important`. */
+.hidden {
+  display: none !important;
+}
+
 #scene {
   display: block;
   width: 100vw;
@@ -205,4 +212,233 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.28);
   font: inherit;
   font-weight: 700;
+}
+
+/* ---------------------------------------------------------------- main menu */
+
+#mode-choices {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  max-width: 900px;
+}
+
+.mode-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  padding: 20px 22px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.mode-choice:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.mode-choice strong {
+  font-size: 20px;
+}
+
+.mode-blurb {
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.78;
+}
+
+/* -------------------------------------------------------------- map editor */
+
+/* The editor is not an overlay: the world behind it stays fully interactive,
+   because flying the camera and dragging pieces IS the editor. Only the panels
+   themselves take pointer events. */
+#editor-ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-size: 13px;
+}
+
+#editor-ui.hidden {
+  display: none;
+}
+
+#editor-palette {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  bottom: 56px;
+  width: 236px;
+  padding: 14px;
+  overflow-y: auto;
+  pointer-events: auto;
+  background: rgba(8, 13, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+
+#editor-palette h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+#editor-palette-items {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  /* The whole point of the panel: these are dragged, never clicked. `grab`
+     advertises that before the player has to guess. */
+  cursor: grab;
+  user-select: none;
+}
+
+.palette-item:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.palette-item:active {
+  cursor: grabbing;
+}
+
+.palette-item span {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.palette-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+#editor-help {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  line-height: 1.65;
+  opacity: 0.8;
+}
+
+#editor-help h3 {
+  margin: 10px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+#editor-help p {
+  margin: 0;
+}
+
+#editor-help kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+
+#editor-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  pointer-events: auto;
+  background: rgba(8, 13, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+
+#editor-toolbar input,
+#editor-toolbar select,
+#editor-toolbar button {
+  padding: 6px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+#editor-toolbar input {
+  width: 150px;
+}
+
+#editor-toolbar select {
+  max-width: 170px;
+}
+
+#editor-toolbar button {
+  cursor: pointer;
+}
+
+#editor-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.19);
+}
+
+#editor-toolbar button.primary {
+  background: rgba(92, 255, 176, 0.18);
+  border-color: rgba(92, 255, 176, 0.5);
+  font-weight: 700;
+}
+
+#editor-toolbar button.primary:hover {
+  background: rgba(92, 255, 176, 0.3);
+}
+
+#editor-footer {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  font-size: 12px;
+}
+
+#editor-snap {
+  font-weight: 700;
+  color: #5cffb0;
+}
+
+#editor-snap.off {
+  color: #ffb35c;
+}
+
+#editor-status {
+  opacity: 0.85;
 }

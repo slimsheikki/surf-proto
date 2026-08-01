@@ -3,6 +3,7 @@ import { Health } from '../combat/Health';
 import { Knife, KnifeTarget, SlashCone } from '../combat/Knife';
 import { Weapon } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
+import { degToRad } from '../engine/MathUtils';
 import { Boss, BOSS_SPAWN_LEVEL } from '../enemies/Boss';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
@@ -60,6 +61,22 @@ export interface GameCourse {
   trackY: number;
   /** Radius of the surf loop, which sizes the boss's engagement and cull radii. */
   trackRadius: number;
+  /**
+   * Absolute world Y of the kill plane, overriding the per-stage one below.
+   *
+   * The standard course leaves this unset: it descends in stages, so hanging
+   * the plane under the platform the player is heading *for* catches a fall in
+   * a second instead of after a ten-second plummet. A free-mode map has no
+   * stage ladder — the player may have built a course that climbs or loops —
+   * so it supplies one honest global plane instead.
+   */
+  killPlaneY?: number;
+  /**
+   * Horizontal distance from `islandCenter` at which the boss wakes, instead of
+   * waiting for `BOSS_SPAWN_LEVEL`. Set by free mode, where the boss cylinder is
+   * the map's destination rather than a reward for surviving ten levels.
+   */
+  bossTriggerRadius?: number;
 }
 
 /**
@@ -109,12 +126,19 @@ export class Game {
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
 
-  private readonly stages: CourseStage[];
+  private stages: CourseStage[];
 
   constructor(
     private readonly scene: Scene,
     camera: PerspectiveCamera,
-    private readonly course: GameCourse,
+    /**
+     * Swappable via `setCourse`, so free mode can hand the same `Game` a
+     * freshly built map without constructing a second one. That is not just
+     * tidiness: the terminal screens bind their restart listeners in their
+     * constructors, so a second `Game` would stack a second listener on the
+     * same button and every restart would fire twice.
+     */
+    private course: GameCourse,
     /**
      * Owned by `main.ts` (it is the thing that has a renderer and a render
      * order), driven from here. Animation state has to advance on the fixed
@@ -153,8 +177,20 @@ export class Game {
    * a fall promptly wherever it happens.
    */
   private get outOfBoundsY(): number {
+    if (this.course.killPlaneY !== undefined) return this.course.killPlaneY;
     const target = this.stages[Math.min(this.lastStageIndex + 1, this.stages.length - 1)];
     return target.center.y - OUT_OF_BOUNDS_MARGIN;
+  }
+
+  /**
+   * Points the game at a different course and starts it from the top. Used when
+   * free mode hands over a map the player just built, and again when they go
+   * back to the editor and return with it changed.
+   */
+  setCourse(course: GameCourse): void {
+    this.course = course;
+    this.stages = course.stages;
+    this.restart();
   }
 
   /**
@@ -198,7 +234,7 @@ export class Game {
 
     // Checked before the spawn director runs, so the tick the boss arrives on is
     // already a tick with drone spawning suspended.
-    if (!this.boss && !this.bossDefeated && this.levelSystem.level >= BOSS_SPAWN_LEVEL) {
+    if (!this.boss && !this.bossDefeated && this.bossShouldWake(playerPosition)) {
       this.spawnBoss();
     }
 
@@ -265,6 +301,22 @@ export class Game {
   }
 
   /**
+   * Whether this is the tick the boss arrives on.
+   *
+   * The standard course gates the boss on level, because its ring is endless
+   * and there is nowhere to arrive at. A free map has a destination — the boss
+   * cylinder the player laid out their ramps toward — so it gates on getting
+   * there instead, measured horizontally so a player who overshoots high above
+   * the cylinder still triggers it.
+   */
+  private bossShouldWake(playerPosition: Vector3): boolean {
+    const radius = this.course.bossTriggerRadius;
+    if (radius === undefined) return this.levelSystem.level >= BOSS_SPAWN_LEVEL;
+    const { islandCenter } = this.course;
+    return Math.hypot(playerPosition.x - islandCenter.x, playerPosition.z - islandCenter.z) < radius;
+  }
+
+  /**
    * Summons the boss over the island and turns the endless run into a duel:
    * drone spawning stops and live drones are dismissed, so nothing else is
    * competing for the player's attention or the weapon's target slot. XP orbs
@@ -328,7 +380,13 @@ export class Game {
     this.bossDefeated = false;
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
-    this.playerController.teleport(this.stages[0].center.clone().add(RESPAWN_HEIGHT_OFFSET));
+    this.playerController.teleport(this.course.spawnPoint.clone());
+    // Yaw too, not just position. A free map can start the player on any
+    // heading, and `restart` is also the path `setCourse` takes — leaving the
+    // yaw where the last run ended would drop them onto a new map facing
+    // backwards off the pad.
+    this.playerController.yaw = degToRad(this.course.spawnYawDeg);
+    this.playerController.pitch = 0;
     this.lastStageIndex = 0;
     this.spawnDirector.reset();
     this.levelSystem.reset();
