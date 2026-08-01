@@ -9,7 +9,7 @@
   </head>
   <body>
     <canvas id="scene"></canvas>
-    <div id="hud">
+    <div id="hud" class="hidden">
       <div id="speed-readout">0 u/s</div>
       <div id="bar-hp" class="bar"><div id="bar-hp-fill" class="bar-fill hp"></div></div>
       <div id="bar-xp" class="bar"><div id="bar-xp-fill" class="bar-fill xp"></div></div>
@@ -38,11 +38,69 @@
       <p id="victory-stats"></p>
       <button id="victory-restart-button">Surf Again</button>
     </div>
-    <div id="start-overlay" class="overlay">
+    <div id="start-overlay" class="overlay hidden">
       <h1>surf-proto</h1>
       <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
       <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
-      <p>Click to start</p>
+      <p>Click to start &mdash; press <kbd>M</kbd> to go back</p>
+    </div>
+
+    <div id="main-menu" class="overlay hidden">
+      <h1>surf-proto</h1>
+      <div id="mode-choices">
+        <button class="mode-choice" data-mode="standard">
+          <span class="upgrade-key">1</span>
+          <strong>Standard</strong>
+          <span class="mode-blurb">The built course: an approach descent into an endless ring of ten
+          banked ramps. Survive the drones, level up, kill the Monolith.</span>
+        </button>
+        <button class="mode-choice" data-mode="free">
+          <span class="upgrade-key">2</span>
+          <strong>Free mode</strong>
+          <span class="mode-blurb">Fly a free camera and drag ramps out of the palette to build your
+          own course, then surf it. Same run as Standard &mdash; drones, levels, and the Monolith
+          at level 10, over the cylinder you placed. Maps are saved for next time.</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="editor-ui" class="hidden">
+      <div id="editor-palette">
+        <h2>Pieces</h2>
+        <div id="editor-palette-items"></div>
+        <p class="palette-hint">Drag a piece into the world.</p>
+        <button id="editor-delete-piece" class="danger" disabled>Delete selected piece</button>
+        <div id="editor-help">
+          <h3>Camera</h3>
+          <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly &middot; <kbd>Space</kbd>/<kbd>C</kbd> up &amp; down
+          &middot; <kbd>Shift</kbd> faster &middot; hold <kbd>right&nbsp;mouse</kbd> to look</p>
+          <h3>Pieces</h3>
+          <p><kbd>click</kbd> select &middot; <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down</p>
+          <p><kbd>Q</kbd><kbd>E</kbd> rotate &middot; <kbd>R</kbd><kbd>F</kbd> raise/lower &middot;
+          <kbd>T</kbd><kbd>Y</kbd> pitch &middot; <kbd>B</kbd> flip bank</p>
+          <p><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate &middot; <kbd>Del</kbd> delete &middot;
+          <kbd>N</kbd> grid snap</p>
+          <h3>Mode</h3>
+          <p><kbd>Enter</kbd> play &middot; <kbd>M</kbd> back to the editor &middot; <kbd>Esc</kbd> main menu</p>
+        </div>
+      </div>
+
+      <div id="editor-toolbar">
+        <input id="map-name" type="text" placeholder="Map name" spellcheck="false" />
+        <button id="editor-save">Save</button>
+        <select id="map-list"></select>
+        <button id="editor-load">Load</button>
+        <button id="editor-delete">Delete map</button>
+        <button id="editor-new">New</button>
+        <button id="editor-play" class="primary">&#9654; Play</button>
+        <button id="editor-menu">Menu</button>
+      </div>
+
+      <div id="editor-footer">
+        <span id="editor-snap">Grid snap: on</span>
+        <span id="editor-count">0 pieces</span>
+        <span id="editor-status"></span>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -64,6 +64,15 @@ movement.
 - `sleep` chains are blocked; use `until <check>; do sleep 2; done`.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
 
+## Free mode
+
+A second mode off the main menu: a free-camera map editor where ramps are dragged in from
+a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above `Game`;
+`src/editor/` is the editor. Two rules there have the same status as the invariants above
+— **the editor registers no colliders** (they cannot be retired, and a drag rebuilds
+meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
+terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
+
 ## Where things stand
 
 See **`docs/STATE.md`** — current known bugs, tuning constants, and what's next. Read that
