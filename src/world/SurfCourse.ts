@@ -166,10 +166,117 @@ const PLATFORM_OUTWARD_OFFSET = 3.5;
  * rather than the 147 a full-55 centreline drop would need.)
  */
 const START_PLATFORM_TOP_Y = 55;
-const APPROACH_DESCENT_PITCH_DEG = 22;
+const APPROACH_DESCENT_PITCH_DEG = 26;
 const APPROACH_DESCENT_START_Y = START_PLATFORM_TOP_Y - PLATFORM_TOP_ABOVE_FACE;
-const APPROACH_DESCENT_LENGTH =
-  (APPROACH_DESCENT_START_Y - TRACK_Y) / Math.sin(degToRad(APPROACH_DESCENT_PITCH_DEG));
+
+/**
+ * The descent is a *staircase* of faces, not one long ramp, and the reason is a
+ * hard limit rather than a stylistic choice.
+ *
+ * A banked face pulls the player across itself at a rate set by the bank, so they
+ * cross its width and leave over the low edge after a fixed time — about 1.5 s
+ * with no correction, and not much more than 3 s with good air-strafing. The
+ * distance that buys is the entry speed times that time, and the descent is
+ * entered at a walk. Measured against this geometry, one face carries a player
+ * **45-55 units of run and no further, at any pitch**: raising the pitch shortens
+ * the run needed but does not lengthen the ride, so the two only meet if the face
+ * asks for less than ~45. The single 121-unit descent this replaces asked for
+ * 121, and every input in a swept grid of strafe directions and mouse rates fell
+ * off it around 50 — the drop-in was simply not completable.
+ *
+ * Widening the face is not the way out either. A face's high edge stands
+ * `FACE_SIN * width / 2` above its centreline, so a wider face pokes up through
+ * the start platform (see `PLATFORM_TOP_ABOVE_FACE`); measured at width 36 the
+ * player never got off the pad at all, peaking at walking speed.
+ *
+ * So the altitude is spent across `APPROACH_DESCENT_FACE_COUNT` faces, each short
+ * enough to be ridden in one pass, with the bank **alternating** between them.
+ * Alternating is what makes the chain work: a face's high edge sits
+ * `FACE_SIN * width / 2` above its centreline on the side its bank leans away
+ * from, so mirroring the next face puts its high edge exactly where the previous
+ * face's low edge dropped the player. They land high on the new face with the
+ * whole slope beneath them again, which is the same handoff the start platform
+ * gives — and it is how real surf maps stage a long descent, as a zig-zag between
+ * opposing walls rather than one endless slide.
+ */
+const APPROACH_DESCENT_FACE_COUNT = 2;
+/**
+ * How far each staircase face's centreline sits below the previous face's
+ * trailing centreline.
+ *
+ * A full `FACE_SIN * width` (14.06) would line the next face's high edge up
+ * exactly with the previous low edge, landing the player precisely on the top
+ * corner with no margin. Three quarters of it drops them a little way down the
+ * new face instead, which leaves room for the altitude the gap crossing costs and
+ * still keeps most of the slope in hand.
+ */
+const APPROACH_STAIR_DROP = FACE_SIN * RAMP_FACE_WIDTH * 0.75;
+/**
+ * Air gap between staircase faces — deliberately tighter than the ring's
+ * `RAMP_ARC_GAP`.
+ *
+ * The ring's gap is sized for a player already travelling 25-40 u/s. The approach
+ * is entered at a walk and the first gap is crossed at more like 16-24, and airtime
+ * is where lateral drift accumulates unchecked: the slower the crossing, the
+ * further sideways the player has gone by the time the next face's along-range
+ * arrives. At the ring's 6.55 the slow crossings sailed past face 1 entirely; at 4
+ * they land. The gap still has to be crossed by air, which is the point.
+ */
+const APPROACH_STAIR_GAP = 4;
+/**
+ * Sideways stagger between consecutive staircase faces, toward the direction the
+ * player is already drifting.
+ *
+ * Mirroring the bank alone is not enough, and the reason is worth keeping: a player
+ * does not leave a face at its trailing end, they leave over its *low edge*
+ * partway along, still carrying the lateral velocity that took them there. Line the
+ * next face's high edge up exactly with the previous low edge and that residual
+ * drift — a few u/s, over the half-second the gap takes — carries them past it, so
+ * the face they were supposed to land on slides by just out of reach. Measured with
+ * no stagger: every autopilot fell into the gap between the two faces.
+ *
+ * Offsetting the next face further along the drift direction puts its high edge
+ * where the player actually arrives rather than where they left. It is the same
+ * trick as `TRACK_RADIUS_WOBBLE` in the ring, for the same reason.
+ */
+const APPROACH_STAIR_LATERAL = 6;
+/**
+ * Height the last staircase face's *centreline* finishes at, above `TRACK_Y`.
+ *
+ * Not zero, and this is the subtlest number in the approach. The player does not
+ * ride a face's centreline, they ride down to its **low edge**, a full
+ * `FACE_SIN * width / 2` below it. Land the last face's centreline on `TRACK_Y` —
+ * level with the straight's own centreline, which looks like the obvious answer —
+ * and the player arrives that 7 units *under* the straight's surface, sails
+ * beneath it, and falls out of the level. Measured: every ballistic exit off the
+ * last face missed the straight, 0 out of 45.
+ *
+ * So the chain has to finish high enough that the low edge, not the centreline,
+ * meets the straight's face. One vertical half-span plus a little margin does it:
+ * the player crosses the gap around `TRACK_Y` and settles onto the straight's high
+ * half, which is exactly where a surfer wants to arrive.
+ */
+const APPROACH_STAIR_EXIT_Y = FACE_SIN * (RAMP_FACE_WIDTH / 2) + 2;
+/**
+ * Horizontal run of one staircase face — solved, not authored, so the chain lands
+ * on `APPROACH_STAIR_EXIT_Y` exactly however the constants above are retuned.
+ *
+ * The faces must together give up `APPROACH_DESCENT_START_Y -
+ * APPROACH_STAIR_EXIT_Y`. The
+ * `APPROACH_DESCENT_FACE_COUNT - 1` steps between them contribute
+ * `APPROACH_STAIR_DROP` each for free, and each face's own pitch contributes
+ * `run * tan(pitch)`. What is left over, split between the faces, is the run.
+ * Assert-worthy invariant: this must come out under ~45, or the faces are back to
+ * being longer than a player can ride.
+ */
+export const APPROACH_STAIR_RUN =
+  (APPROACH_DESCENT_START_Y -
+    APPROACH_STAIR_EXIT_Y -
+    (APPROACH_DESCENT_FACE_COUNT - 1) * APPROACH_STAIR_DROP) /
+  (APPROACH_DESCENT_FACE_COUNT * Math.tan(degToRad(APPROACH_DESCENT_PITCH_DEG)));
+/** Length along the sloped face, which is its horizontal run un-foreshortened. */
+const APPROACH_STAIR_LENGTH =
+  APPROACH_STAIR_RUN / Math.cos(degToRad(APPROACH_DESCENT_PITCH_DEG));
 /**
  * Level banked straight between the bottom of the descent and the ring. Long
  * enough for the player to settle onto a line and stop trading altitude for
@@ -177,27 +284,6 @@ const APPROACH_DESCENT_LENGTH =
  * open low edge while doing it.
  */
 const APPROACH_STRAIGHT_LENGTH = 70;
-/**
- * How far *back* the level straight is extended past the descent's trailing edge,
- * so that its leading end cap ends up buried under the descent's slab instead of
- * standing exposed in the player's path.
- *
- * A banked piece's trailing edge is not perpendicular to its travel once the
- * piece is also pitched: rolling the width axis by `FACE_ANGLE_DEG` about a
- * forward that is itself pitched down gives that axis an along-travel component
- * of `sin(roll) * sin(pitch)`, so the edge rakes forward on the high side of the
- * face and back on the low side by `(width / 2) * sin(roll) * sin(pitch)` — 2.63
- * units here. Butt the two pieces at their nominal joint and that rake leaves the
- * level piece's leading cap sticking up out of the descent's surface across the
- * whole high half of the face: an uphill-facing wall the collision sweep hits,
- * which `clipVelocity` resolves by deleting the player's entire forward velocity.
- * Measured before this fix: a body riding in at 30 u/s came out the other side at
- * 6.4 u/s. Overlapping the pieces by the rake plus a margin puts the cap under
- * the descent everywhere, so the descent's surface hands over to the straight's
- * from above and the transition costs only the 22 deg of velocity clip it should.
- */
-const APPROACH_SEAM_BURY =
-  (RAMP_FACE_WIDTH / 2) * FACE_SIN * Math.sin(degToRad(APPROACH_DESCENT_PITCH_DEG)) + 1;
 
 const FACE_ROUGHNESS = 0.85;
 const FACE_METALNESS = 0;
@@ -282,9 +368,11 @@ export interface SurfCourse {
    */
   surfPath: Vector3[];
   /**
-   * Same, for the approach: the centreline leading edge of the descent ramp then
-   * of the level straight. `approachPath[1]` doubles as the point where the
-   * descent bottoms out at `trackY`.
+   * Same, for the approach: the centreline leading edge of each descent staircase
+   * face in order, then of the level straight. So the first entry is where the
+   * start platform hands over, and the last — `approachPath[
+   * APPROACH_DESCENT_FACE_COUNT]` — is where the descent has finished spending its
+   * altitude and sits at `trackY`.
    */
   approachPath: Vector3[];
   /** Every banked face in the course, in build order. See `BankedFace`. */
@@ -544,6 +632,12 @@ interface BankedRampSpec {
   /** Descent along travel; 0 for every face in the ring. */
   pitchDeg: number;
   length: number;
+  /**
+   * Which way the face leans: +1 puts its high edge toward `faceHighSideXZ`, -1
+   * mirrors it. Every ring face is +1; the descent staircase alternates so each
+   * face catches the player where the previous one dropped them.
+   */
+  bankSign?: number;
   color: number;
   /** Recorded on the produced `BankedFace`s. */
   segmentIndex: number;
@@ -574,7 +668,7 @@ function buildBankedRamp(group: Group, faces: BankedFace[], spec: BankedRampSpec
       start: spec.start,
       startYawDeg: spec.yawDeg,
       startPitchDeg: spec.pitchDeg,
-      rollDeg: FACE_ANGLE_DEG,
+      rollDeg: FACE_ANGLE_DEG * (spec.bankSign ?? 1),
       length: spec.length,
       width: RAMP_FACE_WIDTH,
       thickness: FACE_THICKNESS,
@@ -592,7 +686,7 @@ function buildBankedRamp(group: Group, faces: BankedFace[], spec: BankedRampSpec
     faces.push({
       stageIndex: 0,
       sectionIndex: spec.sectionIndex,
-      side: 'left',
+      side: (spec.bankSign ?? 1) >= 0 ? 'left' : 'right',
       travelDir: forward.clone(),
       crossDir: cross.clone(),
       normal: WORLD_UP.clone().applyQuaternion(collider.quaternion).normalize(),
@@ -700,45 +794,76 @@ export function buildSurfCourse(): SurfCourse {
     .clone()
     .addScaledVector(approachForward, -APPROACH_STRAIGHT_LENGTH);
 
-  // Descent: same bank, pitched along travel, long enough that its centreline
-  // bottoms out at exactly `TRACK_Y` where the straight begins. Its horizontal
-  // run is the length foreshortened by the pitch.
-  const descentRun = APPROACH_DESCENT_LENGTH * Math.cos(degToRad(APPROACH_DESCENT_PITCH_DEG));
+  // Descent staircase, laid out backwards from the straight. Every face shares the
+  // approach centreline laterally — no sideways offsets anywhere — because the
+  // alternating bank does that work: mirroring a face swaps which edge is high, so
+  // face n's low edge and face n+1's high edge land on the same line by
+  // construction. See `APPROACH_DESCENT_FACE_COUNT`.
+  //
+  // The chain spans N runs and N gaps: one gap between each pair of faces, and one
+  // more between the last face and the straight.
+  const staircaseSpan =
+    APPROACH_DESCENT_FACE_COUNT * APPROACH_STAIR_RUN +
+    APPROACH_DESCENT_FACE_COUNT * APPROACH_STAIR_GAP;
   const descentStart = straightStart
     .clone()
-    .addScaledVector(approachForward, -descentRun)
+    .addScaledVector(approachForward, -staircaseSpan)
     .setY(APPROACH_DESCENT_START_Y);
 
-  buildBankedRamp(group, faces, {
-    start: descentStart,
-    yawDeg: approachYawDeg,
-    pitchDeg: APPROACH_DESCENT_PITCH_DEG,
-    length: APPROACH_DESCENT_LENGTH,
-    color: APPROACH_FACE_COLOR,
-    segmentIndex: -1,
-    sectionIndex: 0,
-    radius: 0,
-  });
-  // Built from further back than its nominal start, so its leading end cap ends
-  // up under the descent's slab rather than protruding through the descent's
-  // surface as an uphill-facing wall. See `APPROACH_SEAM_BURY`. `approachForward`
-  // is horizontal, so stepping back along it keeps the piece level at TRACK_Y;
-  // the extra length keeps the far end exactly where it was.
-  const straightBuildStart = straightStart
-    .clone()
-    .addScaledVector(approachForward, -APPROACH_SEAM_BURY);
+  const stairPitchDrop = APPROACH_STAIR_RUN * Math.tan(degToRad(APPROACH_DESCENT_PITCH_DEG));
+  for (let face = 0; face < APPROACH_DESCENT_FACE_COUNT; face++) {
+    // Each face begins one run-plus-gap further along and one full step lower: its
+    // own pitch drop for every face already passed, plus the stair drop for every
+    // gap already crossed.
+    // Each face steps sideways as well as down and along — toward the low edge of
+    // the face before it, which is the direction the player is already drifting.
+    // See `APPROACH_STAIR_LATERAL`. Face 0 is the reference, so it takes no offset.
+    const faceStart = descentStart
+      .clone()
+      .addScaledVector(approachForward, face * (APPROACH_STAIR_RUN + APPROACH_STAIR_GAP))
+      .addScaledVector(approachHighSide, -face * APPROACH_STAIR_LATERAL)
+      .setY(APPROACH_DESCENT_START_Y - face * (stairPitchDrop + APPROACH_STAIR_DROP));
+    buildBankedRamp(group, faces, {
+      start: faceStart,
+      yawDeg: approachYawDeg,
+      pitchDeg: APPROACH_DESCENT_PITCH_DEG,
+      length: APPROACH_STAIR_LENGTH,
+      // Face 0 leans the same way as the ring so the start platform sits on its
+      // high side; every face after it mirrors the one before.
+      bankSign: face % 2 === 0 ? 1 : -1,
+      color: APPROACH_FACE_COLOR,
+      segmentIndex: -1,
+      sectionIndex: face,
+      radius: 0,
+    });
+    approachPath.push(faceStart.clone());
+  }
 
+  // The straight is now reached across a gap like every other joint in the course,
+  // so it is built exactly where it belongs. That gap is also what retired the
+  // seam-bury this used to need: butted directly against a pitched face, a level
+  // piece's leading cap protruded through that face's surface as an uphill wall,
+  // because a banked piece's trailing edge stops being perpendicular to travel once
+  // the piece is also pitched — rolling the width axis about a downward-tilted
+  // forward gives it an along-travel component, raking the edge forward on the high
+  // side by `(width / 2) * sin(roll) * sin(pitch)`. A body riding in at 30 u/s came
+  // out at 6.4. Open air between the pieces cannot rake into anything.
+  //
+  // With an even `APPROACH_DESCENT_FACE_COUNT` the last staircase face leans
+  // opposite to the ring, which is what makes this handoff work: the player leaves
+  // its low edge on the same side as the straight's high edge, and the straight is
+  // collinear with segment 0, so from here to the ring is one unbroken line.
   buildBankedRamp(group, faces, {
-    start: straightBuildStart,
+    start: straightStart,
     yawDeg: approachYawDeg,
     pitchDeg: 0,
-    length: APPROACH_STRAIGHT_LENGTH + APPROACH_SEAM_BURY,
+    length: APPROACH_STRAIGHT_LENGTH,
     color: APPROACH_FACE_COLOR,
     segmentIndex: -1,
-    sectionIndex: 1,
+    sectionIndex: APPROACH_DESCENT_FACE_COUNT,
     radius: 0,
   });
-  approachPath.push(descentStart.clone(), straightStart.clone());
+  approachPath.push(straightStart.clone());
 
   // Elevated start platform, butted up against the descent's leading edge and
   // pushed `PLATFORM_OUTWARD_OFFSET` toward the face's high side, so the player
