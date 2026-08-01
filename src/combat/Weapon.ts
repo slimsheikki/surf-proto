@@ -1,15 +1,20 @@
-import { Vector3 } from 'three';
+import { Group, Vector3 } from 'three';
 import { Health } from './Health';
+import { TracerFx } from './Tracer';
 
 /**
  * Everything the auto-weapon needs from a thing it can shoot. Drones and the
  * level-10 boss are wildly different objects — one is a 10 HP seeker, the other
- * a 2200 HP arena piece — but the weapon only ever asks "how far, take this,
- * flash", so it targets both through this interface and contains no special
- * cases for either.
+ * a 2200 HP arena piece — but the weapon only ever asks "where, how far, take
+ * this, flash", so it targets both through this interface and contains no
+ * special cases for either.
+ *
+ * `position` is read only to place the cosmetic bolt's end point, and only on
+ * the tick the shot is fired. Nothing about damage depends on it.
  */
 export interface WeaponTarget {
   readonly health: Health;
+  readonly position: Vector3;
   distanceToPlayer(playerPosition: Vector3): number;
   flashHit(): void;
 }
@@ -41,6 +46,19 @@ const BASE_STATS: WeaponStats = {
  * range on a cooldown. Stat-driven so upgrades are just field mutations.
  */
 export class Weapon {
+  /**
+   * Muzzle-to-impact effects. Cosmetic only, and deliberately owned by the
+   * weapon rather than by the game loop: the weapon is the only thing that
+   * knows a shot happened, and hitscan damage gives it no other way to say so.
+   */
+  private readonly fx = new TracerFx();
+  /**
+   * Every bolt and impact flash, under one node. Add this to the scene once at
+   * construction and never think about it again — the pool inside is fixed, so
+   * this group's child count is bounded no matter how long a run lasts.
+   */
+  readonly effects: Group = this.fx.group;
+
   damage = BASE_STATS.damage;
   attacksPerSecond = BASE_STATS.attacksPerSecond;
   range = BASE_STATS.range;
@@ -53,13 +71,30 @@ export class Weapon {
    */
   private target: WeaponTarget | null = null;
 
+  /**
+   * Signature is unchanged. Effects are advanced from the `dt` already passed
+   * in, and the muzzle point is derived from `playerPosition` and the shot
+   * direction inside `TracerFx`, so making combat visible costs the call site
+   * nothing beyond parenting `weapon.effects` once.
+   *
+   * Effects tick first and unconditionally: bolts already in flight must keep
+   * flying on ticks where there is no target or the weapon is on cooldown,
+   * which is most ticks.
+   */
   tick(dt: number, playerPosition: Vector3, targets: readonly WeaponTarget[]): void {
+    this.fx.tick(dt);
+
     if (this.cooldown > 0) this.cooldown -= dt;
 
     if (!this.isEngageable(this.target, playerPosition, targets)) {
       this.target = this.pickNearest(playerPosition, targets);
     }
     if (!this.target || this.cooldown > 0) return;
+
+    // Snapshotted before the damage lands. The target routinely dies to this
+    // very shot, and the bolt must fly to where the shot went rather than ask a
+    // corpse where it is — it is a picture of a past event, not a projectile.
+    this.fx.fire(playerPosition, this.target.position);
 
     this.target.health.takeDamage(this.damage);
     this.target.flashHit();
@@ -92,12 +127,26 @@ export class Weapon {
     return nearest;
   }
 
-  /** Restores the starting stats, undoing every upgrade applied this run. */
+  /**
+   * Restores the starting stats, undoing every upgrade applied this run, and
+   * drops any bolt still in flight so a restart doesn't open with a shot from
+   * the previous run streaking across the course.
+   */
   reset(): void {
     this.damage = BASE_STATS.damage;
     this.attacksPerSecond = BASE_STATS.attacksPerSecond;
     this.range = BASE_STATS.range;
     this.cooldown = 0;
     this.target = null;
+    this.fx.clear();
+  }
+
+  /**
+   * Frees the effect pool's GPU resources. The weapon lives as long as the game
+   * does, so nothing calls this in the shipped loop — it exists so a test or a
+   * future teardown path can prove the pool releases everything it owns.
+   */
+  dispose(): void {
+    this.fx.dispose();
   }
 }

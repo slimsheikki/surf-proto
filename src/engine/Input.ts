@@ -22,6 +22,8 @@ export interface InputFrame {
   yawDelta: number;
   pitchDelta: number;
   cameraTogglePressed: boolean;
+  /** Edge-triggered: true on the single frame a left click was pressed. */
+  attackPressed: boolean;
 }
 
 export class InputSystem {
@@ -29,6 +31,7 @@ export class InputSystem {
   private pendingYawDelta = 0;
   private pendingPitchDelta = 0;
   private cameraToggleQueued = false;
+  private attackQueued = false;
   private locked = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -58,6 +61,14 @@ export class InputSystem {
       if (!this.locked) return;
       this.pendingYawDelta -= e.movementX * MOUSE_SENSITIVITY;
       this.pendingPitchDelta -= e.movementY * MOUSE_SENSITIVITY;
+    });
+
+    window.addEventListener('mousedown', (e) => {
+      // Gated on pointer lock so the click that *acquires* the lock — the one
+      // that dismisses the start overlay, or reclaims control after a menu —
+      // isn't also read as a swing. It is a UI click, not an attack.
+      if (!this.locked || e.button !== 0) return;
+      this.attackQueued = true;
     });
   }
 
@@ -94,11 +105,13 @@ export class InputSystem {
       yawDelta: this.pendingYawDelta,
       pitchDelta: this.pendingPitchDelta,
       cameraTogglePressed: this.cameraToggleQueued,
+      attackPressed: this.attackQueued,
     };
 
     this.pendingYawDelta = 0;
     this.pendingPitchDelta = 0;
     this.cameraToggleQueued = false;
+    this.attackQueued = false;
 
     return frame;
   }

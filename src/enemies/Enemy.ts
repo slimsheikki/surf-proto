@@ -2,7 +2,16 @@ import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
 import { Health } from '../combat/Health';
 
 const GEOMETRY = new SphereGeometry(0.45, 12, 10);
-const BASE_EMISSIVE = 0x330008;
+const BODY_COLOR = 0xd23c5c;
+/**
+ * Idle glow. The old 0x330008 was near-black: a drone read as a dark speck
+ * against the grey course and was routinely noticed only by the damage it had
+ * already done. This is a modest lift — deliberately *dimmer* than anything in
+ * flight, because projectiles are the things that have to win the player's eye
+ * and a swarm of drones glowing as hard as the boss's ring would drown them.
+ */
+const BASE_EMISSIVE = 0x8c1830;
+const BASE_EMISSIVE_INTENSITY = 0.85;
 const FLASH_EMISSIVE = 0xffcc55;
 const CONTACT_COOLDOWN = 0.5;
 const FLASH_DURATION = 0.12;
@@ -55,7 +64,11 @@ export class Enemy {
   ) {
     this.position = position.clone();
     this.health = new Health(hp);
-    this.material = new MeshStandardMaterial({ color: 0xd23c5c, emissive: BASE_EMISSIVE });
+    this.material = new MeshStandardMaterial({
+      color: BODY_COLOR,
+      emissive: BASE_EMISSIVE,
+      emissiveIntensity: BASE_EMISSIVE_INTENSITY,
+    });
     this.mesh = new Mesh(GEOMETRY, this.material);
     this.mesh.position.copy(this.position);
     this.aimError = new Vector3(

@@ -1,10 +1,18 @@
 import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
 
 const GEOMETRY = new SphereGeometry(0.18, 8, 8);
+/**
+ * An orb is 0.18 units across and is usually seen for well under a second while
+ * the player flies past at 30 u/s, so it has to be bright to be seen at all.
+ * The old teal emissive (0x1a6b7a) was a fraction of the body colour's value
+ * and left orbs looking like unlit plastic; this pushes the glow up to the body
+ * colour itself. Kept a shade cooler and much dimmer overall than a bolt's
+ * flare — pickups should be noticeable, not mistaken for incoming fire.
+ */
 const MATERIAL = new MeshStandardMaterial({
   color: 0x7fe8ff,
-  emissive: 0x1a6b7a,
-  emissiveIntensity: 1.2,
+  emissive: 0x5fd4ef,
+  emissiveIntensity: 1.9,
 });
 
 /** Distance at which an orb notices the player and starts homing. */

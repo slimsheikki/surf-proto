@@ -1,12 +1,14 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Health } from '../combat/Health';
-import { Weapon, WeaponTarget } from '../combat/Weapon';
+import { Knife, KnifeTarget, SlashCone } from '../combat/Knife';
+import { Weapon } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { Boss, BOSS_SPAWN_LEVEL } from '../enemies/Boss';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
 import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
+import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
 import { XPOrb } from '../progression/XPOrb';
@@ -70,6 +72,7 @@ export class Game {
   readonly cameraRig: CameraRig;
   readonly playerHealth = new Health(BASE_MAX_HP);
   readonly weapon = new Weapon();
+  readonly knife = new Knife();
   readonly levelSystem = new LevelSystem();
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
@@ -93,8 +96,15 @@ export class Game {
   /**
    * Reused each tick so the drone list and the boss can be handed to the weapon
    * as one target list without allocating an array 128 times a second.
+   *
+   * Typed as the knife's (wider) target — everything in it already carries a
+   * world position — so both weapons read the same array. `KnifeTarget extends
+   * WeaponTarget`, so it still satisfies `Weapon.tick` unchanged.
    */
-  private readonly weaponTargets: WeaponTarget[] = [];
+  private readonly weaponTargets: KnifeTarget[] = [];
+
+  /** One reused mesh; retriggered per swing rather than reallocated. */
+  private readonly slashCone = new SlashCone();
 
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
@@ -105,6 +115,13 @@ export class Game {
     private readonly scene: Scene,
     camera: PerspectiveCamera,
     private readonly course: GameCourse,
+    /**
+     * Owned by `main.ts` (it is the thing that has a renderer and a render
+     * order), driven from here. Animation state has to advance on the fixed
+     * timestep alongside the swing that triggers it, or a 0.25 s swing would
+     * play at a different speed on every monitor.
+     */
+    private readonly viewModel: ViewModel,
   ) {
     this.stages = course.stages;
     this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
@@ -112,6 +129,7 @@ export class Game {
     this.entityManager = new EntityManager(scene);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     this.victoryScreen = new VictoryScreen(() => this.restart());
+    scene.add(this.slashCone.mesh);
   }
 
   private get lastStage(): CourseStage {
@@ -153,6 +171,11 @@ export class Game {
     if (this.state === 'playing' && !this.paused) {
       this.updateGameplay(dt, input);
     }
+
+    // Outside the gameplay branch: the viewmodel keeps settling (and a swing
+    // keeps playing out) through a level-up pause instead of freezing mid-arc.
+    this.viewModel.update(dt, this.playerController.speed, input.yawDelta, input.pitchDelta);
+    this.slashCone.tick(dt);
 
     this.cameraRig.update(this.playerController);
     this.updateHud();
@@ -199,6 +222,16 @@ export class Game {
     for (const enemy of this.entityManager.enemies) this.weaponTargets.push(enemy);
     if (this.boss) this.weaponTargets.push(this.boss);
     this.weapon.tick(dt, playerPosition, this.weaponTargets);
+
+    // After the auto-weapon, before the kill pass, so a drone finished off by
+    // the knife this tick still drops its XP on this tick.
+    const swing = this.knife.tick(dt, this.playerController, this.weaponTargets, input.attackPressed);
+    if (swing) {
+      this.viewModel.triggerSlash();
+      // Shown on whiffs too — the point of the flash is to teach the reach,
+      // which is exactly what the player who just missed needs to see.
+      this.slashCone.trigger(playerPosition, this.playerController.yaw);
+    }
 
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
@@ -295,6 +328,9 @@ export class Game {
     this.spawnDirector.reset();
     this.levelSystem.reset();
     this.weapon.reset();
+    this.knife.reset();
+    this.slashCone.hide();
+    this.viewModel.reset();
     resetMovementConfig();
     this.upgradeMenu.hide();
     this.gameOverScreen.hide();

@@ -1,6 +1,9 @@
 import {
+  AdditiveBlending,
+  BufferGeometry,
   Group,
   IcosahedronGeometry,
+  Material,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -202,16 +205,78 @@ const OUTWARD_CULL_MARGIN = 30;
  * ------------------------------------------------------------------ */
 
 /**
+ * Colour is the whole identification scheme for things flying at the player:
+ * cyan is the player's own auto-attack, hot orange is a ring pellet, magenta is
+ * a homing orb. Three saturated, well-separated hues so a glance at a streak
+ * says whether to dodge it and which way it will behave.
+ */
+const RING_COLOR = 0xff8a3c;
+const ORB_COLOR = 0xff5ce8;
+/** Bright enough to read as a light source against the grey course at speed. */
+const PROJECTILE_EMISSIVE_INTENSITY = 2.6;
+const PROJECTILE_SHELL_OPACITY = 0.32;
+
+/**
  * Geometry *and* material are module-level and shared by every projectile and
  * orb: neither ever changes colour, so there is nothing per-instance to own and
  * therefore nothing per-instance to leak. Removal is unparenting, exactly as
  * with XP orbs. (The boss body and its beam do have per-instance materials, and
  * those are disposed in `Boss.dispose`.)
+ *
+ * Each projectile is drawn as a core plus a translucent additive shell, on the
+ * same reasoning as the beam's shell: the shell radius is the *hit radius*, so
+ * the glow the player dodges is the volume that actually damages them. A ring
+ * pellet's damage radius is 1.4 against a 0.8 body, and an orb's is 1.3 against
+ * a 0.55 body — drawing only the body means being hit by apparently empty air.
+ * No hitbox changes here; this makes the existing ones visible.
  */
 const PROJECTILE_GEOMETRY = new SphereGeometry(RING_PROJECTILE_RADIUS, 10, 8);
-const PROJECTILE_MATERIAL = new MeshBasicMaterial({ color: 0xff8a3c });
+const PROJECTILE_MATERIAL = new MeshStandardMaterial({
+  color: RING_COLOR,
+  emissive: RING_COLOR,
+  emissiveIntensity: PROJECTILE_EMISSIVE_INTENSITY,
+  roughness: 1,
+  metalness: 0,
+});
+const PROJECTILE_SHELL_GEOMETRY = new SphereGeometry(RING_HIT_RADIUS, 12, 10);
+const PROJECTILE_SHELL_MATERIAL = new MeshBasicMaterial({
+  color: RING_COLOR,
+  transparent: true,
+  opacity: PROJECTILE_SHELL_OPACITY,
+  blending: AdditiveBlending,
+  depthWrite: false,
+});
 const ORB_GEOMETRY = new SphereGeometry(ORB_RADIUS, 10, 8);
-const ORB_MATERIAL = new MeshBasicMaterial({ color: 0xd85cff });
+const ORB_MATERIAL = new MeshStandardMaterial({
+  color: ORB_COLOR,
+  emissive: ORB_COLOR,
+  emissiveIntensity: PROJECTILE_EMISSIVE_INTENSITY,
+  roughness: 1,
+  metalness: 0,
+});
+const ORB_SHELL_GEOMETRY = new SphereGeometry(ORB_HIT_RADIUS, 12, 10);
+const ORB_SHELL_MATERIAL = new MeshBasicMaterial({
+  color: ORB_COLOR,
+  transparent: true,
+  opacity: PROJECTILE_SHELL_OPACITY,
+  blending: AdditiveBlending,
+  depthWrite: false,
+});
+
+/**
+ * A glowing core with its damage-radius shell parented to it, so the pair moves
+ * and is unparented as one object and the emit/cull code stays unchanged.
+ */
+function glowingProjectile(
+  coreGeometry: BufferGeometry,
+  coreMaterial: Material,
+  shellGeometry: BufferGeometry,
+  shellMaterial: Material,
+): Mesh {
+  const core = new Mesh(coreGeometry, coreMaterial);
+  core.add(new Mesh(shellGeometry, shellMaterial));
+  return core;
+}
 
 const UP = new Vector3(0, 1, 0);
 const scratchDir = new Vector3();
@@ -220,7 +285,12 @@ type BeamState = 'cooldown' | 'telegraph' | 'live';
 
 /** A ring-burst pellet: straight-line, no steering, damage on contact. */
 class RingProjectile {
-  readonly mesh = new Mesh(PROJECTILE_GEOMETRY, PROJECTILE_MATERIAL);
+  readonly mesh = glowingProjectile(
+    PROJECTILE_GEOMETRY,
+    PROJECTILE_MATERIAL,
+    PROJECTILE_SHELL_GEOMETRY,
+    PROJECTILE_SHELL_MATERIAL,
+  );
   readonly position: Vector3;
   age = 0;
 
@@ -241,7 +311,7 @@ class RingProjectile {
 
 /** A slow seeker with a capped turn rate and a hard lifetime. */
 class HomingOrb {
-  readonly mesh = new Mesh(ORB_GEOMETRY, ORB_MATERIAL);
+  readonly mesh = glowingProjectile(ORB_GEOMETRY, ORB_MATERIAL, ORB_SHELL_GEOMETRY, ORB_SHELL_MATERIAL);
   readonly position: Vector3;
   age = 0;
 

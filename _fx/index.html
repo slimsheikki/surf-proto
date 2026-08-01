@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>fx harness</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      canvas { display: block; }
+      #label {
+        position: fixed; top: 8px; left: 10px; font: 13px monospace;
+        color: #fff; text-shadow: 0 0 4px #000; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <div id="label"></div>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
