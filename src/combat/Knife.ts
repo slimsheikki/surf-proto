@@ -60,15 +60,19 @@ const CONE_COS_LIMIT = Math.cos((KNIFE_CONE_HALF_ANGLE_DEG * Math.PI) / 180);
  *
  * `WeaponTarget` alone is not enough: it answers "how far" but not "which way",
  * and a cone test needs a direction. Both concrete targets (`Enemy`, `Boss`)
- * already expose `readonly position`, so widening the requirement here costs
- * nothing at the call site and leaves `Weapon.ts` untouched — `Game` keeps one
- * array, typed as `KnifeTarget[]`, and hands it to both weapons.
+ * already expose `readonly position`, so widening the requirement costs nothing
+ * at the call site and leaves `Weapon.ts` untouched — `Game` keeps one array,
+ * typed as `KnifeTarget[]`, and hands it to both weapons.
  *
- * Distance still goes through `distanceToPlayer` rather than through
- * `position`, deliberately: the boss subtracts its own engagement radius there
- * so that a 5.5-unit sphere hovering over the island reads as reachable. Using
- * raw positions would silently make the knife the one weapon that can never
- * touch the boss.
+ * The knife measures range from `position` and ignores the inherited
+ * `distanceToPlayer` entirely. That is a deliberate departure from the
+ * auto-weapon: `Boss.distanceToPlayer` subtracts a ~95-unit engagement radius
+ * so that a hovering arena piece reads as "in range" for a hitscan gun. Reusing
+ * it here would let a 3.5-unit melee weapon hit the boss from across the arena
+ * for ~145 DPS from total safety. Real distances instead mean the boss is
+ * simply not a melee target, which is the coherent reading of a 3.5-unit range.
+ * (If the boss is ever brought within reach, subtract its body radius here —
+ * centre distance under-reports how close its surface is.)
  */
 export interface KnifeTarget extends WeaponTarget {
   readonly position: Vector3;
@@ -146,10 +150,13 @@ export class Knife {
    */
   private isInCone(wielder: KnifeWielder, target: KnifeTarget): boolean {
     if (target.health.isDead) return false;
-    if (target.distanceToPlayer(wielder.position) > KNIFE_RANGE) return false;
 
     const dx = target.position.x - wielder.position.x;
+    const dy = target.position.y - wielder.position.y;
     const dz = target.position.z - wielder.position.z;
+    // Range is a true 3D sphere: drones hover, and the player is airborne.
+    if (dx * dx + dy * dy + dz * dz > KNIFE_RANGE * KNIFE_RANGE) return false;
+
     const flatDistSq = dx * dx + dz * dz;
     // Directly overhead / inside the player: there is no meaningful direction
     // to test, and something that close is unambiguously hit.

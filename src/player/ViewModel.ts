@@ -44,9 +44,9 @@ const HANDLE_COLOR = 0x24282e;
  * ------------------------------------------------------------------ */
 
 /** Lower-right of frame, knife hand. */
-const RIGHT_ARM_BASE = { x: 0.26, y: -0.24, z: -0.55 };
+const RIGHT_ARM_BASE = { x: 0.23, y: -0.16, z: -0.53 };
 /** Lower-centre-left and further from camera: the off-hand, mostly out of frame. */
-const LEFT_ARM_BASE = { x: -0.17, y: -0.25, z: -0.5 };
+const LEFT_ARM_BASE = { x: -0.21, y: -0.3, z: -0.5 };
 
 /* ------------------------------------------------------------------ *
  * Idle motion
@@ -91,12 +91,27 @@ const WINDUP_SECONDS = 0.06;
 const SLASH_SECONDS = 0.1;
 const RECOVER_SECONDS = 0.09;
 
-/** Cocked back toward the camera, up and out to the right. */
-const WINDUP_POS = { x: 0.07, y: 0.08, z: 0.11 };
-const WINDUP_ROT = { x: -0.3, y: -0.5, z: 0.35 };
-/** Follow-through: down and across to the left, blade rolled over. */
-const SLASH_POS = { x: -0.36, y: -0.21, z: -0.07 };
-const SLASH_ROT = { x: 0.4, y: 1.15, z: -1.3 };
+/**
+ * Cocked up and to the right, blade rotated toward vertical. Deliberately
+ * restrained on Z: this close to the lens, pulling the fist a few more
+ * centimetres toward the camera magnifies it into a wall that fills the corner
+ * and hides the blade, so the read of the wind-up comes from rotation.
+ *
+ * Sign notes, because they are not guessable: +rotation.z turns the model
+ * counter-clockwise on screen, and the blade sits at roughly 160 deg (up and to
+ * the left) at rest. So the wind-up rolls NEGATIVE (clockwise, lifting the tip
+ * toward vertical) and the slash rolls POSITIVE through and past the rest angle,
+ * dropping the tip below horizontal — a right-to-left downward diagonal.
+ */
+const WINDUP_POS = { x: 0.05, y: 0.075, z: 0.035 };
+const WINDUP_ROT = { x: 0.2, y: -0.2, z: -0.5 };
+/**
+ * Follow-through: down and across to the left, tip below horizontal. Kept short
+ * of the frame edge on purpose — a follow-through that carries the model right
+ * out of view reads as the knife disappearing rather than as a swing.
+ */
+const SLASH_POS = { x: -0.24, y: -0.07, z: -0.04 };
+const SLASH_ROT = { x: -0.25, y: 0.5, z: 0.6 };
 
 type SlashPhase = 'idle' | 'windup' | 'slash' | 'recover';
 
@@ -175,8 +190,10 @@ export class ViewModel {
 
   constructor() {
     // The overlay scene has no background, so the main pass shows through.
-    this.scene.add(new AmbientLight(0xffffff, 0.85));
-    const key = new DirectionalLight(0xffffff, 1.5);
+    // Lit brighter than the world: the gloves are near-black by spec, and at
+    // world light levels they disappear into any shadowed ramp behind them.
+    this.scene.add(new AmbientLight(0xffffff, 1.1));
+    const key = new DirectionalLight(0xffffff, 1.8);
     key.position.set(0.6, 1, 0.7);
     this.scene.add(key);
     // Cold fill from the left keeps the blade's left face from going black,
@@ -233,16 +250,18 @@ export class ViewModel {
 
     const guard = box(0.085, 0.02, 0.022, GUARD_COLOR, 0.35, 0.6);
 
-    const blade = box(0.014, 0.052, 0.3, BLADE_COLOR, 0.6, 0.35);
-    blade.position.set(0, -0.004, -0.16);
+    const blade = box(0.013, 0.046, 0.235, BLADE_COLOR, 0.6, 0.35);
+    blade.position.set(0, -0.004, -0.128);
     // Slight drop toward the point, as on a real combat knife: the brief asks
     // for a blade angled forward-and-slightly-down while the knife as a whole
     // is canted up across the frame, and this is where the two reconcile.
     blade.rotation.x = -0.08;
 
     knife.add(handle, guard, blade);
-    knife.position.set(0.002, 0.022, -0.012);
-    knife.rotation.set(0.32, 0.5, -0.4);
+    // Pushed forward of the fist's front face so the crossbar is actually
+    // visible between glove and blade; the handle stays buried in the grip.
+    knife.position.set(0.002, 0.024, -0.055);
+    knife.rotation.set(0.38, 0.55, -0.4);
     return knife;
   }
 

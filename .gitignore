@@ -3,8 +3,9 @@ dist/
 *.log
 *.tsbuildinfo
 
-# throwaway level-viewer used for screenshots
+# throwaway harness pages used for screenshots (level viewer, fx test bench)
 _shots/
+_fx/
 
 # headless verification scratch (esbuild bundles for node probes)
 .probe*

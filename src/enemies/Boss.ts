@@ -212,9 +212,34 @@ const OUTWARD_CULL_MARGIN = 30;
  */
 const RING_COLOR = 0xff8a3c;
 const ORB_COLOR = 0xff5ce8;
-/** Bright enough to read as a light source against the grey course at speed. */
-const PROJECTILE_EMISSIVE_INTENSITY = 2.6;
-const PROJECTILE_SHELL_OPACITY = 0.32;
+/**
+ * Bright enough to read as a light source against the grey course, and no
+ * brighter. Emissive much above 1 clips every channel and a saturated hue turns
+ * flat white — which would undo the whole point of colour-coding the three
+ * projectile types. These are tuned per hue to overdrive only the channels that
+ * can afford it: orange can push its red hard, magenta cannot push both red and
+ * blue before it goes pink.
+ */
+const RING_EMISSIVE_INTENSITY = 1.05;
+const ORB_EMISSIVE_INTENSITY = 1.15;
+const PROJECTILE_SHELL_OPACITY = 0.28;
+/**
+ * Shell hues are pushed further from white than the cores they wrap. Additive
+ * blending adds to whatever is behind it, so a shell carrying all three channels
+ * drives the result toward white and the halo stops telling the player anything.
+ * Zeroing the channel each hue can spare — blue for the orange pellet, green for
+ * the magenta orb — means the glow can only ever add its own colour.
+ */
+const RING_SHELL_COLOR = 0xff6408;
+const ORB_SHELL_COLOR = 0xff0ce0;
+/**
+ * Base colours are near-black tints of the hue, not the hue itself: the course
+ * is lit by an ambient plus a directional light, and a lit saturated base adds
+ * to the emissive and washes the projectile out to white. Emissive alone decides
+ * how these look, so they read identically wherever the sun is.
+ */
+const RING_BASE = 0x2a1000;
+const ORB_BASE = 0x2a0424;
 
 /**
  * Geometry *and* material are module-level and shared by every projectile and
@@ -232,15 +257,15 @@ const PROJECTILE_SHELL_OPACITY = 0.32;
  */
 const PROJECTILE_GEOMETRY = new SphereGeometry(RING_PROJECTILE_RADIUS, 10, 8);
 const PROJECTILE_MATERIAL = new MeshStandardMaterial({
-  color: RING_COLOR,
+  color: RING_BASE,
   emissive: RING_COLOR,
-  emissiveIntensity: PROJECTILE_EMISSIVE_INTENSITY,
+  emissiveIntensity: RING_EMISSIVE_INTENSITY,
   roughness: 1,
   metalness: 0,
 });
 const PROJECTILE_SHELL_GEOMETRY = new SphereGeometry(RING_HIT_RADIUS, 12, 10);
 const PROJECTILE_SHELL_MATERIAL = new MeshBasicMaterial({
-  color: RING_COLOR,
+  color: RING_SHELL_COLOR,
   transparent: true,
   opacity: PROJECTILE_SHELL_OPACITY,
   blending: AdditiveBlending,
@@ -248,15 +273,15 @@ const PROJECTILE_SHELL_MATERIAL = new MeshBasicMaterial({
 });
 const ORB_GEOMETRY = new SphereGeometry(ORB_RADIUS, 10, 8);
 const ORB_MATERIAL = new MeshStandardMaterial({
-  color: ORB_COLOR,
+  color: ORB_BASE,
   emissive: ORB_COLOR,
-  emissiveIntensity: PROJECTILE_EMISSIVE_INTENSITY,
+  emissiveIntensity: ORB_EMISSIVE_INTENSITY,
   roughness: 1,
   metalness: 0,
 });
 const ORB_SHELL_GEOMETRY = new SphereGeometry(ORB_HIT_RADIUS, 12, 10);
 const ORB_SHELL_MATERIAL = new MeshBasicMaterial({
-  color: ORB_COLOR,
+  color: ORB_SHELL_COLOR,
   transparent: true,
   opacity: PROJECTILE_SHELL_OPACITY,
   blending: AdditiveBlending,
