@@ -265,9 +265,17 @@ export class Game {
     this.upgradeMenu.show(choices, (choice) => {
       const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth };
       choice.apply(ctx);
-      this.upgradeMenu.hide();
       this.state = 'playing';
     });
+  }
+
+  /**
+   * True while a menu with on-screen buttons is up. `main.ts` uses this to decide
+   * whether the cursor should be handed back, and to keep the "click to start"
+   * overlay from appearing on top of one of these.
+   */
+  get isMenuOpen(): boolean {
+    return this.state === 'gameOver' || this.state === 'victory';
   }
 
   /**

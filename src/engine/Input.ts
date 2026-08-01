@@ -65,6 +65,15 @@ export class InputSystem {
     this.canvas.requestPointerLock();
   }
 
+  /**
+   * Hands the cursor back. Required whenever a menu with clickable buttons opens:
+   * while the pointer is locked the cursor is hidden and every click is delivered
+   * to the canvas, so on-screen buttons cannot be pressed at all.
+   */
+  releasePointerLock(): void {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
   isLocked(): boolean {
     return this.locked;
   }

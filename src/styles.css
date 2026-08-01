@@ -174,3 +174,35 @@ html, body {
 #restart-button:hover, #victory-restart-button:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* Number badge on each level-up choice: the run happens under pointer lock, so
+   the keyboard is the primary way to pick and the binding has to be visible. */
+.upgrade-key {
+  display: block;
+  margin: 0 auto 8px;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.overlay-hint {
+  margin: 4px 0 0;
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.overlay-hint kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  font: inherit;
+  font-weight: 700;
+}

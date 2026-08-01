@@ -45,10 +45,12 @@ const requestStart = () => {
 canvas.addEventListener('click', requestStart);
 startOverlay.addEventListener('click', requestStart);
 document.addEventListener('pointerlockchange', () => {
-  startOverlay.classList.toggle('hidden', input.isLocked());
+  const locked = input.isLocked();
+  // Never surface "click to start" on top of a game-over or victory panel.
+  startOverlay.classList.toggle('hidden', locked || game.isMenuOpen);
   // Don't simulate while the user isn't holding the controls — otherwise drones
   // keep spawning and the player slides off a ramp behind the start overlay.
-  game.setPaused(!input.isLocked());
+  game.setPaused(!locked);
 });
 
 window.addEventListener('resize', () => {
@@ -61,6 +63,11 @@ const loop = new FixedStepLoop();
 
 function frame(nowMs: number): void {
   loop.step(nowMs / 1000, (dt) => game.tick(dt, input.consumeFrame()));
+  // Game-over and victory are the only panels the player must click, so the
+  // cursor is handed back the moment one appears. Without this the pointer stays
+  // locked, the cursor stays hidden, every click goes to the canvas, and the
+  // restart button is unreachable — the run would simply dead-end.
+  if (game.isMenuOpen && input.isLocked()) input.releasePointerLock();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
