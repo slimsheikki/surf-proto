@@ -51,7 +51,7 @@ const SEGMENT_ARC_DEG = 360 / LOOP_SEGMENT_COUNT;
  * Mean radius of the ring, and the radial wobble applied to alternate segments.
  *
  * The wobble is load-bearing, not decoration. Even segments sit at
- * `TRACK_RADIUS - TRACK_RADIUS_WOBBLE`, odd at `TRACK_RADIUS +
+ * `TRACK_RADIUS + TRACK_RADIUS_WOBBLE`, odd at `TRACK_RADIUS -
  * TRACK_RADIUS_WOBBLE`, so consecutive ramps are offset laterally by twice the
  * wobble. A straight ballistic line out of one ramp therefore lands off the side
  * of the next even before the ring's curvature is accounted for, which is what
@@ -365,12 +365,25 @@ function playerYawDegForHeading(headingDeg: number): number {
 }
 
 /**
- * Radius of segment `i`'s face centreline. Even segments pull in, odd push out;
+ * Radius of segment `i`'s face centreline. Even segments push out, odd pull in;
  * with an even segment count the alternation closes cleanly at the seam between
  * segment 9 and segment 0.
+ *
+ * The parity is not free, even though the ring looks the same either way. The
+ * approach runs *along segment 0's chord*, backwards from its leading edge, and
+ * consecutive chords of the ring cross each other: the chord of an inner segment
+ * (radius `TRACK_RADIUS - TRACK_RADIUS_WOBBLE`) crosses the chord line of an
+ * outer neighbour 13.5 units beyond its own trailing end, while an *outer*
+ * segment's chord crosses an inner neighbour's line 13.5 units *before* its
+ * leading edge — i.e. right where the approach has to be. With segment 0 inner,
+ * segment 9's ramp physically intersects the approach straight (verified: 4.3
+ * units of box interpenetration, and a surfer wedges in the resulting pocket).
+ * Making segment 0 the outer segment puts segment 9 inside the approach's line
+ * with several units of clearance, and costs nothing else — the ring is
+ * geometrically the same course either way.
  */
 function segmentRadius(index: number): number {
-  return TRACK_RADIUS + (index % 2 === 0 ? -TRACK_RADIUS_WOBBLE : TRACK_RADIUS_WOBBLE);
+  return TRACK_RADIUS + (index % 2 === 0 ? TRACK_RADIUS_WOBBLE : -TRACK_RADIUS_WOBBLE);
 }
 
 /**
