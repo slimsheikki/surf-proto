@@ -1,10 +1,13 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
+import { Blast } from '../combat/Blast';
 import { Health } from '../combat/Health';
 import { Knife, KnifeTarget, SlashCone } from '../combat/Knife';
 import { Weapon } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { degToRad } from '../engine/MathUtils';
-import { Boss, BOSS_SPAWN_LEVEL } from '../enemies/Boss';
+import { Boss } from '../enemies/Boss';
+import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
+import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
 import { resetMovementConfig } from '../player/MovementConfig';
@@ -13,11 +16,11 @@ import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
 import { XPOrb } from '../progression/XPOrb';
+import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
-import { VictoryScreen } from '../ui/VictoryScreen';
 import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
@@ -25,6 +28,19 @@ import { GameState } from './GameState';
 /** Enemy sphere is r=0.45 and the player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing speed. */
 const CONTACT_RADIUS = 1.3;
 const XP_PER_KILL = 3;
+/**
+ * XP for felling a Monolith.
+ *
+ * Not flavour — it corrects an accounting problem the endless run creates. Drone
+ * spawning is suspended for the whole fight, and drones are the only XP source,
+ * so a boss fight is otherwise a two-minute hole in the player's progression
+ * that leaves them *further* from the next Monolith than when they started.
+ * Roughly two levels' worth at the point the first one arrives.
+ */
+const XP_PER_BOSS = 45;
+
+/** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
+const BOSS_BANNER_SECONDS = 4.5;
 const RESPAWN_HEIGHT_OFFSET = new Vector3(0, 1.2, 0);
 const BASE_MAX_HP = 100;
 
@@ -90,19 +106,20 @@ export class Game {
 
   state: GameState = 'playing';
 
-  /** Null until level 10, and again once the boss is dead. */
+  /** Null between Monoliths — which is most of a run. */
   boss: Boss | null = null;
+
+  /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
+  bossesFelled = 0;
 
   /** Index into `stages` of the last rest platform the player stood on. */
   private lastStageIndex = 0;
   private paused = false;
-  /** Latched so a defeated boss can't be re-summoned by a later level-up. */
-  private bossDefeated = false;
   private readonly hud = new Hud();
   private readonly bossBar = new BossBar();
   private readonly upgradeMenu = new UpgradeMenu();
   private readonly gameOverScreen: GameOverScreen;
-  private readonly victoryScreen: VictoryScreen;
+  private readonly banner = new Banner();
 
   /**
    * Reused each tick so the drone list and the boss can be handed to the weapon
@@ -151,7 +168,6 @@ export class Game {
     // damage with nothing drawn.
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
-    this.victoryScreen = new VictoryScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
   }
 
@@ -211,6 +227,7 @@ export class Game {
     // keeps playing out) through a level-up pause instead of freezing mid-arc.
     this.viewModel.update(dt, this.playerController.speed, input.yawDelta, input.pitchDelta);
     this.slashCone.tick(dt);
+    this.banner.tick(dt);
 
     this.cameraRig.update(this.playerController);
     this.updateHud();
@@ -226,9 +243,9 @@ export class Game {
       this.playerController.teleport(this.lastStage.center.clone().add(RESPAWN_HEIGHT_OFFSET));
     }
 
-    // Checked before the spawn director runs, so the tick the boss arrives on is
-    // already a tick with drone spawning suspended.
-    if (!this.boss && !this.bossDefeated && this.levelSystem.level >= BOSS_SPAWN_LEVEL) {
+    // Checked before the spawn director runs, so the tick a Monolith arrives on
+    // is already a tick with drone spawning suspended.
+    if (!this.boss && this.levelSystem.level >= bossLevelFor(this.bossesFelled)) {
       this.spawnBoss();
     }
 
@@ -239,16 +256,31 @@ export class Game {
         travelDirection: this.travelDirection(),
         playerSpeed: playerVelocity.length(),
         liveEnemyCount: this.entityManager.enemies.length,
+        playerLevel: this.levelSystem.level,
       },
       (enemy) => this.entityManager.addEnemy(enemy),
     );
 
     for (const enemy of this.entityManager.enemies) {
       enemy.tick(dt, playerPosition, playerVelocity);
+      // Collected straight after the enemy's own tick, so a blast is planted
+      // against the player position that tick used rather than one frame stale.
+      if (enemy instanceof Seeder) {
+        const plant = enemy.takePlantedBlast();
+        if (plant) this.entityManager.addBlast(new Blast(plant, enemy.blastDamage));
+      }
       if (enemy.canDealContactDamage() && enemy.distanceToPlayer(playerPosition) < CONTACT_RADIUS) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
       }
+    }
+
+    // Blasts tick after the seeders that plant them but before the death check,
+    // so a detonation that kills the player resolves on the tick it goes off.
+    // They are deliberately not in `weaponTargets`: an area attack is terrain,
+    // not something the auto-weapon should waste a lock on.
+    for (const blast of this.entityManager.blasts) {
+      blast.tick(dt, playerPosition, this.damagePlayer);
     }
 
     this.boss?.tick(dt, playerPosition, this.damagePlayer);
@@ -281,30 +313,42 @@ export class Game {
       this.levelSystem.addXp(orb.value, () => this.startLevelUp());
     });
     this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
+    this.entityManager.cullSpentBlasts();
 
     // Player death is resolved first: a simultaneous kill is a loss, and the
-    // boss dying must not rescue a player the beam already finished off.
+    // boss dying must not rescue a player the beam already finished off. Death
+    // is now the *only* way a run ends — there is no win state to race it.
     if (this.playerHealth.isDead) {
-      this.state = 'gameOver';
-      this.gameOverScreen.show(this.levelSystem.level, this.spawnDirector.elapsedSeconds);
+      this.endRun();
       return;
     }
     if (this.boss && !this.boss.isAlive) {
-      this.winRun();
+      this.fellBoss();
     }
   }
 
   /**
-   * Summons the boss over the island and turns the endless run into a duel:
-   * drone spawning stops and live drones are dismissed, so nothing else is
-   * competing for the player's attention or the weapon's target slot. XP orbs
-   * already in flight are left alone — they are earned.
+   * Summons a Monolith over the island and turns the run into a duel: drone
+   * spawning stops and live drones are dismissed, so nothing else is competing
+   * for the player's attention or the weapon's target slot. Live blasts go too
+   * — one planted a second ago would detonate under a player whose attention
+   * has just been yanked to the other end of the course. XP orbs already in
+   * flight are left alone; they are earned.
+   *
+   * The `bossesFelled`-th Monolith is the one arriving, so the scale it is
+   * built with is the scale for the encounter the player has not had yet.
    */
   private spawnBoss(): void {
-    this.boss = new Boss(this.course.islandCenter, this.course.trackRadius, this.course.trackY);
+    this.boss = new Boss(
+      this.course.islandCenter,
+      this.course.trackRadius,
+      this.course.trackY,
+      bossScaleFor(this.bossesFelled),
+    );
     this.scene.add(this.boss.group);
     this.spawnDirector.suspended = true;
     this.entityManager.clearEnemies();
+    this.entityManager.clearBlasts();
   }
 
   /** Tears the boss down completely; safe to call when there is no boss. */
@@ -320,11 +364,38 @@ export class Game {
     this.bossBar.hide();
   }
 
-  private winRun(): void {
-    this.bossDefeated = true;
+  /**
+   * A Monolith dies and the run carries straight on.
+   *
+   * This used to be `winRun`, and the change is the whole shape of the game:
+   * the fight is a milestone inside an endless run rather than its ending. The
+   * drone stream resumes on the same tick, scaled to whatever level the player
+   * reached getting here, and the next Monolith is queued up ten levels out at
+   * `bossScaleFor(bossesFelled)` — which has just gone up by one.
+   */
+  private fellBoss(): void {
+    this.bossesFelled += 1;
     this.despawnBoss();
-    this.state = 'victory';
-    this.victoryScreen.show(this.levelSystem.level, this.spawnDirector.elapsedSeconds);
+    this.spawnDirector.suspended = false;
+    // Granted after the counter, so an award that levels the player straight
+    // past the next boss threshold still finds `bossesFelled` correct.
+    this.levelSystem.addXp(XP_PER_BOSS, () => this.startLevelUp());
+    this.banner.show(
+      'MONOLITH DOWN',
+      `${this.bossesFelled} felled — the next one is coming at level ${bossLevelFor(this.bossesFelled)}`,
+      BOSS_BANNER_SECONDS,
+    );
+  }
+
+  /** The one exit from a run. */
+  private endRun(): void {
+    this.state = 'gameOver';
+    this.banner.hide();
+    this.gameOverScreen.show(
+      this.levelSystem.level,
+      this.spawnDirector.elapsedSeconds,
+      this.bossesFelled,
+    );
   }
 
   private startLevelUp(): void {
@@ -343,7 +414,7 @@ export class Game {
    * overlay from appearing on top of one of these.
    */
   get isMenuOpen(): boolean {
-    return this.state === 'gameOver' || this.state === 'victory';
+    return this.state === 'gameOver';
   }
 
   /**
@@ -355,7 +426,7 @@ export class Game {
     this.entityManager.clear();
     // Before `spawnDirector.reset()`, which is what lifts the suspension.
     this.despawnBoss();
-    this.bossDefeated = false;
+    this.bossesFelled = 0;
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
     this.playerController.teleport(this.course.spawnPoint.clone());
@@ -375,7 +446,7 @@ export class Game {
     resetMovementConfig();
     this.upgradeMenu.hide();
     this.gameOverScreen.hide();
-    this.victoryScreen.hide();
+    this.banner.hide();
     this.state = 'playing';
   }
 
@@ -409,7 +480,7 @@ export class Game {
 
   private updateHud(): void {
     // Hidden on the terminal screens so the bar doesn't hang over them.
-    if (this.boss && this.state !== 'gameOver' && this.state !== 'victory') {
+    if (this.boss && this.state !== 'gameOver') {
       this.bossBar.update({
         name: this.boss.name,
         hpFraction: this.boss.hpFraction,
@@ -425,6 +496,7 @@ export class Game {
       xpFraction: this.levelSystem.progress,
       level: this.levelSystem.level,
       elapsedSeconds: this.spawnDirector.elapsedSeconds,
+      bossesFelled: this.bossesFelled,
     });
   }
 }

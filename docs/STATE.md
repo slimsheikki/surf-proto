@@ -64,7 +64,56 @@ and open air cannot rake into anything.
 Also verified: air-strafe gain, bunnyhop retention (±0.0% over 6 hops), XP magnet at all
 speeds (100% collection), boss escape thresholds (25/30/45 u/s by phase).
 
-## Free mode (new)
+## Endless runs (new)
+
+A run has **no win condition**. Felling the Monolith is a milestone, not an ending;
+`GameState` lost its `victory` member and `VictoryScreen` is gone, replaced by
+`src/ui/Banner.ts` — a transient headline that pauses nothing and takes no click, because
+the kill usually lands mid-air on a ramp and a modal there would drop the player off the
+course as its reward for winning.
+
+- **`src/enemies/Difficulty.ts` is the single source of truth for scaling.** `difficultyAt(level,
+  elapsedSeconds)` returns drone/seeder stats, spawn interval, batch size, and the live cap.
+  Time carries the first minute (those ramps are the original tuning, unchanged), level
+  carries everything after and is never capped out.
+- **Verify against level 1 when touching that file.** At `t=120, level=1` it must still read
+  `hp 40, speed 12, interval 1.2, batch 2, cap 32` — the pre-endless numbers. A first draft
+  divided an unfloored time term by the level term and silently tripled the early-game spawn
+  rate; `TIME_FLOOR_SPAWN_INTERVAL` exists to stop exactly that.
+- **Monoliths recur every 10 levels**, scaled by `bossScaleFor(index)` — HP ×1.8 per
+  encounter, damage ×1.22. HP grows faster on purpose: by the second one the player has
+  twenty upgrades and needs the fight to have length, while the attacks stay dodgeable
+  patterns whose difficulty should come from holding a line.
+- Killing one grants `XP_PER_BOSS`. Not flavour: drone spawning is suspended for the whole
+  fight and drones are the only XP source, so without it a boss fight left the player
+  *further* from the next one.
+
+### The seeder (new enemy)
+
+`src/enemies/Seeder.ts` + `src/combat/Blast.ts`. A violet octahedron that flies like a drone
+(same interception solve, slower) but instead of ramming plants a **`Blast`** — a telegraphed
+sphere that fills up over a 1 s fuse and then damages anything inside once.
+
+The two numbers are the mechanic: escape speed is `RADIUS / (FUSE - LEAD)` = **10 u/s**.
+Walk speed is 7 and a surf line is 20-40, so a blast is lethal to a player who has stopped,
+botched a landing, or hovered to fight, and irrelevant to one who is actually surfing. That
+asymmetry is the whole reason it exists — it is the enemy that punishes *not* surfing, which
+is the one thing the combat layer is otherwise unable to do.
+
+Two things about it that look like details and are not: it is a **sphere, not a ground disc**
+(the player is airborne against a banked wall most of the time, so a circle on the floor is
+unreadable), and the wireframe shell sits at full radius from frame one while only the fill
+grows (the boundary must not move while you are trying to leave it).
+
+### Testing the late game
+
+`window.__surf` is the live `Game`, set in `App.beginRun` behind `import.meta.env.DEV` (Vite
+folds it out — `grep __surf dist/` is empty). It exists because ten levels and a 2200 HP boss
+are unreachable by scripted input, so without it the endless path can only be tested by
+playing it. Verified through it: seeders and blasts spawning, boss kill → run continues →
+second Monolith at 3960 HP → death → restart clears the ladder.
+
+## Free mode
 
 Second game mode, chosen from the main menu at boot. The player flies a free camera,
 drags ramps out of a side palette into the world, moves them in 3D, deletes what they do

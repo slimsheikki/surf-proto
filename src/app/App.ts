@@ -227,6 +227,15 @@ export class App {
 
     if (!this.game) {
       this.game = new Game(this.scene, this.camera, course, this.viewModel);
+      // Dev-only handle on the live run, for driving the game from a headless
+      // browser: the late game is gated behind ten levels and a 2200 HP boss,
+      // which no scripted input can reach in reasonable time, so without this
+      // the endless-run code path is untestable outside of playing it. Vite
+      // constant-folds `import.meta.env.DEV` to false and drops the branch from
+      // the production bundle.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__surf = this.game;
+      }
     } else {
       this.game.setCourse(course);
     }
@@ -257,7 +266,7 @@ export class App {
     document.addEventListener('pointerlockchange', () => {
       if (this.mode !== 'play') return;
       const locked = this.input.isLocked();
-      // Never surface "click to start" on top of a game-over or victory panel.
+      // Never surface "click to start" on top of the game-over panel.
       this.startOverlay.classList.toggle('hidden', locked || !!this.game?.isMenuOpen);
       this.game?.setPaused(!locked);
     });

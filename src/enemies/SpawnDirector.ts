@@ -1,22 +1,7 @@
 import { Vector3 } from 'three';
+import { Difficulty, difficultyAt } from './Difficulty';
 import { Enemy } from './Enemy';
-
-const MIN_SPAWN_INTERVAL = 1.2;
-const INITIAL_SPAWN_INTERVAL = 2.5;
-const DIFFICULTY_RAMP_SECONDS = 45;
-const BATCH_GROWTH_SECONDS = 90;
-/** Hard cap on batch size — the old `1 + floor(t/40)` grew without limit (~16 drones per spawn at 10 min). */
-const MAX_BATCH_SIZE = 2;
-
-const BASE_HP = 10;
-const HP_PER_SECOND = 0.25;
-const MAX_HP_BONUS = 30;
-
-const BASE_MOVE_SPEED = 9;
-const MOVE_SPEED_RAMP_SECONDS = 40;
-const MAX_MOVE_SPEED_BONUS = 6;
-
-const CONTACT_DAMAGE = 5;
+import { Seeder } from './Seeder';
 
 /** How far ahead along the travel direction drones appear, so they're met head-on. */
 const BASE_FORWARD_DIST = 22;
@@ -36,6 +21,12 @@ export interface SpawnContext {
   playerSpeed: number;
   /** Live enemies currently in the world, used to enforce the concurrency cap. */
   liveEnemyCount: number;
+  /**
+   * The player's current level. Together with the run clock this is the whole
+   * input to `Difficulty`, and it is the term that keeps growing after the time
+   * ramps have topped out — which is what makes an endless run stay a run.
+   */
+  playerLevel: number;
 }
 
 /**
@@ -50,14 +41,11 @@ export interface SpawnContext {
  * never grow without bound over a long run.
  */
 export class SpawnDirector {
-  /** Ceiling on simultaneously live drones; the real population is normally far below this. */
-  static readonly MAX_LIVE_ENEMIES = 32;
-
   /**
-   * Halts new drones without stopping the run clock — set while the level-10
-   * boss is alive so the fight is a duel rather than a duel plus a drone
-   * stream. The clock keeps ticking because the survival time is what the HUD
-   * shows and what the victory screen reports.
+   * Halts new drones without stopping the run clock — set while a Monolith is
+   * alive so the fight is a duel rather than a duel plus a drone stream. The
+   * clock keeps ticking because the survival time is what the HUD shows and
+   * what the game-over screen reports.
    */
   suspended = false;
 
@@ -69,27 +57,20 @@ export class SpawnDirector {
     if (this.suspended) return;
     this.timeSinceLastSpawn += dt;
 
-    const spawnInterval = Math.max(
-      MIN_SPAWN_INTERVAL,
-      INITIAL_SPAWN_INTERVAL - this.survivalTime / DIFFICULTY_RAMP_SECONDS,
-    );
-    if (this.timeSinceLastSpawn < spawnInterval) return;
+    const difficulty = difficultyAt(ctx.playerLevel, this.survivalTime);
+    if (this.timeSinceLastSpawn < difficulty.spawnInterval) return;
     this.timeSinceLastSpawn = 0;
 
-    const capacity = SpawnDirector.MAX_LIVE_ENEMIES - ctx.liveEnemyCount;
+    const capacity = difficulty.liveCap - ctx.liveEnemyCount;
     if (capacity <= 0) return;
 
-    const batchSize = Math.min(
-      MAX_BATCH_SIZE,
-      1 + Math.floor(this.survivalTime / BATCH_GROWTH_SECONDS),
-      capacity,
-    );
+    const batchSize = Math.min(difficulty.batchSize, capacity);
     for (let i = 0; i < batchSize; i++) {
-      spawnEnemy(this.spawnOne(ctx));
+      spawnEnemy(this.spawnOne(ctx, difficulty));
     }
   }
 
-  private spawnOne(ctx: SpawnContext): Enemy {
+  private spawnOne(ctx: SpawnContext, difficulty: Difficulty): Enemy {
     const forward = ctx.travelDirection;
     // Lateral basis from the horizontal component of travel, so spread stays
     // level with the world even when the player is plunging down a 78° ramp.
@@ -110,11 +91,23 @@ export class SpawnDirector {
       .addScaledVector(lateral, lateralOffset)
       .add(new Vector3(0, verticalOffset, 0));
 
-    const hp = BASE_HP + Math.min(this.survivalTime * HP_PER_SECOND, MAX_HP_BONUS);
-    const moveSpeed =
-      BASE_MOVE_SPEED +
-      Math.min(this.survivalTime / MOVE_SPEED_RAMP_SECONDS, MAX_MOVE_SPEED_BONUS);
-    return new Enemy(position, hp, moveSpeed, CONTACT_DAMAGE);
+    // Seeders are drawn per-spawn rather than as a scheduled wave, so a batch
+    // is a mix and the player never gets a lull of "only drones" to relax into.
+    if (Math.random() < difficulty.seederChance) {
+      return new Seeder(
+        position,
+        difficulty.seederHp,
+        difficulty.seederSpeed,
+        difficulty.seederContactDamage,
+        difficulty.blastDamage,
+      );
+    }
+    return new Enemy(
+      position,
+      difficulty.droneHp,
+      difficulty.droneSpeed,
+      difficulty.droneContactDamage,
+    );
   }
 
   reset(): void {

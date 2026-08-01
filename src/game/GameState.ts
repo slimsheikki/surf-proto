@@ -1,5 +1,7 @@
 /**
- * `victory` is terminal like `gameOver`: it is only reachable by killing the
- * level-10 boss, and the only way out of either is a restart.
+ * `gameOver` is the only terminal state, and that is deliberate: a run has no
+ * win condition. Felling a Monolith is a milestone the run continues past —
+ * see `Game.fellBoss` — so the only way out is death and the only screen with a
+ * button on it is the game-over one.
  */
-export type GameState = 'playing' | 'pausedForUpgrade' | 'gameOver' | 'victory';
+export type GameState = 'playing' | 'pausedForUpgrade' | 'gameOver';

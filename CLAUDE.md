@@ -64,6 +64,18 @@ movement.
 - `sleep` chains are blocked; use `until <check>; do sleep 2; done`.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
 
+## Endless runs
+
+There is **no win state** — felling the Monolith continues the run, and death is the only
+exit. All scaling lives in `src/enemies/Difficulty.ts`; when you touch it, check that
+`difficultyAt(1, 120)` still returns the pre-endless numbers, because a level term applied
+to an unfloored time term silently retunes the early game. Monoliths recur every 10 levels,
+scaled. The seeder (`src/enemies/Seeder.ts`) plants dodgeable AoE spheres whose escape speed
+is deliberately just above walk speed: it is the enemy that punishes *not* surfing.
+
+`window.__surf` is a dev-only handle on the live `Game` (stripped from prod) — the late game
+is otherwise unreachable by scripted input. See `docs/STATE.md`.
+
 ## Free mode
 
 A second mode off the main menu: a free-camera map editor where ramps are dragged in from

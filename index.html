@@ -15,6 +15,7 @@
       <div id="bar-xp" class="bar"><div id="bar-xp-fill" class="bar-fill xp"></div></div>
       <div id="level-readout">Lv 1</div>
       <div id="wave-readout">0:00</div>
+      <div id="felled-readout" class="hidden"></div>
     </div>
     <div id="boss-bar" class="hidden" data-phase="1">
       <div id="boss-bar-labels">
@@ -33,10 +34,9 @@
       <p id="game-over-stats"></p>
       <button id="restart-button">Surf Again</button>
     </div>
-    <div id="victory" class="overlay hidden">
-      <h1>Monolith Down</h1>
-      <p id="victory-stats"></p>
-      <button id="victory-restart-button">Surf Again</button>
+    <div id="banner" class="hidden">
+      <h1 id="banner-title"></h1>
+      <p id="banner-subtitle"></p>
     </div>
     <div id="start-overlay" class="overlay hidden">
       <h1>surf-proto</h1>

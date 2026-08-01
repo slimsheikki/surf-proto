@@ -1,4 +1,4 @@
-import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import { BufferGeometry, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
 import { Health } from '../combat/Health';
 
 const GEOMETRY = new SphereGeometry(0.45, 12, 10);
@@ -32,6 +32,27 @@ const MAX_AIM_ERROR = 4;
 const AIM_ERROR_FADE_DIST = 3;
 
 /**
+ * How an enemy looks. Split out so a subclass can be a different shape and
+ * colour without reimplementing any of the steering below — the seeder has to
+ * read as a different threat at a glance, and everything else about it is this
+ * class's behaviour with one extra timer.
+ */
+export interface EnemyVisual {
+  /** Shared across instances of that enemy type; never disposed per-enemy. */
+  geometry: BufferGeometry;
+  color: number;
+  emissive: number;
+  emissiveIntensity: number;
+}
+
+const DRONE_VISUAL: EnemyVisual = {
+  geometry: GEOMETRY,
+  color: BODY_COLOR,
+  emissive: BASE_EMISSIVE,
+  emissiveIntensity: BASE_EMISSIVE_INTENSITY,
+};
+
+/**
  * A small hovering drone. Drifts toward the player's full 3D position (not
  * ground-snapped) so it's naturally encountered mid-air while surfing —
  * combat is meant to punctuate a ramp run, not require standing on flat ground.
@@ -48,10 +69,11 @@ export class Enemy {
   readonly health: Health;
   readonly position: Vector3;
 
-  private readonly material: MeshStandardMaterial;
+  protected readonly material: MeshStandardMaterial;
   private contactCooldown = 0;
   private flashTimer = 0;
   private bobPhase = Math.random() * Math.PI * 2;
+  private readonly baseEmissive: number;
   /** Current heading; steered toward the intercept solution at a bounded rate. */
   private readonly heading = new Vector3();
   private readonly aimError: Vector3;
@@ -61,15 +83,17 @@ export class Enemy {
     hp: number,
     public moveSpeed: number,
     public contactDamage: number,
+    visual: EnemyVisual = DRONE_VISUAL,
   ) {
     this.position = position.clone();
     this.health = new Health(hp);
+    this.baseEmissive = visual.emissive;
     this.material = new MeshStandardMaterial({
-      color: BODY_COLOR,
-      emissive: BASE_EMISSIVE,
-      emissiveIntensity: BASE_EMISSIVE_INTENSITY,
+      color: visual.color,
+      emissive: visual.emissive,
+      emissiveIntensity: visual.emissiveIntensity,
     });
-    this.mesh = new Mesh(GEOMETRY, this.material);
+    this.mesh = new Mesh(visual.geometry, this.material);
     this.mesh.position.copy(this.position);
     this.aimError = new Vector3(
       Math.random() - 0.5,
@@ -116,6 +140,16 @@ export class Enemy {
   }
 
   tick(dt: number, playerPosition: Vector3, playerVelocity: Vector3): void {
+    this.moveToward(this.aimPoint(playerPosition, playerVelocity), dt);
+    this.updateVisuals(dt);
+  }
+
+  /**
+   * The point this enemy is currently steering at: the interception solution
+   * plus its personal aim error. Split from the movement so a subclass can
+   * steer at something else — or at nothing — without losing the lead solve.
+   */
+  protected aimPoint(playerPosition: Vector3, playerVelocity: Vector3): Vector3 {
     const lead = this.interceptSeconds(playerPosition, playerVelocity);
     const target =
       lead === null
@@ -131,8 +165,16 @@ export class Enemy {
     // while a drone approaching a slow or hovering player has time to line up.
     const rawDist = this.position.distanceTo(target);
     target.addScaledVector(this.aimError, Math.min(1, rawDist / AIM_ERROR_FADE_DIST));
+    return target;
+  }
 
-    const desired = target.sub(this.position);
+  /**
+   * Steers the heading toward `target` at no more than `TURN_RATE` and advances
+   * along it. `speedScale` lets a subclass ease off without changing the
+   * enemy's declared `moveSpeed`, which is what the interception solve uses.
+   */
+  protected moveToward(target: Vector3, dt: number, speedScale = 1): void {
+    const desired = target.clone().sub(this.position);
     const dist = desired.length();
     if (dist > 1e-4) {
       desired.divideScalar(dist);
@@ -149,9 +191,12 @@ export class Enemy {
           this.heading.lerp(desired, t).normalize();
         }
       }
-      this.position.addScaledVector(this.heading, this.moveSpeed * dt);
+      this.position.addScaledVector(this.heading, this.moveSpeed * speedScale * dt);
     }
+  }
 
+  /** Bob, mesh sync, and the two damage/flash timers. Every subclass needs all of it. */
+  protected updateVisuals(dt: number): void {
     this.bobPhase += dt * 3;
     this.mesh.position.copy(this.position);
     this.mesh.position.y += Math.sin(this.bobPhase) * 0.15;
@@ -159,7 +204,7 @@ export class Enemy {
     if (this.contactCooldown > 0) this.contactCooldown -= dt;
     if (this.flashTimer > 0) {
       this.flashTimer -= dt;
-      this.material.emissive.setHex(this.flashTimer > 0 ? FLASH_EMISSIVE : BASE_EMISSIVE);
+      this.material.emissive.setHex(this.flashTimer > 0 ? FLASH_EMISSIVE : this.baseEmissive);
     }
   }
 
