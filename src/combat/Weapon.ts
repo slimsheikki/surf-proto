@@ -1,5 +1,18 @@
 import { Vector3 } from 'three';
-import { Enemy } from '../enemies/Enemy';
+import { Health } from './Health';
+
+/**
+ * Everything the auto-weapon needs from a thing it can shoot. Drones and the
+ * level-10 boss are wildly different objects — one is a 10 HP seeker, the other
+ * a 2200 HP arena piece — but the weapon only ever asks "how far, take this,
+ * flash", so it targets both through this interface and contains no special
+ * cases for either.
+ */
+export interface WeaponTarget {
+  readonly health: Health;
+  distanceToPlayer(playerPosition: Vector3): number;
+  flashHit(): void;
+}
 
 /**
  * Baseline stats, kept separate from the live fields so upgrades (which mutate
@@ -38,13 +51,13 @@ export class Weapon {
    * speed that meant almost no kills. Committing to one target until it dies or
    * leaves range converts the same DPS into actual kills and XP.
    */
-  private target: Enemy | null = null;
+  private target: WeaponTarget | null = null;
 
-  tick(dt: number, playerPosition: Vector3, enemies: readonly Enemy[]): void {
+  tick(dt: number, playerPosition: Vector3, targets: readonly WeaponTarget[]): void {
     if (this.cooldown > 0) this.cooldown -= dt;
 
-    if (!this.isEngageable(this.target, playerPosition, enemies)) {
-      this.target = this.pickNearest(playerPosition, enemies);
+    if (!this.isEngageable(this.target, playerPosition, targets)) {
+      this.target = this.pickNearest(playerPosition, targets);
     }
     if (!this.target || this.cooldown > 0) return;
 
@@ -54,25 +67,25 @@ export class Weapon {
   }
 
   private isEngageable(
-    enemy: Enemy | null,
+    target: WeaponTarget | null,
     playerPosition: Vector3,
-    enemies: readonly Enemy[],
-  ): enemy is Enemy {
+    targets: readonly WeaponTarget[],
+  ): target is WeaponTarget {
     return (
-      enemy !== null &&
-      !enemy.health.isDead &&
-      enemy.distanceToPlayer(playerPosition) <= this.range &&
-      enemies.includes(enemy)
+      target !== null &&
+      !target.health.isDead &&
+      target.distanceToPlayer(playerPosition) <= this.range &&
+      targets.includes(target)
     );
   }
 
-  private pickNearest(playerPosition: Vector3, enemies: readonly Enemy[]): Enemy | null {
-    let nearest: Enemy | null = null;
+  private pickNearest(playerPosition: Vector3, targets: readonly WeaponTarget[]): WeaponTarget | null {
+    let nearest: WeaponTarget | null = null;
     let nearestDist = this.range;
-    for (const enemy of enemies) {
-      const dist = enemy.distanceToPlayer(playerPosition);
+    for (const target of targets) {
+      const dist = target.distanceToPlayer(playerPosition);
       if (dist < nearestDist) {
-        nearest = enemy;
+        nearest = target;
         nearestDist = dist;
       }
     }

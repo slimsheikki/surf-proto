@@ -53,11 +53,20 @@ export class SpawnDirector {
   /** Ceiling on simultaneously live drones; the real population is normally far below this. */
   static readonly MAX_LIVE_ENEMIES = 32;
 
+  /**
+   * Halts new drones without stopping the run clock — set while the level-10
+   * boss is alive so the fight is a duel rather than a duel plus a drone
+   * stream. The clock keeps ticking because the survival time is what the HUD
+   * shows and what the victory screen reports.
+   */
+  suspended = false;
+
   private timeSinceLastSpawn = 0;
   private survivalTime = 0;
 
   tick(dt: number, ctx: SpawnContext, spawnEnemy: (enemy: Enemy) => void): void {
     this.survivalTime += dt;
+    if (this.suspended) return;
     this.timeSinceLastSpawn += dt;
 
     const spawnInterval = Math.max(
@@ -111,6 +120,7 @@ export class SpawnDirector {
   reset(): void {
     this.timeSinceLastSpawn = 0;
     this.survivalTime = 0;
+    this.suspended = false;
   }
 
   get elapsedSeconds(): number {

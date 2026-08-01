@@ -64,6 +64,62 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Boss fight banner. Top-centre so it never fights the bottom-left HUD for
+   space, and pointer-events off so it can't eat a click meant for the canvas. */
+#boss-bar {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, 76vw);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+#boss-bar.hidden {
+  display: none;
+}
+
+#boss-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+#boss-phase {
+  font-size: 11px;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+#boss-hp {
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Phase is legible from the bar's colour alone, which matters when the player
+   is reading the road rather than the text. */
+.bar-fill.boss {
+  background: linear-gradient(90deg, #ff3d6e, #ff8a5c);
+}
+
+#boss-bar[data-phase='2'] .bar-fill.boss {
+  background: linear-gradient(90deg, #ff2f4f, #ffc14d);
+}
+
+#boss-bar[data-phase='3'] .bar-fill.boss {
+  background: linear-gradient(90deg, #c81ee0, #ff2f4f);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -105,7 +161,7 @@ html, body {
   background: rgba(255, 255, 255, 0.18);
 }
 
-#restart-button {
+#restart-button, #victory-restart-button {
   padding: 10px 24px;
   font-size: 16px;
   border-radius: 6px;
@@ -115,6 +171,6 @@ html, body {
   cursor: pointer;
 }
 
-#restart-button:hover {
+#restart-button:hover, #victory-restart-button:hover {
   background: rgba(255, 255, 255, 0.2);
 }

@@ -74,8 +74,17 @@ export class EntityManager {
   }
 
   clear(): void {
-    for (let i = this.enemies.length - 1; i >= 0; i--) this.removeEnemyAt(i);
+    this.clearEnemies();
     for (let i = this.orbs.length - 1; i >= 0; i--) this.removeOrbAt(i);
+  }
+
+  /**
+   * Drops every live drone but keeps XP orbs, which the player has already
+   * earned. Used when the boss arrives, so the fight starts clean without
+   * confiscating loot that is still in flight.
+   */
+  clearEnemies(): void {
+    for (let i = this.enemies.length - 1; i >= 0; i--) this.removeEnemyAt(i);
   }
 
   /** Single teardown path: every removal unparents the mesh and frees the per-enemy material. */

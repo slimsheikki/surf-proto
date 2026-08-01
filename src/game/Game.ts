@@ -1,7 +1,8 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Health } from '../combat/Health';
-import { Weapon } from '../combat/Weapon';
+import { Weapon, WeaponTarget } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
+import { Boss, BOSS_SPAWN_LEVEL } from '../enemies/Boss';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
 import { resetMovementConfig } from '../player/MovementConfig';
@@ -9,9 +10,11 @@ import { PlayerController } from '../player/PlayerController';
 import { LevelSystem } from '../progression/LevelSystem';
 import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
 import { XPOrb } from '../progression/XPOrb';
+import { BossBar } from '../ui/BossBar';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
+import { VictoryScreen } from '../ui/VictoryScreen';
 import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
@@ -39,6 +42,25 @@ const ENEMY_CULL_DISTANCE = 55;
 const ORB_CULL_DISTANCE = 40;
 
 /**
+ * The slice of the built course the game loop needs. Declared here rather than
+ * imported wholesale so this file states its own requirements: the boss is
+ * anchored to the island the surf loop orbits, which means `Game` genuinely
+ * depends on the loop's geometry and not just on its rest platforms.
+ */
+export interface GameCourse {
+  /** Rest-platform stages, in course order. */
+  stages: CourseStage[];
+  spawnPoint: Vector3;
+  spawnYawDeg: number;
+  /** Centre of the floating island the loop orbits — the boss's hover anchor. */
+  islandCenter: Vector3;
+  /** World Y of the surf track's plane. */
+  trackY: number;
+  /** Radius of the surf loop, which sizes the boss's engagement and cull radii. */
+  trackRadius: number;
+}
+
+/**
  * Composition root: owns every subsystem and ties them together in a fixed
  * update order each tick. Combat/progression is a secondary layer here — it
  * never blocks the player controller from ticking, only the level-up pause does.
@@ -54,24 +76,42 @@ export class Game {
 
   state: GameState = 'playing';
 
+  /** Null until level 10, and again once the boss is dead. */
+  boss: Boss | null = null;
+
   /** Index into `stages` of the last rest platform the player stood on. */
   private lastStageIndex = 0;
   private paused = false;
+  /** Latched so a defeated boss can't be re-summoned by a later level-up. */
+  private bossDefeated = false;
   private readonly hud = new Hud();
+  private readonly bossBar = new BossBar();
   private readonly upgradeMenu = new UpgradeMenu();
   private readonly gameOverScreen: GameOverScreen;
+  private readonly victoryScreen: VictoryScreen;
+
+  /**
+   * Reused each tick so the drone list and the boss can be handed to the weapon
+   * as one target list without allocating an array 128 times a second.
+   */
+  private readonly weaponTargets: WeaponTarget[] = [];
+
+  /** Stable callback the boss reports its damage through; see `Boss.tick`. */
+  private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
+
+  private readonly stages: CourseStage[];
 
   constructor(
-    scene: Scene,
+    private readonly scene: Scene,
     camera: PerspectiveCamera,
-    private readonly stages: CourseStage[],
-    spawnPosition: Vector3,
-    spawnYawDeg: number,
+    private readonly course: GameCourse,
   ) {
-    this.playerController = new PlayerController(spawnPosition, spawnYawDeg);
+    this.stages = course.stages;
+    this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
     this.entityManager = new EntityManager(scene);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
+    this.victoryScreen = new VictoryScreen(() => this.restart());
   }
 
   private get lastStage(): CourseStage {
@@ -128,6 +168,12 @@ export class Game {
       this.playerController.teleport(this.lastStage.center.clone().add(RESPAWN_HEIGHT_OFFSET));
     }
 
+    // Checked before the spawn director runs, so the tick the boss arrives on is
+    // already a tick with drone spawning suspended.
+    if (!this.boss && !this.bossDefeated && this.levelSystem.level >= BOSS_SPAWN_LEVEL) {
+      this.spawnBoss();
+    }
+
     this.spawnDirector.tick(
       dt,
       {
@@ -147,7 +193,12 @@ export class Game {
       }
     }
 
-    this.weapon.tick(dt, playerPosition, this.entityManager.enemies);
+    this.boss?.tick(dt, playerPosition, this.damagePlayer);
+
+    this.weaponTargets.length = 0;
+    for (const enemy of this.entityManager.enemies) this.weaponTargets.push(enemy);
+    if (this.boss) this.weaponTargets.push(this.boss);
+    this.weapon.tick(dt, playerPosition, this.weaponTargets);
 
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
@@ -163,10 +214,47 @@ export class Game {
     });
     this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
 
+    // Player death is resolved first: a simultaneous kill is a loss, and the
+    // boss dying must not rescue a player the beam already finished off.
     if (this.playerHealth.isDead) {
       this.state = 'gameOver';
       this.gameOverScreen.show(this.levelSystem.level, this.spawnDirector.elapsedSeconds);
+      return;
     }
+    if (this.boss && !this.boss.isAlive) {
+      this.winRun();
+    }
+  }
+
+  /**
+   * Summons the boss over the island and turns the endless run into a duel:
+   * drone spawning stops and live drones are dismissed, so nothing else is
+   * competing for the player's attention or the weapon's target slot. XP orbs
+   * already in flight are left alone — they are earned.
+   */
+  private spawnBoss(): void {
+    this.boss = new Boss(this.course.islandCenter, this.course.trackRadius, this.course.trackY);
+    this.scene.add(this.boss.group);
+    this.spawnDirector.suspended = true;
+    this.entityManager.clearEnemies();
+  }
+
+  /** Tears the boss down completely; safe to call when there is no boss. */
+  private despawnBoss(): void {
+    if (!this.boss) return;
+    this.scene.remove(this.boss.group);
+    this.boss.dispose();
+    this.boss = null;
+    this.weaponTargets.length = 0;
+    this.weapon.reset();
+    this.bossBar.hide();
+  }
+
+  private winRun(): void {
+    this.bossDefeated = true;
+    this.despawnBoss();
+    this.state = 'victory';
+    this.victoryScreen.show(this.levelSystem.level, this.spawnDirector.elapsedSeconds);
   }
 
   private startLevelUp(): void {
@@ -187,6 +275,9 @@ export class Game {
    */
   private restart(): void {
     this.entityManager.clear();
+    // Before `spawnDirector.reset()`, which is what lifts the suspension.
+    this.despawnBoss();
+    this.bossDefeated = false;
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
     this.playerController.teleport(this.stages[0].center.clone().add(RESPAWN_HEIGHT_OFFSET));
@@ -197,6 +288,7 @@ export class Game {
     resetMovementConfig();
     this.upgradeMenu.hide();
     this.gameOverScreen.hide();
+    this.victoryScreen.hide();
     this.state = 'playing';
   }
 
@@ -225,6 +317,17 @@ export class Game {
   }
 
   private updateHud(): void {
+    // Hidden on the terminal screens so the bar doesn't hang over them.
+    if (this.boss && this.state !== 'gameOver' && this.state !== 'victory') {
+      this.bossBar.update({
+        name: this.boss.name,
+        hpFraction: this.boss.hpFraction,
+        phase: this.boss.phase,
+      });
+    } else {
+      this.bossBar.hide();
+    }
+
     this.hud.update({
       speed: this.playerController.speed,
       hpFraction: this.playerHealth.hp / this.playerHealth.maxHp,

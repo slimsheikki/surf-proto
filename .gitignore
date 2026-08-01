@@ -7,5 +7,5 @@ dist/
 _shots/
 
 # headless verification scratch (esbuild bundles for node probes)
-.probe.*
+.probe*
 .*check.*.mjs
