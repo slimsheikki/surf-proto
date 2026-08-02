@@ -336,10 +336,39 @@ html, body {
   opacity: 0.65;
 }
 
+/* Family headers inside the palette — the library is grouped, not flat. */
+.palette-family {
+  margin: 8px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.palette-family:first-child {
+  margin-top: 0;
+}
+
 .palette-hint {
   margin: 12px 0 0;
   font-size: 11px;
   opacity: 0.6;
+}
+
+#editor-spline-tools {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+#editor-spline-tools button {
+  flex: 1;
+}
+
+/* The spline toggle reads as a mode, so its on state has to look latched. */
+#editor-spline.active {
+  background: rgba(127, 232, 255, 0.25);
+  border-color: rgba(127, 232, 255, 0.7);
 }
 
 #editor-help {
