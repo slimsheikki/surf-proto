@@ -2,6 +2,9 @@ import {
   Box3,
   BoxHelper,
   BufferGeometry,
+  CatmullRomCurve3,
+  ConeGeometry,
+  CylinderGeometry,
   GridHelper,
   Group,
   Line,
@@ -13,7 +16,6 @@ import {
   Object3D,
   PerspectiveCamera,
   Raycaster,
-  CatmullRomCurve3,
   Sphere,
   SphereGeometry,
   Vector2,
@@ -64,6 +66,28 @@ const SPLINE_HANDLE_RADIUS = 1.6;
 const SPLINE_HANDLE_GEOMETRY = new SphereGeometry(SPLINE_HANDLE_RADIUS, 12, 10);
 
 /**
+ * Translate-gizmo styling: the conventional DCC colouring (X red, Y green,
+ * Z blue), sized in local units and rescaled every frame against camera
+ * distance so the handles stay a constant, grabbable size on screen.
+ */
+const AXIS_COLORS = { x: 0xe5484d, y: 0x46a758, z: 0x3f7fd6 } as const;
+const GIZMO_ARM_LENGTH = 7;
+const GIZMO_SHAFT_RADIUS = 0.14;
+const GIZMO_TIP_LENGTH = 1.8;
+const GIZMO_TIP_RADIUS = 0.55;
+/** Invisible fat cylinder around each arm — the real hit target. A 0.14 shaft is unhittable. */
+const GIZMO_PICK_RADIUS = 1.1;
+/** World scale per unit of camera distance; ~1 at the editor's default framing. */
+const GIZMO_DISTANCE_SCALE = 1 / 90;
+
+type AxisKey = 'x' | 'y' | 'z';
+const AXIS_VECTORS: Record<AxisKey, Vector3> = {
+  x: new Vector3(1, 0, 0),
+  y: new Vector3(0, 1, 0),
+  z: new Vector3(0, 0, 1),
+};
+
+/**
  * The opening view: tilted down, swung off the map's own heading, and pulled
  * back to fit.
  *
@@ -112,6 +136,19 @@ interface SplineDragState {
   vertical: boolean;
   planeY: number;
   grabOffset: Vector3;
+  moved: boolean;
+}
+
+interface AxisDragState {
+  axis: Vector3;
+  /** Parameter along the axis line where the grab started — deltas are measured from it. */
+  t0: number;
+  /** The axis line's anchor (the gizmo position at grab time). */
+  origin: Vector3;
+  /** Piece/fixture starting positions, or null when a spline point is the target. */
+  startPositions: Map<string, Vector3> | null;
+  splineIndex: number | null;
+  splineStart: Vector3 | null;
   moved: boolean;
 }
 
@@ -172,6 +209,10 @@ export class Editor {
   private splineLine: Line | null = null;
   private splineHandles: Mesh[] = [];
 
+  /** XYZ translate gizmo, following whatever is selected. Built once. */
+  private readonly gizmo: Group;
+  private axisDrag: AxisDragState | null = null;
+
   private readonly raycaster = new Raycaster();
   private readonly pointer = new Vector2();
   private active = false;
@@ -194,10 +235,160 @@ export class Editor {
     gridMaterial.opacity = 0.35;
     this.helpers.add(grid);
 
+    this.gizmo = this.buildAxisGizmo();
+    this.helpers.add(this.gizmo);
+
     this.installListeners();
     this.adoptSplineFromMap();
     this.rebuildAll();
     this.frameOnMap();
+  }
+
+  /**
+   * The three-arm translate gizmo. Each arm is a shaft + cone tip along its
+   * world axis plus an invisible fat pick cylinder, all tagged with the axis
+   * key. Materials skip the depth test so the gizmo is never buried inside
+   * the piece it controls — being occluded by the thing you are trying to
+   * move is the classic way these become useless.
+   */
+  private buildAxisGizmo(): Group {
+    const gizmo = new Group();
+    gizmo.visible = false;
+
+    for (const key of ['x', 'y', 'z'] as AxisKey[]) {
+      const arm = new Group();
+      const material = new MeshBasicMaterial({
+        color: AXIS_COLORS[key],
+        depthTest: false,
+        transparent: true,
+        opacity: 0.95,
+      });
+
+      const shaft = new Mesh(
+        new CylinderGeometry(GIZMO_SHAFT_RADIUS, GIZMO_SHAFT_RADIUS, GIZMO_ARM_LENGTH, 6),
+        material,
+      );
+      shaft.position.y = GIZMO_ARM_LENGTH / 2;
+      const tip = new Mesh(new ConeGeometry(GIZMO_TIP_RADIUS, GIZMO_TIP_LENGTH, 10), material);
+      tip.position.y = GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH / 2;
+      const pick = new Mesh(
+        new CylinderGeometry(
+          GIZMO_PICK_RADIUS,
+          GIZMO_PICK_RADIUS,
+          GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH,
+          6,
+        ),
+        new MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }),
+      );
+      pick.position.y = (GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH) / 2;
+
+      for (const mesh of [shaft, tip, pick]) {
+        mesh.renderOrder = 1000;
+        mesh.userData.gizmoAxis = key;
+        arm.add(mesh);
+      }
+
+      // Arms are authored along +Y; rotate into place.
+      if (key === 'x') arm.rotation.z = -Math.PI / 2;
+      if (key === 'z') arm.rotation.x = Math.PI / 2;
+      gizmo.add(arm);
+    }
+    return gizmo;
+  }
+
+  /** What the gizmo is attached to right now, or null to hide it. */
+  private gizmoTargetPosition(): Vector3 | null {
+    if (this.splineMode) {
+      if (this.selectedHandle === null) return null;
+      const point = this.splinePoints[this.selectedHandle];
+      return point ? point.clone() : null;
+    }
+    if (this.selectedIds.length === 0) return null;
+    return this.positionOf(this.selectedIds[0]);
+  }
+
+  /** Axis key under the pointer, if the pointer is on a gizmo arm. */
+  private gizmoArmAt(event: PointerEvent): AxisKey | null {
+    if (!this.gizmo.visible) return null;
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    for (const hit of this.raycaster.intersectObject(this.gizmo, true)) {
+      const key = hit.object.userData.gizmoAxis;
+      if (key === 'x' || key === 'y' || key === 'z') return key;
+    }
+    return null;
+  }
+
+  /**
+   * Parameter along `origin + axis·t` closest to the current pointer ray —
+   * the line-line closest-point solve. Sampling the same formula at grab time
+   * and during the drag makes the handle track the cursor without ever
+   * needing a projection plane.
+   */
+  private axisParameter(origin: Vector3, axis: Vector3): number {
+    const ray = this.raycaster.ray;
+    const w0 = origin.clone().sub(ray.origin);
+    const b = axis.dot(ray.direction);
+    const denom = 1 - b * b;
+    // Ray nearly parallel to the axis: the solve blows up, so freeze instead.
+    if (Math.abs(denom) < 1e-6) return 0;
+    return (b * ray.direction.dot(w0) - axis.dot(w0)) / denom;
+  }
+
+  private beginAxisDrag(key: AxisKey, event: PointerEvent): void {
+    const origin = this.gizmoTargetPosition();
+    if (!origin) return;
+    const axis = AXIS_VECTORS[key].clone();
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+
+    if (this.splineMode && this.selectedHandle !== null) {
+      this.axisDrag = {
+        axis,
+        t0: this.axisParameter(origin, axis),
+        origin,
+        startPositions: null,
+        splineIndex: this.selectedHandle,
+        splineStart: this.splinePoints[this.selectedHandle].clone(),
+        moved: false,
+      };
+    } else {
+      const startPositions = new Map<string, Vector3>();
+      for (const id of this.selectedIds) {
+        const start = this.positionOf(id);
+        if (start) startPositions.set(id, start);
+      }
+      this.axisDrag = {
+        axis,
+        t0: this.axisParameter(origin, axis),
+        origin,
+        startPositions,
+        splineIndex: null,
+        splineStart: null,
+        moved: false,
+      };
+    }
+    this.canvas.setPointerCapture(event.pointerId);
+  }
+
+  private moveAxisDrag(event: PointerEvent): void {
+    const drag = this.axisDrag!;
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const delta = this.axisParameter(drag.origin, drag.axis) - drag.t0;
+    const offset = drag.axis.clone().multiplyScalar(delta);
+    drag.moved = true;
+
+    if (drag.splineIndex !== null && drag.splineStart) {
+      const point = this.splinePoints[drag.splineIndex];
+      if (!point) return;
+      point.copy(this.snapVector(drag.splineStart.clone().add(offset)));
+      this.refreshSplineLive(drag.splineIndex);
+      return;
+    }
+    for (const [id, start] of drag.startPositions ?? []) {
+      this.setPosition(id, this.snapVector(start.clone().add(offset)));
+    }
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -216,6 +407,7 @@ export class Editor {
     this.looking = false;
     this.drag = null;
     this.splineDrag = null;
+    this.axisDrag = null;
     this.clearGhost();
   }
 
@@ -314,6 +506,19 @@ export class Editor {
     this.camera.position.copy(this.camPosition);
     this.camera.rotation.set(this.camPitch, this.camYaw, 0, 'YXZ');
     for (const helper of this.selectionHelpers) helper.update();
+
+    // Gizmo follows the selection every frame — cheaper than threading a
+    // refresh through every mutation path, and it can never go stale.
+    const gizmoTarget = this.gizmoTargetPosition();
+    if (gizmoTarget) {
+      this.gizmo.visible = true;
+      this.gizmo.position.copy(gizmoTarget);
+      const distance = this.camPosition.distanceTo(gizmoTarget);
+      const scale = Math.max(0.4, distance * GIZMO_DISTANCE_SCALE);
+      this.gizmo.scale.setScalar(scale);
+    } else {
+      this.gizmo.visible = false;
+    }
   }
 
   /** Same convention as `CameraRig.lookDirFromAngles`: forward at yaw 0 is -Z. */
@@ -964,6 +1169,14 @@ export class Editor {
     }
     if (event.button !== 0) return;
 
+    // The gizmo outranks everything: it draws on top, so it must pick on top,
+    // or clicking an arm in front of a piece would reselect the piece.
+    const axisKey = this.gizmoArmAt(event);
+    if (axisKey) {
+      this.beginAxisDrag(axisKey, event);
+      return;
+    }
+
     if (this.splineMode) {
       this.onSplinePointerDown(event);
       return;
@@ -1007,6 +1220,11 @@ export class Editor {
       this.camYaw -= event.movementX * LOOK_SENSITIVITY;
       this.camPitch -= event.movementY * LOOK_SENSITIVITY;
       this.camPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, this.camPitch));
+      return;
+    }
+
+    if (this.axisDrag) {
+      this.moveAxisDrag(event);
       return;
     }
 
@@ -1089,11 +1307,18 @@ export class Editor {
       point.copy(this.snapVector(hit));
     }
     drag.moved = true;
+    this.refreshSplineLive(drag.index);
+  }
 
-    // Cheap live feedback: move the handle and redraw the line, but leave the
-    // (heavier) regeneration for pointerup.
-    const handle = this.splineHandles[drag.index];
-    if (handle) handle.position.copy(point);
+  /**
+   * Cheap live feedback while a spline point moves — reposition its handle
+   * and redraw the guide line, leaving the (heavier) piece regeneration for
+   * pointerup. Shared by the plane drag and the axis-gizmo drag.
+   */
+  private refreshSplineLive(index: number): void {
+    const point = this.splinePoints[index];
+    const handle = this.splineHandles[index];
+    if (handle && point) handle.position.copy(point);
     if (this.splineLine && this.splinePoints.length >= 2) {
       const curve = new CatmullRomCurve3(this.splinePoints, false, 'catmullrom', 0.5);
       this.splineLine.geometry.dispose();
@@ -1111,6 +1336,11 @@ export class Editor {
         const moved = this.splineDrag.moved;
         this.splineDrag = null;
         if (moved) this.regenerateFromSpline();
+      }
+      if (this.axisDrag) {
+        const regen = this.axisDrag.splineIndex !== null && this.axisDrag.moved;
+        this.axisDrag = null;
+        if (regen) this.regenerateFromSpline();
       }
     }
     if (this.canvas.hasPointerCapture?.(event.pointerId)) {

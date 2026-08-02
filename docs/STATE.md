@@ -31,6 +31,18 @@ CS2 guide's taxonomy:
   mismatch 0.0000 across the dive). The **pyramid** is a true four-faced apex: each
   triangular face is built along its fall line (base-edge midpoint → apex) with zero
   roll, which keeps the taper's stepped boxes coplanar — smooth faces, not staircases.
+- **Ridge miter.** Where two slabs meet at an apex, each face is pulled down-slope by
+  `thickness·tan(roll)` so its sub-surface corner lands exactly on the ridge plane —
+  without this the slabs visibly cross at the top. Composite/pyramid slabs are thin
+  (`COMPOSITE_THICKNESS` 0.5) precisely because the miter seam scales with thickness;
+  probed: zero protrusion above the face planes, seam ±0.36 at the apex.
+- **Axis gizmo.** The selected piece (or spline point) carries an X/Y/Z translate gizmo
+  — DCC colours, camera-distance scaled, depth-test off so it never buries inside its
+  piece, drag solved by line-line closest point. Gizmo picking outranks piece picking.
+- **Content-browser palette.** Two-column grid of 3D thumbnail tiles rendered at editor
+  startup from each definition's real geometry (`src/editor/Thumbnails.ts`, offscreen
+  renderer, disposed after one pass), hints demoted to tooltips, controls help collapsed
+  behind a `<details>`.
 - **Segment seams overlap, not gap.** A rotated segment chain only meets on the
   centreline; at the face edge each seam opened `2·sin(step/2)·(w/2)` of daylight —
   visible on every curve. Boxes now carry `overlapPad` extra length (mesh *and*

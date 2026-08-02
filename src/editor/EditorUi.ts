@@ -1,6 +1,7 @@
 import { Editor } from './Editor';
 import { encodeMapCode, decodeMapCode, shareUrlFor } from './MapCode';
 import { RAMP_LIBRARY, RampFamily } from './RampLibrary';
+import { generateThumbnails } from './Thumbnails';
 import {
   deleteMap,
   listMapNames,
@@ -99,9 +100,12 @@ export class EditorUi {
   }
 
   /**
-   * The palette is generated from `RAMP_LIBRARY`, grouped by family — the
-   * palette is a *view* of the library, per the data-driven rule: adding a
-   * ramp family is adding a definition, never touching this file.
+   * The palette is generated from `RAMP_LIBRARY`, grouped by family, in a
+   * content-browser layout: a grid of 3D thumbnail tiles rendered from each
+   * definition's real geometry (`Thumbnails.ts`), with the prose hint demoted
+   * to a hover tooltip. The palette stays a *view* of the library, per the
+   * data-driven rule: adding a ramp family is adding a definition, never
+   * touching this file.
    */
   private buildPalette(): void {
     const familyLabels: Record<RampFamily, string> = {
@@ -114,6 +118,7 @@ export class EditorUi {
       'horizontal-curved': 'Horizontal curve',
       platform: 'Platforms',
     };
+    const thumbnails = generateThumbnails();
 
     let lastHeader = '';
     for (const def of RAMP_LIBRARY) {
@@ -130,7 +135,16 @@ export class EditorUi {
       item.className = 'palette-item';
       item.draggable = true;
       item.dataset.preset = def.id;
-      item.innerHTML = `<strong>${def.label}</strong><span>${def.hint}</span>`;
+      item.title = `${def.label} — ${def.hint}`;
+
+      const thumb = thumbnails.get(def.id);
+      // Tile label: the family header already says the family, so strip that
+      // prefix off the definition label and keep only the variant.
+      const prefix = `${header} ·`;
+      const short = def.label.startsWith(prefix) ? def.label.slice(prefix.length).trim() : def.label;
+      item.innerHTML =
+        (thumb ? `<img src="${thumb}" alt="" draggable="false" />` : '') +
+        `<span>${short}</span>`;
 
       item.addEventListener('dragstart', (event) => {
         // The payload is set for correctness (a drop with no data is refused by

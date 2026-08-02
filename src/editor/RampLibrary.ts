@@ -355,6 +355,16 @@ function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
   });
 }
 
+/**
+ * Slab thickness for composite (two-face) pieces and pyramids. Deliberately
+ * thinner than the half-face `FACE_THICKNESS` (1.4): where two slabs meet at
+ * an edge, everything below the surface has to be mitered away, and the miter
+ * seam scales with thickness — at 1.4 the apex seam is a 2-unit trench, at
+ * 0.5 it is a hairline. The player only ever touches the top surface, so the
+ * collider loses nothing.
+ */
+const COMPOSITE_THICKNESS = 0.5;
+
 /** One box (mesh + optional collider) from a frame's basis at an offset centre. */
 function emitBox(
   group: Group,
@@ -362,16 +372,17 @@ function emitBox(
   frame: { forward: Vector3; right: Vector3; normal: Vector3; width: number; length: number },
   surfaceCenter: Vector3,
   boxLength: number,
+  thickness: number,
   withColliders: boolean,
 ): void {
-  const center = surfaceCenter.clone().addScaledVector(frame.normal, -FACE_THICKNESS / 2);
+  const center = surfaceCenter.clone().addScaledVector(frame.normal, -thickness / 2);
   const quaternion = new Quaternion().setFromRotationMatrix(
     new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
   );
-  const halfExtents = new Vector3(frame.width / 2, FACE_THICKNESS / 2, boxLength / 2);
+  const halfExtents = new Vector3(frame.width / 2, thickness / 2, boxLength / 2);
   if (withColliders) registerCollider({ position: center.clone(), quaternion: quaternion.clone(), halfExtents });
 
-  const mesh = new Mesh(new BoxGeometry(frame.width, FACE_THICKNESS, boxLength), material);
+  const mesh = new Mesh(new BoxGeometry(frame.width, thickness, boxLength), material);
   mesh.position.copy(center);
   mesh.quaternion.copy(quaternion);
   group.add(mesh);
@@ -394,6 +405,19 @@ function buildCompositeFaces(piece: FreePiece, options: RampBuildOptions, group:
   const { entry } = piecePath(piece);
   const towardCentre = def.variant === 'full' ? -1 : 1;
 
+  // Ridge miter. A face's slab extends its thickness below the surface, and
+  // at the ridge that material juts sideways past the centreline — its deep
+  // corner pokes up through the *other* face's surface, so the two slabs
+  // visibly cross instead of meeting in an edge. Pulling each face down-slope
+  // by thickness·tan(roll) puts the deep corner exactly on the ridge plane:
+  // the slabs meet flush there and the apex reads as one clean edge, with a
+  // hairline V-seam between the top edges. Valleys need none of this — there
+  // the interpenetration is below both surfaces, where nothing can see it.
+  const ridgeInset =
+    def.variant === 'full'
+      ? Math.min(2, COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(piece.rollDeg)))) + 0.02
+      : 0;
+
   for (const sign of [1, -1]) {
     const params = centreParams(piece, entry);
     params.rollDeg = Math.abs(piece.rollDeg) * sign;
@@ -407,8 +431,16 @@ function buildCompositeFaces(piece: FreePiece, options: RampBuildOptions, group:
       const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
       const surfaceCenter = frame.mid
         .clone()
-        .addScaledVector(highDir, (frame.width / 2) * towardCentre);
-      emitBox(group, material, frame, surfaceCenter, frame.length + path.overlapPad, options.colliders);
+        .addScaledVector(highDir, (frame.width / 2) * towardCentre - ridgeInset);
+      emitBox(
+        group,
+        material,
+        frame,
+        surfaceCenter,
+        frame.length + path.overlapPad,
+        COMPOSITE_THICKNESS,
+        options.colliders,
+      );
     }
   }
 }
@@ -456,12 +488,17 @@ function buildPyramid(piece: FreePiece, options: RampBuildOptions, group: Group)
     const facePitchDeg = -radToDeg(Math.atan2(toApex.y, horizontal));
     const faceYawDeg = radToDeg(Math.atan2(toApex.x, -toApex.z));
 
+    // Same ridge-miter reasoning as `buildCompositeFaces`: opposite faces'
+    // slabs would cross at the apex, so each face stops thickness·tan(slope)
+    // short of it and the tips meet flush instead.
+    const apexInset = COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(facePitchDeg))) + 0.02;
+
     const path = computeRampFrames(
       {
         start: side.mid,
         startYawDeg: faceYawDeg,
         startPitchDeg: facePitchDeg,
-        length: slant,
+        length: Math.max(2, slant - apexInset),
         width: side.edgeLen,
         endWidth: 0.5,
         thickness: FACE_THICKNESS,
@@ -470,7 +507,15 @@ function buildPyramid(piece: FreePiece, options: RampBuildOptions, group: Group)
     );
     const material = faceMaterial(options);
     for (const frame of path.frames) {
-      emitBox(group, material, frame, frame.mid, frame.length + path.overlapPad, options.colliders);
+      emitBox(
+        group,
+        material,
+        frame,
+        frame.mid,
+        frame.length + path.overlapPad,
+        COMPOSITE_THICKNESS,
+        options.colliders,
+      );
     }
   }
 }
