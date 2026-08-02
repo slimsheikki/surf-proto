@@ -1,5 +1,7 @@
 import {
-  BoxGeometry,
+  BufferGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
   Group,
   Matrix4,
   Mesh,
@@ -9,12 +11,7 @@ import {
 } from 'three';
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { registerCollider } from '../world/Colliders';
-import {
-  buildRampCurve,
-  computeRampFrames,
-  RampCurveMode,
-  RampCurveParams,
-} from '../world/RampCurve';
+import { computeRampFrames, RampCurveMode, RampCurveParams } from '../world/RampCurve';
 import {
   APPROACH_DESCENT_PITCH_DEG,
   FACE_ANGLE_DEG,
@@ -352,6 +349,9 @@ function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
     color: options.color,
     roughness: options.roughness ?? FACE_ROUGHNESS,
     metalness: options.metalness ?? FACE_METALNESS,
+    // The skin is one open-ish shell assembled from strips; double-sided
+    // costs a little overdraw and buys immunity to any strip's winding.
+    side: DoubleSide,
   });
 }
 
@@ -365,83 +365,132 @@ function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
  */
 const COMPOSITE_THICKNESS = 0.5;
 
-/** One box (mesh + optional collider) from a frame's basis at an offset centre. */
-function emitBox(
-  group: Group,
-  material: MeshStandardMaterial,
-  frame: { forward: Vector3; right: Vector3; normal: Vector3; width: number; length: number },
-  surfaceCenter: Vector3,
-  boxLength: number,
-  thickness: number,
-  withColliders: boolean,
-): void {
-  const center = surfaceCenter.clone().addScaledVector(frame.normal, -thickness / 2);
-  const quaternion = new Quaternion().setFromRotationMatrix(
-    new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
-  );
-  const halfExtents = new Vector3(frame.width / 2, thickness / 2, boxLength / 2);
-  if (withColliders) registerCollider({ position: center.clone(), quaternion: quaternion.clone(), halfExtents });
+/**
+ * One face of a piece, described by its surface edges: a pair of edge points
+ * per path boundary plus the surface normal's up-component there. The visual
+ * skin is lofted between these rings, and the collision boxes are placed
+ * against the same frames — both come from one `computeRampFrames` walk, so
+ * they cannot disagree beyond the box discretisation.
+ */
+interface FaceRing {
+  high: Vector3;
+  low: Vector3;
+  /** Surface normal's y at this ring, for the vertical under-side drop. */
+  ny: number;
+}
 
-  const mesh = new Mesh(new BoxGeometry(frame.width, thickness, boxLength), material);
-  mesh.position.copy(center);
-  mesh.quaternion.copy(quaternion);
-  group.add(mesh);
+interface FaceStrip {
+  rings: FaceRing[];
+  thickness: number;
+}
+
+type FaceEdgeMode = 'centre' | 'ridge' | 'valley';
+
+/**
+ * Walks a face's path and returns its boundary rings. `edge` says where the
+ * path runs on the face: down the middle (half faces, pyramid faces), along
+ * the high edge (`ridge` — A-frame faces hang down from it), or along the low
+ * edge (`valley` — channel faces rise from it). Widths interpolate linearly
+ * across boundaries, which is what makes a taper a straight-edged triangle
+ * instead of a staircase.
+ */
+function faceRings(params: RampCurveParams, mode: RampCurveMode, edge: FaceEdgeMode): FaceRing[] {
+  const path = computeRampFrames(params, mode);
+  const frames = path.frames;
+  const count = frames.length;
+  const endWidth = params.endWidth ?? params.width;
+
+  const rings: FaceRing[] = [];
+  for (let i = 0; i <= count; i++) {
+    const frame = frames[Math.min(i, count - 1)];
+    const position = i < count ? frames[i].start : path.end;
+    const width = params.width + (endWidth - params.width) * (i / count);
+    const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
+
+    let high: Vector3;
+    let low: Vector3;
+    if (edge === 'ridge') {
+      high = position.clone();
+      low = position.clone().addScaledVector(highDir, -width);
+    } else if (edge === 'valley') {
+      low = position.clone();
+      high = position.clone().addScaledVector(highDir, width);
+    } else {
+      high = position.clone().addScaledVector(highDir, width / 2);
+      low = position.clone().addScaledVector(highDir, -width / 2);
+    }
+    rings.push({ high, low, ny: Math.max(frame.normal.y, 0.3) });
+  }
+  return rings;
 }
 
 /**
- * Two mirrored faces around the centre path — an A-frame (`full`, ridge on the
- * path) or a V channel (`inverted`/slide, valley on the path).
- *
- * The offset is applied **per frame**, along that frame's own rolled basis:
- * each segment's high edge lands exactly on the centre path (full) or its low
- * edge does (inverted), whatever the path is doing — level, diving, or
- * sweeping through a turn. Offsetting only the entry, the first attempt, let
- * the faces splay apart along any curved path; this construction cannot,
- * because the coincidence is re-established at every segment.
+ * Lofts face strips into one watertight `BufferGeometry`: top surface, an
+ * under-side offset **vertically** below it, and side/end walls. The vertical
+ * drop is the load-bearing choice — where two faces meet (a ridge, a valley,
+ * a pyramid hip or apex) their shared edge points drop to the same place, so
+ * the skins meet exactly instead of the old stepped boxes' crossings and
+ * hairline seams. Flat-shaded on purpose: each quad is a real facet of the
+ * collision surface, and smooth normals would lie about where the box edges
+ * are.
  */
-function buildCompositeFaces(piece: FreePiece, options: RampBuildOptions, group: Group): void {
-  const def = defFor(piece.def);
-  const mode = pieceMode(piece);
-  const { entry } = piecePath(piece);
-  const towardCentre = def.variant === 'full' ? -1 : 1;
+function skinGeometry(strips: FaceStrip[]): BufferGeometry {
+  const positions: number[] = [];
+  const quad = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) => {
+    positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    positions.push(a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
+  };
 
-  // Ridge miter. A face's slab extends its thickness below the surface, and
-  // at the ridge that material juts sideways past the centreline — its deep
-  // corner pokes up through the *other* face's surface, so the two slabs
-  // visibly cross instead of meeting in an edge. Pulling each face down-slope
-  // by thickness·tan(roll) puts the deep corner exactly on the ridge plane:
-  // the slabs meet flush there and the apex reads as one clean edge, with a
-  // hairline V-seam between the top edges. Valleys need none of this — there
-  // the interpenetration is below both surfaces, where nothing can see it.
-  const ridgeInset =
-    def.variant === 'full'
-      ? Math.min(2, COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(piece.rollDeg)))) + 0.02
-      : 0;
+  for (const strip of strips) {
+    const bottoms = strip.rings.map((ring) => ({
+      high: ring.high.clone().setY(ring.high.y - strip.thickness / ring.ny),
+      low: ring.low.clone().setY(ring.low.y - strip.thickness / ring.ny),
+    }));
 
-  for (const sign of [1, -1]) {
-    const params = centreParams(piece, entry);
-    params.rollDeg = Math.abs(piece.rollDeg) * sign;
-    const path = computeRampFrames(params, mode);
-    const material = faceMaterial(options);
-
-    for (const frame of path.frames) {
-      // The frame's `right` is already rolled; whichever way it points, its
-      // up-slope end is the high edge. Same vector-first sign discipline as
-      // `RampCurve.basisFromForward`.
-      const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
-      const surfaceCenter = frame.mid
-        .clone()
-        .addScaledVector(highDir, (frame.width / 2) * towardCentre - ridgeInset);
-      emitBox(
-        group,
-        material,
-        frame,
-        surfaceCenter,
-        frame.length + path.overlapPad,
-        COMPOSITE_THICKNESS,
-        options.colliders,
-      );
+    for (let i = 0; i + 1 < strip.rings.length; i++) {
+      const a = strip.rings[i];
+      const b = strip.rings[i + 1];
+      const ab = bottoms[i];
+      const bb = bottoms[i + 1];
+      quad(a.high, b.high, b.low, a.low); // top surface
+      quad(ab.low, bb.low, bb.high, ab.high); // under-side
+      quad(a.high, ab.high, bb.high, b.high); // high-edge wall
+      quad(a.low, b.low, bb.low, ab.low); // low-edge wall
     }
+    const first = strip.rings[0];
+    const firstB = bottoms[0];
+    const last = strip.rings[strip.rings.length - 1];
+    const lastB = bottoms[bottoms.length - 1];
+    quad(first.high, first.low, firstB.low, firstB.high); // entry cap
+    quad(last.high, lastB.high, lastB.low, last.low); // exit cap
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Collision boxes for one face path: the stepped-box run the sweep engine needs. */
+function emitFaceColliders(
+  params: RampCurveParams,
+  mode: RampCurveMode,
+  thickness: number,
+  surfaceOffsetAlongHighDir: number,
+): void {
+  const path = computeRampFrames(params, mode);
+  for (const frame of path.frames) {
+    const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
+    const surfaceCenter = frame.mid.clone().addScaledVector(highDir, surfaceOffsetAlongHighDir);
+    const center = surfaceCenter.addScaledVector(frame.normal, -thickness / 2);
+    const quaternion = new Quaternion().setFromRotationMatrix(
+      new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
+    );
+    registerCollider({
+      position: center,
+      quaternion,
+      halfExtents: new Vector3(frame.width / 2, thickness / 2, (frame.length + path.overlapPad) / 2),
+    });
   }
 }
 
@@ -449,20 +498,16 @@ function buildCompositeFaces(piece: FreePiece, options: RampBuildOptions, group:
 const PYRAMID_SLOPE_DEG = 55;
 
 /**
- * A true four-faced pyramid: rectangular base centred on the piece position
- * (which is base height), apex above the centre. Each triangular face is
- * built along its **fall line** — base-edge midpoint to apex — with zero roll
- * and a width taper to a point. With the path on the fall line the taper
- * stays inside one plane, so the stepped boxes are coplanar and the face is
- * smooth to ride; this is why pyramids do not go through the composite
- * emitter above.
- *
- * Apex height comes from the *smaller* base half-dimension at
- * `PYRAMID_SLOPE_DEG`, so the steep pair of faces is always surfable; stretch
- * the base far enough one way and the long pair shallows toward walkable,
- * which is a legitimate mapping choice, not a bug.
+ * The four faces of a pyramid: rectangular base centred on the piece position
+ * (which is base height), apex above the centre, each face built along its
+ * fall line (base-edge midpoint to apex). The *visual* taper runs to exactly
+ * zero width over the full slant, so the face edges are the hip lines and all
+ * four skins share the apex point — a mathematically exact pyramid. The
+ * *collision* run keeps a small apex inset so opposite faces' boxes meet
+ * flush instead of crossing; the sub-visual difference is a hand's width at
+ * the tip of a spike nobody rides.
  */
-function buildPyramid(piece: FreePiece, options: RampBuildOptions, group: Group): void {
+function pyramidFaceParams(piece: FreePiece): { params: RampCurveParams; colliderLength: number }[] {
   const base = new Vector3(piece.x, piece.y, piece.z);
   const halfL = piece.length / 2;
   const halfW = piece.width / 2;
@@ -480,72 +525,87 @@ function buildPyramid(piece: FreePiece, options: RampBuildOptions, group: Group)
     { mid: base.clone().addScaledVector(right, halfW), edgeLen: piece.length },
   ];
 
-  for (const side of sides) {
+  return sides.map((side) => {
     const toApex = apex.clone().sub(side.mid);
     const slant = toApex.length();
     const horizontal = Math.hypot(toApex.x, toApex.z);
     // Ascending pitch is negative in this convention: `forward.y = -sin(pitch)`.
     const facePitchDeg = -radToDeg(Math.atan2(toApex.y, horizontal));
     const faceYawDeg = radToDeg(Math.atan2(toApex.x, -toApex.z));
-
-    // Same ridge-miter reasoning as `buildCompositeFaces`: opposite faces'
-    // slabs would cross at the apex, so each face stops thickness·tan(slope)
-    // short of it and the tips meet flush instead.
     const apexInset = COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(facePitchDeg))) + 0.02;
 
-    const path = computeRampFrames(
-      {
+    return {
+      params: {
         start: side.mid,
         startYawDeg: faceYawDeg,
         startPitchDeg: facePitchDeg,
-        length: Math.max(2, slant - apexInset),
+        length: slant,
         width: side.edgeLen,
-        endWidth: 0.5,
-        thickness: FACE_THICKNESS,
+        endWidth: 0,
+        thickness: COMPOSITE_THICKNESS,
       },
-      'straight',
-    );
-    const material = faceMaterial(options);
-    for (const frame of path.frames) {
-      emitBox(
-        group,
-        material,
-        frame,
-        frame.mid,
-        frame.length + path.overlapPad,
-        COMPOSITE_THICKNESS,
-        options.colliders,
-      );
-    }
-  }
+      colliderLength: Math.max(2, slant - apexInset),
+    };
+  });
 }
 
 /**
  * Meshes (and optionally colliders) for one library piece, in world space.
- * Half/single faces are one `buildRampCurve` run; full/inverted composites and
- * pyramids have their own emitters above. Platforms are not built here; they
- * are a pad, not a ramp, and `FreeCourse` owns pads.
+ *
+ * The visible piece is **one watertight mesh**: every face is lofted into a
+ * single `BufferGeometry` by `skinGeometry`, so there are no stepped-box
+ * seams, no gaps and no overlapping shells anywhere on a piece. Collision is
+ * emitted separately as the oriented-box runs the sweep engine requires —
+ * from the same frame walk, so the box tops are exact chords of the visible
+ * surface. Platforms are not built here; they are a pad, not a ramp, and
+ * `FreeCourse` owns pads.
  */
 export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Group {
   const group = new Group();
   const def = defFor(piece.def);
+  const mode = pieceMode(piece);
+  const strips: FaceStrip[] = [];
 
   if (def.family === 'pyramid') {
-    buildPyramid(piece, options, group);
-    return group;
-  }
-  if (def.variant === 'full' || def.variant === 'inverted' || def.family === 'slide') {
-    buildCompositeFaces(piece, options, group);
-    return group;
+    for (const face of pyramidFaceParams(piece)) {
+      strips.push({ rings: faceRings(face.params, 'straight', 'centre'), thickness: COMPOSITE_THICKNESS });
+      if (options.colliders) {
+        emitFaceColliders({ ...face.params, length: face.colliderLength }, 'straight', COMPOSITE_THICKNESS, 0);
+      }
+    }
+  } else if (def.variant === 'full' || def.variant === 'inverted' || def.family === 'slide') {
+    const { entry } = piecePath(piece);
+    const edge: FaceEdgeMode = def.variant === 'full' ? 'ridge' : 'valley';
+    // Collision keeps the ridge miter (see the emit call): a box whose deep
+    // corner crossed the centreline would present an invisible lip just above
+    // the opposite face's surface, and the player would clip it at speed.
+    const ridgeInset =
+      def.variant === 'full'
+        ? Math.min(2, COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(piece.rollDeg)))) + 0.02
+        : 0;
+    const towardCentre = def.variant === 'full' ? -1 : 1;
+
+    for (const sign of [1, -1]) {
+      const params = centreParams(piece, entry);
+      params.rollDeg = Math.abs(piece.rollDeg) * sign;
+      strips.push({ rings: faceRings(params, mode, edge), thickness: COMPOSITE_THICKNESS });
+      if (options.colliders) {
+        emitFaceColliders(
+          params,
+          mode,
+          COMPOSITE_THICKNESS,
+          (params.width / 2) * towardCentre - ridgeInset,
+        );
+      }
+    }
+  } else {
+    const params = centreParams(piece, piecePath(piece).entry);
+    strips.push({ rings: faceRings(params, mode, 'centre'), thickness: FACE_THICKNESS });
+    if (options.colliders) emitFaceColliders(params, mode, FACE_THICKNESS, 0);
   }
 
-  const params = centreParams(piece, piecePath(piece).entry);
-  params.color = options.color;
-  params.roughness = options.roughness ?? FACE_ROUGHNESS;
-  params.metalness = options.metalness ?? FACE_METALNESS;
-  params.guideWalls = false;
-  params.registerColliders = options.colliders;
-  group.add(buildRampCurve(params, pieceMode(piece)).group);
+  const mesh = new Mesh(skinGeometry(strips), faceMaterial(options));
+  group.add(mesh);
   return group;
 }
 
