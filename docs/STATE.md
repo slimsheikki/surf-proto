@@ -149,6 +149,14 @@ Shift spends one of the player's rechargeable dash charges (start 2, recharge on
 `PlayerController.grantMomentumBoost()` (renamed from `grantLevelUpBoost`; both triggers now
 share it). "Extra Dash" in the level-up pool raises max charges by one, granted immediately.
 
+A dash also fires `applyDashForwardPush()` — dash-only, not shared with the level-up trigger.
+`grantMomentumBoost` nudges along whatever direction the player is *already* moving, which is a
+no-op for someone strafing sideways along a ramp face with little forward velocity yet; this is
+a separate instant kick along facing (yaw) direction, so a dash always reads as a forward push
+regardless of current heading. Verified with a scripted strafe-only dash (`velocity.z` steady at
+walk speed, `velocity.x` — the facing axis at that yaw — jumping from ~0 to the full push on
+the very tick the charge is spent).
+
 Visuals live in two places and are deliberately separate from the boost itself, so removing
 either never touches movement:
 - `ViewModel.triggerDash()` — a single decaying brace pose on `root` (both hands), composed

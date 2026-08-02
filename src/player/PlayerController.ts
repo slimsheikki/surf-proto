@@ -36,6 +36,15 @@ const MOMENTUM_BOOST_DURATION = 0.5; // seconds
 const MOMENTUM_BOOST_ACCEL = 3; // u/s^2
 
 /**
+ * Dash-only, on top of the shared momentum nudge above. That nudge pushes
+ * along whatever direction the player is *already* travelling — which does
+ * nothing useful for someone strafing sideways along a ramp face with little
+ * forward velocity yet. This is a small instant kick along facing direction
+ * instead, so a dash always reads as "forward" regardless of current heading.
+ */
+const DASH_FORWARD_PUSH = 2.2; // u/s, instant
+
+/**
  * Read the limit off the config on each call rather than caching it at module
  * load, so it stays correct if MAX_SLOPE_WALKABLE_DEG is retuned or reset at
  * runtime. This runs a handful of times per tick; the cos() is free at that rate.
@@ -200,6 +209,12 @@ export class PlayerController {
   /** Arms the momentum nudge (see `MOMENTUM_BOOST_ACCEL`) for its next `MOMENTUM_BOOST_DURATION` seconds of ticks. */
   grantMomentumBoost(): void {
     this.momentumBoostTimer = MOMENTUM_BOOST_DURATION;
+  }
+
+  /** Instant kick along facing direction — see `DASH_FORWARD_PUSH`. Dash-only. */
+  applyDashForwardPush(): void {
+    const forward = new Vector3(0, 0, -1).applyAxisAngle(UP, this.yaw);
+    this.velocity.addScaledVector(forward, DASH_FORWARD_PUSH);
   }
 
   teleport(position: Vector3): void {
