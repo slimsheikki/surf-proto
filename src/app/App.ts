@@ -21,10 +21,15 @@ import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
 import { GameMode, MainMenu } from '../ui/MainMenu';
+import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
 import { buildSurfCourse } from '../world/SurfCourse';
 import { clearColliders } from '../world/Colliders';
 
-const SKY_COLOR = 0x9fc8e8;
+/**
+ * Fog and clear colour match the painted dome's horizon, so distant geometry
+ * fades into the *sky's* colour rather than a mismatched flat blue.
+ */
+const SKY_COLOR = SKY_HORIZON_COLOR;
 
 /** Menu backdrop orbit: slow enough to read as a held shot rather than a spin. */
 const MENU_ORBIT_RADIUS = 165;
@@ -66,6 +71,7 @@ export class App {
    * the overview would disappear exactly when the player pulled back to see it.
    */
   private readonly playFog = new Fog(SKY_COLOR, 40, 220);
+  private readonly skyDome: ReturnType<typeof buildSkyDome>;
 
   private readonly startOverlay = document.getElementById('start-overlay')!;
   private readonly hudEl = document.getElementById('hud')!;
@@ -93,6 +99,10 @@ export class App {
     this.renderer.autoClear = false;
 
     this.scene.background = new Color(SKY_COLOR);
+    // The painted sky. Mesh-only (no collider), fog-exempt, re-centred on the
+    // camera every frame in `frame()` — a skybox, not a place.
+    this.skyDome = buildSkyDome();
+    this.scene.add(this.skyDome);
     this.scene.add(new AmbientLight(0xffffff, 0.55));
     const sun = new DirectionalLight(0xffffff, 1.1);
     sun.position.set(40, 60, 20);
@@ -365,6 +375,10 @@ export class App {
     } else {
       this.updateMenuCamera(renderDt);
     }
+
+    // Skybox behaviour: the dome travels with the camera, so it reads as
+    // infinitely far and can never be reached, clipped into, or parallaxed.
+    this.skyDome.position.copy(this.camera.position);
 
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
