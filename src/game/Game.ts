@@ -245,7 +245,7 @@ export class Game {
 
     this.dash.tick(dt);
     if (input.dashPressed && this.dash.tryConsume()) {
-      this.playerController.grantMomentumBoost();
+      this.playerController.dashImpulse();
       this.viewModel.triggerDash();
       this.dashFx.trigger();
     }

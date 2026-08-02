@@ -539,9 +539,9 @@ html, body {
 
 /**
  * Full-screen, pointer-events-off overlay for the dash's anime-style speed
- * lines and puff clouds. Kept as a sibling of #hud rather than nested inside
- * it, because it needs to cover the whole viewport rather than sit in the
- * bottom-left HUD column.
+ * lines. Kept as a sibling of #hud rather than nested inside it, because it
+ * needs to cover the whole viewport rather than sit in the bottom-left HUD
+ * column.
  */
 #dash-fx {
   position: fixed;
@@ -559,8 +559,8 @@ html, body {
  * spoke pattern, and masking out its centre keeps the crosshair clear so it
  * reads as a burst around the player rather than a blob over their aim.
  * Opacity is driven every tick from DashEffect via the --dash-line-opacity
- * custom property rather than a CSS transition/animation, matching how the
- * puffs below are driven — see DashEffect.ts for why.
+ * custom property rather than a CSS transition/animation — see DashEffect.ts
+ * for why.
  */
 .dash-lines {
   position: absolute;
@@ -574,34 +574,6 @@ html, body {
   mask-image: radial-gradient(circle at center, transparent 26%, black 60%, black 100%);
   opacity: var(--dash-line-opacity, 0);
 }
-
-.dash-puffs {
-  position: absolute;
-  left: 50%;
-  bottom: 24%;
-  width: 0;
-  height: 0;
-}
-
-.dash-puff {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(230, 238, 245, 0.75) 40%,
-    rgba(230, 238, 245, 0) 72%
-  );
-  filter: blur(1px);
-  opacity: 0;
-}
-
-.dash-puff:nth-child(1) { width: 90px; height: 90px; margin-left: -150px; }
-.dash-puff:nth-child(2) { width: 70px; height: 70px; margin-left: -40px; }
-.dash-puff:nth-child(3) { width: 110px; height: 110px; margin-left: 50px; }
-.dash-puff:nth-child(4) { width: 60px; height: 60px; margin-left: 10px; }
 
 /* -------------------------------------------------------------- share panel */
 
