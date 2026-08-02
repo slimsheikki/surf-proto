@@ -48,6 +48,89 @@ const MOMENTUM_BOOST_ACCEL = 3; // u/s^2
 const DASH_IMPULSE_SPEED = 8; // u/s, added instantly
 
 /**
+ * Landing on a banked face used to convert the whole fall into a sideways-down
+ * slide, so touching down late threw the player off the ramp's low edge before
+ * they could strafe back up.
+ *
+ * That is `PM_ClipVelocity` behaving exactly as Source does — it removes only
+ * the component *into* the surface and keeps everything tangent to it, and the
+ * fall line lies in the surface plane, so the downhill component survives the
+ * clip untouched (`n·d = 0`, hence `v'·d = v·d`). A 20 u/s drop onto a
+ * canonical 51.34 deg face lands already sliding down it at ~15.6 u/s.
+ *
+ * `redirectLandingVelocity` turns that slide along the ramp instead of down it.
+ * The hard part is firing on a *landing* and never while riding: cancel the
+ * downhill component every tick and the player is glued to the face, which
+ * destroys the height-for-speed trade that surfing is. Approach speed into the
+ * surface separates the two cleanly, by a factor of about thirty-five:
+ *
+ * - Riding: gravity adds `GRAVITY·dt` = 0.139 u/s per tick, of which 0.625 of
+ *   it (`normal.y`) is into the face — and it is clipped away again every tick,
+ *   so it never accumulates. About 0.09 u/s.
+ * - Landing: a 20 u/s drop arrives with 20 × 0.625 = 12.5 u/s into the face.
+ *
+ * Three sits far above the first and far below the second, needs no cross-tick
+ * state, and is self-limiting inside the two-iteration sweep loop — after one
+ * redirect the approach speed is ~0, so a second iteration cannot re-fire.
+ */
+const SURF_LANDING_IMPACT_SPEED = 3; // u/s into the surface
+
+/**
+ * Below this the surface is a wall rather than a ramp, and shoving the player
+ * sideways along a wall would be absurd. Clears every surfable face in the
+ * game: ring and straight ramps 0.625, approach descent 0.580, pyramid 0.574,
+ * slide 0.470 — while a wall side reads ~0.
+ */
+const SURF_LANDING_MIN_NORMAL_Y = 0.3;
+
+/**
+ * Ceiling on how much the redirect may scale the kept velocity up.
+ *
+ * Preserving total speed means rescaling the along-ramp component back to the
+ * original speed, and for any ordinary landing that is a gentle correction — a
+ * 25 u/s surf line touching down needs about 1.1x. But a near-vertical drop has
+ * almost no along-ramp motion to preserve the direction of, and without a cap
+ * its 0.5 u/s of incidental drift would be amplified into a 20 u/s launch in an
+ * essentially arbitrary direction, with a cliff edge either side of whatever
+ * guard value was picked. Capping the gain keeps real landings fully
+ * speed-preserving and lets a vertical drop degrade smoothly into "lands almost
+ * still".
+ */
+const MAX_LANDING_REDIRECT_GAIN = 3;
+
+const DOWN = new Vector3(0, -1, 0);
+
+/**
+ * Rotates a just-clipped landing velocity within the surface plane so it runs
+ * *along* the ramp instead of down its fall line, keeping the same speed.
+ *
+ * Mutates `velocity` in place. Assumes it is already tangent to `normal` (i.e.
+ * `clipVelocity` has run), which is what makes step 3 a pure decomposition.
+ */
+function redirectLandingVelocity(velocity: Vector3, normal: Vector3): void {
+  // Fall line: gravity projected into the surface plane.
+  const fallLine = DOWN.clone().addScaledVector(normal, normal.y);
+  if (fallLine.lengthSq() < 1e-8) return; // level surface — no fall line to cancel
+  fallLine.normalize();
+
+  const downhill = velocity.dot(fallLine);
+  if (downhill <= 0) return; // already level or climbing; nothing to cancel
+
+  const speed = velocity.length();
+  // What remains once the downhill part is removed is purely along the ramp,
+  // and it already carries the player's travel direction — no sign logic needed.
+  const alongRamp = velocity.clone().addScaledVector(fallLine, -downhill);
+  const alongSpeed = alongRamp.length();
+  if (alongSpeed < 1e-6) {
+    velocity.copy(alongRamp);
+    return;
+  }
+
+  const gain = Math.min(speed / alongSpeed, MAX_LANDING_REDIRECT_GAIN);
+  velocity.copy(alongRamp).multiplyScalar(gain);
+}
+
+/**
  * Read the limit off the config on each call rather than caching it at module
  * load, so it stays correct if MAX_SLOPE_WALKABLE_DEG is retuned or reset at
  * runtime. This runs a handful of times per tick; the cos() is free at that rate.
@@ -133,7 +216,23 @@ export class PlayerController {
       const moveDist = Math.max(hit.distance - SKIN_WIDTH, 0);
       this.position.addScaledVector(dir, moveDist);
       const leftover = dir.multiplyScalar(dist - moveDist);
+
+      // Measured before the clip: the clip is precisely what destroys it.
+      const approach = -this.velocity.dot(hit.normal);
       this.velocity.copy(clipVelocity(this.velocity, hit.normal));
+      if (
+        approach >= SURF_LANDING_IMPACT_SPEED &&
+        !hit.collider.isWall &&
+        hit.normal.y >= SURF_LANDING_MIN_NORMAL_Y &&
+        !isWalkableNormal(hit.normal.y)
+      ) {
+        redirectLandingVelocity(this.velocity, hit.normal);
+      }
+
+      // `remaining` deliberately keeps the old heading: it is the sub-tick
+      // leftover displacement, and the next tick integrates the corrected
+      // velocity. Redirecting it too would move the player along a heading the
+      // landing only just invented.
       remaining = clipVelocity(leftover, hit.normal);
     }
   }
