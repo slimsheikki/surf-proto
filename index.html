@@ -16,6 +16,8 @@
       <div id="level-readout">Lv 1</div>
       <div id="wave-readout">0:00</div>
       <div id="felled-readout" class="hidden"></div>
+      <div id="bar-dash" class="bar"><div id="bar-dash-fill" class="bar-fill dash"></div></div>
+      <div id="dash-readout">Dash 2/2</div>
     </div>
     <div id="boss-bar" class="hidden" data-phase="1">
       <div id="boss-bar-labels">
@@ -38,10 +40,20 @@
       <h1 id="banner-title"></h1>
       <p id="banner-subtitle"></p>
     </div>
+    <div id="dash-fx" class="hidden">
+      <div class="dash-lines"></div>
+      <div class="dash-puffs">
+        <span class="dash-puff"></span>
+        <span class="dash-puff"></span>
+        <span class="dash-puff"></span>
+        <span class="dash-puff"></span>
+      </div>
+    </div>
     <div id="start-overlay" class="overlay hidden">
       <h1>surf-proto</h1>
       <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
       <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
+      <p>SHIFT to dash &mdash; a burst of speed, spending one of your dash charges. Charges refill over time.</p>
       <p>Click to start &mdash; press <kbd>M</kbd> to go back</p>
     </div>
 

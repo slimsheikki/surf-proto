@@ -10,6 +10,7 @@ import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
 import { CameraRig } from '../player/CameraRig';
+import { Dash } from '../player/Dash';
 import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
 import { ViewModel } from '../player/ViewModel';
@@ -18,6 +19,7 @@ import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
 import { XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
+import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
@@ -103,6 +105,7 @@ export class Game {
   readonly levelSystem = new LevelSystem();
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
+  readonly dash = new Dash();
 
   state: GameState = 'playing';
 
@@ -120,6 +123,7 @@ export class Game {
   private readonly upgradeMenu = new UpgradeMenu();
   private readonly gameOverScreen: GameOverScreen;
   private readonly banner = new Banner();
+  private readonly dashFx = new DashEffect();
 
   /**
    * Reused each tick so the drone list and the boss can be handed to the weapon
@@ -228,6 +232,7 @@ export class Game {
     this.viewModel.update(dt, this.playerController.speed, input.yawDelta, input.pitchDelta);
     this.slashCone.tick(dt);
     this.banner.tick(dt);
+    this.dashFx.tick(dt);
 
     this.cameraRig.update(this.playerController);
     this.updateHud();
@@ -237,6 +242,13 @@ export class Game {
     this.playerController.tick(dt, input);
     const playerPosition = this.playerController.position;
     const playerVelocity = this.playerController.velocity;
+
+    this.dash.tick(dt);
+    if (input.dashPressed && this.dash.tryConsume()) {
+      this.playerController.grantMomentumBoost();
+      this.viewModel.triggerDash();
+      this.dashFx.trigger();
+    }
 
     this.trackLastStage(playerPosition);
     if (playerPosition.y < this.outOfBoundsY) {
@@ -402,8 +414,9 @@ export class Game {
     this.state = 'pausedForUpgrade';
     const choices = drawUpgradeChoices(3);
     this.upgradeMenu.show(choices, (choice) => {
-      const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth };
+      const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth, dash: this.dash };
       choice.apply(ctx);
+      this.playerController.grantMomentumBoost();
       this.state = 'playing';
     });
   }
@@ -443,6 +456,7 @@ export class Game {
     this.knife.reset();
     this.slashCone.hide();
     this.viewModel.reset();
+    this.dash.reset();
     resetMovementConfig();
     this.upgradeMenu.hide();
     this.gameOverScreen.hide();
@@ -497,6 +511,9 @@ export class Game {
       level: this.levelSystem.level,
       elapsedSeconds: this.spawnDirector.elapsedSeconds,
       bossesFelled: this.bossesFelled,
+      dashFraction: this.dash.fraction,
+      dashCharges: this.dash.charges,
+      dashMaxCharges: this.dash.maxCharges,
     });
   }
 }

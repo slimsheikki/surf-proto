@@ -22,6 +22,20 @@ const SKIN_WIDTH = 0.01;
 const WALKABLE_NORMAL_EPS = 1e-4;
 
 /**
+ * Shared by two triggers: the level-up menu, and a manual dash (Shift).
+ *
+ * The level-up menu pauses `Game.updateGameplay` entirely, so no momentum is
+ * actually lost while a player picks an upgrade — but it does cost them a real
+ * half-second where they weren't holding strafe/forward, unlike every other
+ * moment in a surf line. This nudge compensates for that missed input window;
+ * it is a "welcome back" push in the direction already being travelled, not a
+ * real speed buff, so it stays small enough not to read as one. A dash spends
+ * a charge (see `Dash`) to fire the identical nudge on demand.
+ */
+const MOMENTUM_BOOST_DURATION = 0.5; // seconds
+const MOMENTUM_BOOST_ACCEL = 3; // u/s^2
+
+/**
  * Read the limit off the config on each call rather than caching it at module
  * load, so it stays correct if MAX_SLOPE_WALKABLE_DEG is retuned or reset at
  * runtime. This runs a handful of times per tick; the cos() is free at that rate.
@@ -76,6 +90,7 @@ export class PlayerController {
   grounded = false;
   groundNormal = new Vector3(0, 1, 0);
   private jumpHeldLastTick = false;
+  private momentumBoostTimer = 0;
 
   constructor(spawnPosition: Vector3, spawnYawDeg: number) {
     this.position = spawnPosition.clone();
@@ -168,13 +183,29 @@ export class PlayerController {
       this.velocity.y += MovementConfig.GRAVITY * dt;
     }
 
+    if (this.momentumBoostTimer > 0) {
+      this.momentumBoostTimer = Math.max(this.momentumBoostTimer - dt, 0);
+      const speed = this.speed;
+      const boostDir =
+        speed > 1e-6 ? new Vector3(this.velocity.x, 0, this.velocity.z).divideScalar(speed) : wishDir;
+      if (boostDir.lengthSq() > 1e-6) {
+        this.velocity.addScaledVector(boostDir, MOMENTUM_BOOST_ACCEL * dt);
+      }
+    }
+
     this.integrateMovement(dt);
     this.updateGroundState();
+  }
+
+  /** Arms the momentum nudge (see `MOMENTUM_BOOST_ACCEL`) for its next `MOMENTUM_BOOST_DURATION` seconds of ticks. */
+  grantMomentumBoost(): void {
+    this.momentumBoostTimer = MOMENTUM_BOOST_DURATION;
   }
 
   teleport(position: Vector3): void {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
     this.grounded = false;
+    this.momentumBoostTimer = 0;
   }
 }
