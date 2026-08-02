@@ -105,6 +105,35 @@ Two things about it that look like details and are not: it is a **sphere, not a 
 unreadable), and the wireframe shell sits at full radius from frame one while only the fill
 grows (the boundary must not move while you are trying to leave it).
 
+### Sharing maps (new)
+
+`src/editor/MapCode.ts` turns a map into a pasteable string, because there is nowhere to
+upload one to — Pages is static, and `localStorage` is per-browser. **Share** copies a link
+like `…/surf-proto/#map=<code>`; opening it drops the map into the recipient's editor,
+unsaved, name pre-filled. **Import** takes the same string pasted back (a bare code or a
+whole URL both work).
+
+- Pipeline is JSON → deflate (`CompressionStream`, native, no dependency) → base64url, behind
+  a one-char tag: `1` deflated, `0` plain. The tag is **not** `FREE_MAP_VERSION` — that
+  versions the map's shape and `parseMap` already checks it; the tag versions the envelope,
+  which `parseMap` never sees.
+- The payload rides in the URL **fragment**, so it is never sent to a server and no host's
+  URL-length limit applies. Measured: 3-piece starter 289 chars, 33-piece Mickey ~600,
+  worst-case 200 unsnapped pieces ~8.5k. The panel shows the length and warns past 2000.
+- `id` is dropped before encoding (`parseMap` regenerates it anyway) and numbers are rounded
+  to 2 dp — a hundredth of a game unit is 0.45 Hammer units.
+- Decoding is fully defensive: byte cap before *and* after inflating, everything in
+  try/catch, and the result goes through the same `parseMap` that guards `localStorage`.
+  Returns null, never throws.
+- **Imported names are uniqued** (`MapStorage.uniqueMapName`). `saveMap` keys by name and
+  overwrites, so an incoming "Mickey" would otherwise destroy the recipient's own on first
+  Save.
+- The hash is cleared with `replaceState` right after importing, or the recipient's next
+  refresh silently reverts their edits to the shared version.
+- `Editor.onKeyDown` now uses the exported `Input.isTextEntryTarget` instead of its own
+  `INPUT`-only check — without that, typing a pasted code into the panel's textarea flies
+  the free camera.
+
 ### Testing the late game
 
 `window.__surf` is the live `Game`, set in `App.beginRun` behind `import.meta.env.DEV` (Vite

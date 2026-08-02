@@ -530,3 +530,87 @@ html, body {
   font-weight: 700;
   color: #ffc14d;
 }
+
+/* -------------------------------------------------------------- share panel */
+
+/* Centred over the world rather than docked to the toolbar: it holds a long
+   string the player has to read, select, or paste into, and that deserves the
+   middle of the screen. `pointer-events: auto` because #editor-ui turns them
+   off at the root and each panel opts back in. */
+#share-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, 80vw);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+  background: rgba(8, 13, 20, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+#share-panel h2 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+/* Monospace and wrapping: a share code is a wall of base64, and the player
+   needs to see that it arrived whole rather than have it scroll off sideways. */
+#share-text {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.4);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
+  word-break: break-all;
+}
+
+#share-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#share-actions button {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#share-actions button:hover {
+  background: rgba(255, 255, 255, 0.19);
+}
+
+#share-actions button.primary {
+  background: rgba(92, 255, 176, 0.18);
+  border-color: rgba(92, 255, 176, 0.5);
+  font-weight: 700;
+}
+
+#share-actions button.primary:hover {
+  background: rgba(92, 255, 176, 0.3);
+}
+
+#share-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+}

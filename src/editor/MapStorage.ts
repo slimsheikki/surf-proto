@@ -80,6 +80,30 @@ export function deleteMap(name: string): void {
   if (lastMapName() === name) rememberLastMap(null);
 }
 
+/**
+ * A name that isn't already taken, suffixing until it isn't.
+ *
+ * Needed because this module keys purely by name and `saveMap` overwrites
+ * without asking. That is fine for your own maps — saving twice should replace,
+ * not accumulate — but it is destructive for an imported one: a friend sends
+ * you their "Mickey", you press Save, and yours is gone with no warning and no
+ * undo. Renaming on the way in is the cheapest place to stop that.
+ */
+export function uniqueMapName(name: string): string {
+  const taken = new Set(Object.keys(readTable()));
+  if (!taken.has(name)) return name;
+
+  const shared = `${name} (shared)`;
+  if (!taken.has(shared)) return shared;
+  // Bounded rather than `while (true)`: a thousand collisions on one name means
+  // something is wrong, and a hung editor is a worse answer than a stale suffix.
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${shared} ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return shared;
+}
+
 export function rememberLastMap(name: string | null): void {
   try {
     if (name === null) localStorage.removeItem(LAST_MAP_KEY);

@@ -14,6 +14,7 @@ import {
   Vector3,
 } from 'three';
 import { disposeObject } from '../engine/Dispose';
+import { isTextEntryTarget } from '../engine/Input';
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { BOSS_ID, buildBossMarker, buildPiece, buildSpawnPad, SPAWN_ID } from './FreeCourse';
 import { cloneMap, findPreset, FreeMap, FreePiece, newPieceId, pieceFromPreset } from './MapData';
@@ -689,11 +690,10 @@ export class Editor {
 
   private onKeyDown(event: KeyboardEvent): void {
     if (!this.active) return;
-    // Never steal keys from the map-name field.
-    const target = event.target;
-    if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.isContentEditable)) {
-      return;
-    }
+    // Never steal keys from a text field. Shared with `InputSystem` rather than
+    // re-tested here: the local version only knew about `INPUT`, so typing into
+    // the share panel's textarea flew the camera with every W/A/S/D.
+    if (isTextEntryTarget(event.target)) return;
 
     this.keys.add(event.code);
 

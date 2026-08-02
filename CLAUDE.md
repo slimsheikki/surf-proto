@@ -85,6 +85,11 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
+Maps are shared as links, not through a server (`src/editor/MapCode.ts`): JSON → deflate →
+base64url behind a format tag, carried in the URL **fragment** so it never reaches a host.
+Decoding routes through `parseMap`, imported names go through `uniqueMapName` (or Save
+overwrites the recipient's own map of that name), and the hash is cleared after import.
+
 ## Where things stand
 
 See **`docs/STATE.md`** — current known bugs, tuning constants, and what's next. Read that

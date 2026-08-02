@@ -1,6 +1,14 @@
 import { Editor } from './Editor';
+import { encodeMapCode, decodeMapCode, shareUrlFor } from './MapCode';
 import { PALETTE } from './MapData';
-import { deleteMap, listMapNames, loadMap, rememberLastMap, saveMap } from './MapStorage';
+import {
+  deleteMap,
+  listMapNames,
+  loadMap,
+  rememberLastMap,
+  saveMap,
+  uniqueMapName,
+} from './MapStorage';
 
 export interface EditorUiCallbacks {
   onPlay: () => void;
@@ -8,6 +16,15 @@ export interface EditorUiCallbacks {
   /** Asked for a fresh starter map when the player hits New. */
   onNewMap: () => void;
 }
+
+/**
+ * Length past which a share link is likely to be mangled somewhere between here
+ * and the recipient. Nothing refuses to produce one — browsers handle far more
+ * than this — but chat clients, link previewers and email wrapping start
+ * truncating around here, and the player should find that out before their
+ * friend does.
+ */
+const LONG_CODE_CHARS = 2000;
 
 /**
  * DOM side of the editor: the palette you drag pieces out of, the save/load
@@ -30,12 +47,20 @@ export class EditorUi {
     'editor-delete-piece',
   ) as HTMLButtonElement;
 
+  private readonly sharePanel = document.getElementById('share-panel')!;
+  private readonly shareTitle = document.getElementById('share-title')!;
+  private readonly shareText = document.getElementById('share-text') as HTMLTextAreaElement;
+  private readonly shareHint = document.getElementById('share-hint')!;
+  private readonly shareCopyButton = document.getElementById('share-copy') as HTMLButtonElement;
+  private readonly shareLoadButton = document.getElementById('share-load') as HTMLButtonElement;
+
   constructor(
     private readonly editor: Editor,
     private readonly callbacks: EditorUiCallbacks,
   ) {
     this.buildPalette();
     this.wireToolbar();
+    this.wireSharePanel();
     this.refreshMapList();
   }
 
@@ -47,7 +72,13 @@ export class EditorUi {
   }
 
   hide(): void {
+    this.closeSharePanel();
     this.root.classList.add('hidden');
+  }
+
+  /** Says where a map that arrived from a share link came from, and that it is not saved yet. */
+  flashImported(name: string): void {
+    this.flash(`Imported “${name}” from a share link — press Save to keep it`);
   }
 
   /** Redraws everything that reflects editor state. Called on every editor change. */
@@ -125,6 +156,9 @@ export class EditorUi {
       this.nameInput.value = this.editor.mapName;
     });
 
+    document.getElementById('editor-share')!.addEventListener('click', () => void this.openShare());
+    document.getElementById('editor-import')!.addEventListener('click', () => this.openImport());
+
     document.getElementById('editor-play')!.addEventListener('click', () => this.callbacks.onPlay());
     document.getElementById('editor-menu')!.addEventListener('click', () => this.callbacks.onExitToMenu());
   }
@@ -148,6 +182,97 @@ export class EditorUi {
       this.mapList.appendChild(option);
     }
     if (selected && names.includes(selected)) this.mapList.value = selected;
+  }
+
+  // ------------------------------------------------------------ share panel
+
+  private wireSharePanel(): void {
+    document.getElementById('share-close')!.addEventListener('click', () => this.closeSharePanel());
+    this.shareCopyButton.addEventListener('click', () => void this.copyShareText());
+    this.shareLoadButton.addEventListener('click', () => void this.loadPastedCode());
+    // Esc closes the panel rather than falling through to the editor, which
+    // takes Esc as "back to the main menu" — losing the map you were sharing.
+    this.sharePanel.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      this.closeSharePanel();
+    });
+  }
+
+  /** Encodes the current map, shows the link, and puts it on the clipboard. */
+  private async openShare(): Promise<void> {
+    const map = this.editor.getMap();
+    this.shareTitle.textContent = `Share “${map.name}”`;
+    this.shareText.value = 'Encoding…';
+    this.shareHint.textContent = '';
+    this.shareCopyButton.classList.remove('hidden');
+    this.shareLoadButton.classList.add('hidden');
+    this.sharePanel.classList.remove('hidden');
+
+    const url = shareUrlFor(await encodeMapCode(map));
+    this.shareText.value = url;
+    this.shareText.select();
+
+    const copied = await this.copyToClipboard(url);
+    const size =
+      url.length > LONG_CODE_CHARS
+        ? ` ${url.length} characters — long enough that some chat apps may cut it; if it arrives broken, send it as a file or split the map up.`
+        : ` ${url.length} characters.`;
+    this.shareHint.textContent =
+      (copied ? 'Copied to the clipboard.' : 'Select the text above and copy it.') + size;
+  }
+
+  private openImport(): void {
+    this.shareTitle.textContent = 'Import a map';
+    this.shareText.value = '';
+    this.shareHint.textContent = 'Paste a share link or code, then press Load map.';
+    this.shareCopyButton.classList.add('hidden');
+    this.shareLoadButton.classList.remove('hidden');
+    this.sharePanel.classList.remove('hidden');
+    this.shareText.focus();
+  }
+
+  private async loadPastedCode(): Promise<void> {
+    const map = await decodeMapCode(this.shareText.value);
+    if (!map) {
+      this.shareHint.textContent =
+        'That is not a share link this build understands — check it copied whole.';
+      return;
+    }
+    // Renamed on collision, or the first Save would overwrite the recipient's
+    // own map of the same name. `MapStorage` keys purely by name.
+    map.name = uniqueMapName(map.name);
+    this.editor.setMap(map);
+    this.nameInput.value = map.name;
+    this.closeSharePanel();
+    this.flash(`Imported “${map.name}” — press Save to keep it`);
+  }
+
+  /**
+   * The clipboard write is best-effort. It is refused outright without a user
+   * gesture, over plain HTTP, and by some embedded webviews — which is why the
+   * text is always on screen and selectable rather than only copied. A "Copied!"
+   * that silently didn't is worse than no button at all.
+   */
+  private async copyToClipboard(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async copyShareText(): Promise<void> {
+    const copied = await this.copyToClipboard(this.shareText.value);
+    this.shareText.select();
+    this.shareHint.textContent = copied
+      ? 'Copied to the clipboard.'
+      : 'Copying was blocked — select the text above and copy it by hand.';
+  }
+
+  private closeSharePanel(): void {
+    this.sharePanel.classList.add('hidden');
   }
 
   /**

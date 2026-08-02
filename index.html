@@ -90,10 +90,23 @@
         <button id="editor-save">Save</button>
         <select id="map-list"></select>
         <button id="editor-load">Load</button>
+        <button id="editor-share">Share</button>
+        <button id="editor-import">Import</button>
         <button id="editor-delete">Delete map</button>
         <button id="editor-new">New</button>
         <button id="editor-play" class="primary">&#9654; Play</button>
         <button id="editor-menu">Menu</button>
+      </div>
+
+      <div id="share-panel" class="hidden">
+        <h2 id="share-title">Share this map</h2>
+        <textarea id="share-text" spellcheck="false" rows="5"></textarea>
+        <div id="share-actions">
+          <button id="share-copy">Copy</button>
+          <button id="share-load" class="primary">Load map</button>
+          <button id="share-close">Close</button>
+        </div>
+        <p id="share-hint"></p>
       </div>
 
       <div id="editor-footer">
