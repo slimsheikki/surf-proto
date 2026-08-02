@@ -1,9 +1,17 @@
-import { Group, Vector3 } from 'three';
-import { degToRad } from '../engine/MathUtils';
+import {
+  BoxGeometry,
+  Group,
+  Matrix4,
+  Mesh,
+  MeshStandardMaterial,
+  Quaternion,
+  Vector3,
+} from 'three';
+import { degToRad, radToDeg } from '../engine/MathUtils';
+import { registerCollider } from '../world/Colliders';
 import {
   buildRampCurve,
   computeRampFrames,
-  forwardFromAngles,
   RampCurveMode,
   RampCurveParams,
 } from '../world/RampCurve';
@@ -38,13 +46,14 @@ const WORLD_UP = new Vector3(0, 1, 0);
  *   map opens with, so it existing as *one* palette entry matters.
  *
  * Full and Inverted are generated from the Half face by mirroring, per the
- * spec's "mirror whenever practical" — and *practical* has a precise meaning
- * here: the two faces of a composite are parallel copies of the centre path,
- * which is only exact while the path is straight and the width constant. A
- * horizontally curved Full would need the inner face's arc shortened to stay
- * concentric, and a tapered Full would need converging face paths; both are
- * real geometry problems, not plumbing, so curved and tapered families ship
- * Half-only rather than shipping wrong.
+ * spec's "mirror whenever practical". The composite emitter offsets each face
+ * from the centre path **per segment frame**, along that frame's own rolled
+ * basis — so the ridge (or valley) coincides with the centre path exactly, by
+ * construction, on straight, vertically curved and horizontally curved paths
+ * alike. Pyramids are the one family built differently: each triangular face
+ * runs along its own fall line (base-edge midpoint to apex) with zero roll,
+ * which keeps every stepped box of the taper coplanar — a smooth face rather
+ * than a staircase.
  */
 export type RampFamily =
   | 'straight'
@@ -155,18 +164,14 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     },
   },
   {
-    id: 'pyramid-half',
+    id: 'pyramid-full',
     family: 'pyramid',
-    variant: 'half',
-    label: 'Pyramid · half',
-    hint: 'Narrows to a point — bail or jump',
-    defaults: {
-      length: RAMP_LENGTH,
-      width: RAMP_FACE_WIDTH * 1.6,
-      endWidth: 2,
-      rollDeg: FACE_ANGLE_DEG,
-      pitchDeg: 0,
-    },
+    variant: 'full',
+    label: 'Pyramid',
+    hint: '4 faces to an apex — surf over any side',
+    // length/width are the base rectangle; apex height derives from the
+    // smaller of the two, keeping the steep pair of faces at PYRAMID_SLOPE.
+    defaults: { length: 24, width: 24, rollDeg: 0, pitchDeg: 0 },
   },
   {
     id: 'slide',
@@ -182,6 +187,34 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     variant: 'half',
     label: 'Vertical curve · dive',
     hint: 'Eases level into a descent',
+    defaults: {
+      length: RAMP_LENGTH,
+      width: RAMP_FACE_WIDTH,
+      rollDeg: FACE_ANGLE_DEG,
+      pitchDeg: 0,
+      endPitchDeg: APPROACH_DESCENT_PITCH_DEG,
+    },
+  },
+  {
+    id: 'vertical-curved-full',
+    family: 'vertical-curved',
+    variant: 'full',
+    label: 'Vertical curve · full ⌂',
+    hint: 'A-frame diving into a descent',
+    defaults: {
+      length: RAMP_LENGTH,
+      width: RAMP_FACE_WIDTH,
+      rollDeg: FACE_ANGLE_DEG,
+      pitchDeg: 0,
+      endPitchDeg: APPROACH_DESCENT_PITCH_DEG,
+    },
+  },
+  {
+    id: 'vertical-curved-inverted',
+    family: 'vertical-curved',
+    variant: 'inverted',
+    label: 'Vertical curve · channel ⌄',
+    hint: 'V channel diving into a descent',
     defaults: {
       length: RAMP_LENGTH,
       width: RAMP_FACE_WIDTH,
@@ -216,6 +249,20 @@ export const RAMP_LIBRARY: RampDefinition[] = [
       rollDeg: -FACE_ANGLE_DEG,
       pitchDeg: 0,
       yawSweepDeg: -45,
+    },
+  },
+  {
+    id: 'horizontal-curved-full',
+    family: 'horizontal-curved',
+    variant: 'full',
+    label: 'Curve · full ⌂ 45°',
+    hint: 'A-frame through a turn — B mirrors it',
+    defaults: {
+      length: RAMP_LENGTH,
+      width: RAMP_FACE_WIDTH,
+      rollDeg: FACE_ANGLE_DEG,
+      pitchDeg: 0,
+      yawSweepDeg: 45,
     },
   },
   {
@@ -293,39 +340,6 @@ export function piecePath(piece: FreePiece): PiecePath {
   };
 }
 
-/**
- * Centreline offsets of a definition's faces, relative to the piece's centre
- * path, at the entry basis. One face (offset zero) for half/single pieces; two
- * mirrored faces for full and inverted composites.
- *
- * The offset is derived with real vectors rather than trig-by-hand: take the
- * face's rolled `right` axis, find which way is up-slope, and step the
- * centreline half a width down from the ridge (full) or up from the valley
- * (inverted). Doing it this way keeps every sign correct for free — the same
- * reason `RampCurve.basisFromForward` builds its basis from cross products.
- */
-function facesFor(piece: FreePiece): { rollDeg: number; offset: Vector3 }[] {
-  const def = defFor(piece.def);
-  if (def.variant !== 'full' && def.variant !== 'inverted' && def.family !== 'slide') {
-    return [{ rollDeg: piece.rollDeg, offset: new Vector3() }];
-  }
-
-  const forward = forwardFromAngles(piece.yawDeg, piece.pitchDeg);
-  const right = new Vector3().crossVectors(WORLD_UP, forward).normalize();
-  const halfWidth = piece.width / 2;
-  const faces: { rollDeg: number; offset: Vector3 }[] = [];
-
-  for (const sign of [1, -1]) {
-    const rollDeg = Math.abs(piece.rollDeg) * sign;
-    const rolledRight = right.clone().applyAxisAngle(forward, degToRad(rollDeg));
-    const highDir = rolledRight.y >= 0 ? rolledRight : rolledRight.clone().negate();
-    // A slide is an inverted (valley) composite with its own proportions.
-    const towardCentre = def.variant === 'full' ? -1 : 1;
-    faces.push({ rollDeg, offset: highDir.multiplyScalar(halfWidth * towardCentre) });
-  }
-  return faces;
-}
-
 export interface RampBuildOptions {
   colliders: boolean;
   color: number;
@@ -333,26 +347,160 @@ export interface RampBuildOptions {
   metalness?: number;
 }
 
+function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
+  return new MeshStandardMaterial({
+    color: options.color,
+    roughness: options.roughness ?? FACE_ROUGHNESS,
+    metalness: options.metalness ?? FACE_METALNESS,
+  });
+}
+
+/** One box (mesh + optional collider) from a frame's basis at an offset centre. */
+function emitBox(
+  group: Group,
+  material: MeshStandardMaterial,
+  frame: { forward: Vector3; right: Vector3; normal: Vector3; width: number; length: number },
+  surfaceCenter: Vector3,
+  boxLength: number,
+  withColliders: boolean,
+): void {
+  const center = surfaceCenter.clone().addScaledVector(frame.normal, -FACE_THICKNESS / 2);
+  const quaternion = new Quaternion().setFromRotationMatrix(
+    new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
+  );
+  const halfExtents = new Vector3(frame.width / 2, FACE_THICKNESS / 2, boxLength / 2);
+  if (withColliders) registerCollider({ position: center.clone(), quaternion: quaternion.clone(), halfExtents });
+
+  const mesh = new Mesh(new BoxGeometry(frame.width, FACE_THICKNESS, boxLength), material);
+  mesh.position.copy(center);
+  mesh.quaternion.copy(quaternion);
+  group.add(mesh);
+}
+
 /**
- * Meshes (and optionally colliders) for one library piece, in world space —
- * one `buildRampCurve` run per face. Platforms are not built here; they are a
- * pad, not a ramp, and `FreeCourse` owns pads.
+ * Two mirrored faces around the centre path — an A-frame (`full`, ridge on the
+ * path) or a V channel (`inverted`/slide, valley on the path).
+ *
+ * The offset is applied **per frame**, along that frame's own rolled basis:
+ * each segment's high edge lands exactly on the centre path (full) or its low
+ * edge does (inverted), whatever the path is doing — level, diving, or
+ * sweeping through a turn. Offsetting only the entry, the first attempt, let
+ * the faces splay apart along any curved path; this construction cannot,
+ * because the coincidence is re-established at every segment.
+ */
+function buildCompositeFaces(piece: FreePiece, options: RampBuildOptions, group: Group): void {
+  const def = defFor(piece.def);
+  const mode = pieceMode(piece);
+  const { entry } = piecePath(piece);
+  const towardCentre = def.variant === 'full' ? -1 : 1;
+
+  for (const sign of [1, -1]) {
+    const params = centreParams(piece, entry);
+    params.rollDeg = Math.abs(piece.rollDeg) * sign;
+    const path = computeRampFrames(params, mode);
+    const material = faceMaterial(options);
+
+    for (const frame of path.frames) {
+      // The frame's `right` is already rolled; whichever way it points, its
+      // up-slope end is the high edge. Same vector-first sign discipline as
+      // `RampCurve.basisFromForward`.
+      const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
+      const surfaceCenter = frame.mid
+        .clone()
+        .addScaledVector(highDir, (frame.width / 2) * towardCentre);
+      emitBox(group, material, frame, surfaceCenter, frame.length + path.overlapPad, options.colliders);
+    }
+  }
+}
+
+/** Faces steeper than the walkable cutoff so the pyramid is surfable, with margin. */
+const PYRAMID_SLOPE_DEG = 55;
+
+/**
+ * A true four-faced pyramid: rectangular base centred on the piece position
+ * (which is base height), apex above the centre. Each triangular face is
+ * built along its **fall line** — base-edge midpoint to apex — with zero roll
+ * and a width taper to a point. With the path on the fall line the taper
+ * stays inside one plane, so the stepped boxes are coplanar and the face is
+ * smooth to ride; this is why pyramids do not go through the composite
+ * emitter above.
+ *
+ * Apex height comes from the *smaller* base half-dimension at
+ * `PYRAMID_SLOPE_DEG`, so the steep pair of faces is always surfable; stretch
+ * the base far enough one way and the long pair shallows toward walkable,
+ * which is a legitimate mapping choice, not a bug.
+ */
+function buildPyramid(piece: FreePiece, options: RampBuildOptions, group: Group): void {
+  const base = new Vector3(piece.x, piece.y, piece.z);
+  const halfL = piece.length / 2;
+  const halfW = piece.width / 2;
+  const apexHeight = Math.min(halfL, halfW) * Math.tan(degToRad(PYRAMID_SLOPE_DEG));
+  const apex = base.clone().add(new Vector3(0, apexHeight, 0));
+
+  const yaw = degToRad(piece.yawDeg);
+  const forward = new Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new Vector3().crossVectors(WORLD_UP, forward).normalize();
+
+  const sides: { mid: Vector3; edgeLen: number }[] = [
+    { mid: base.clone().addScaledVector(forward, -halfL), edgeLen: piece.width },
+    { mid: base.clone().addScaledVector(forward, halfL), edgeLen: piece.width },
+    { mid: base.clone().addScaledVector(right, -halfW), edgeLen: piece.length },
+    { mid: base.clone().addScaledVector(right, halfW), edgeLen: piece.length },
+  ];
+
+  for (const side of sides) {
+    const toApex = apex.clone().sub(side.mid);
+    const slant = toApex.length();
+    const horizontal = Math.hypot(toApex.x, toApex.z);
+    // Ascending pitch is negative in this convention: `forward.y = -sin(pitch)`.
+    const facePitchDeg = -radToDeg(Math.atan2(toApex.y, horizontal));
+    const faceYawDeg = radToDeg(Math.atan2(toApex.x, -toApex.z));
+
+    const path = computeRampFrames(
+      {
+        start: side.mid,
+        startYawDeg: faceYawDeg,
+        startPitchDeg: facePitchDeg,
+        length: slant,
+        width: side.edgeLen,
+        endWidth: 0.5,
+        thickness: FACE_THICKNESS,
+      },
+      'straight',
+    );
+    const material = faceMaterial(options);
+    for (const frame of path.frames) {
+      emitBox(group, material, frame, frame.mid, frame.length + path.overlapPad, options.colliders);
+    }
+  }
+}
+
+/**
+ * Meshes (and optionally colliders) for one library piece, in world space.
+ * Half/single faces are one `buildRampCurve` run; full/inverted composites and
+ * pyramids have their own emitters above. Platforms are not built here; they
+ * are a pad, not a ramp, and `FreeCourse` owns pads.
  */
 export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Group {
   const group = new Group();
-  const { entry } = piecePath(piece);
-  const mode = pieceMode(piece);
+  const def = defFor(piece.def);
 
-  for (const face of facesFor(piece)) {
-    const params = centreParams(piece, entry.clone().add(face.offset));
-    params.rollDeg = face.rollDeg;
-    params.color = options.color;
-    params.roughness = options.roughness ?? FACE_ROUGHNESS;
-    params.metalness = options.metalness ?? FACE_METALNESS;
-    params.guideWalls = false;
-    params.registerColliders = options.colliders;
-    group.add(buildRampCurve(params, mode).group);
+  if (def.family === 'pyramid') {
+    buildPyramid(piece, options, group);
+    return group;
   }
+  if (def.variant === 'full' || def.variant === 'inverted' || def.family === 'slide') {
+    buildCompositeFaces(piece, options, group);
+    return group;
+  }
+
+  const params = centreParams(piece, piecePath(piece).entry);
+  params.color = options.color;
+  params.roughness = options.roughness ?? FACE_ROUGHNESS;
+  params.metalness = options.metalness ?? FACE_METALNESS;
+  params.guideWalls = false;
+  params.registerColliders = options.colliders;
+  group.add(buildRampCurve(params, pieceMode(piece)).group);
   return group;
 }
 

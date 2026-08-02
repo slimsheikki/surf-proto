@@ -169,6 +169,16 @@ export interface RampPath {
   end: Vector3;
   endYawDeg: number;
   endPitchDeg: number;
+  /**
+   * Extra length each segment's box should carry, split across both ends, so
+   * adjacent segments overlap instead of gapping. Zero for single-segment
+   * pieces. A rotated segment chain only meets exactly *on the centreline*;
+   * at the face's edge, half a step of rotation opens a wedge of
+   * `2·sin(step/2)·(width/2)` per seam — visible daylight on a banked curve.
+   * Real surf mapping solves it the same way: the CS2 guide's curved-ramp
+   * method explicitly slides segment faces "so that the faces overlap once".
+   */
+  overlapPad: number;
 }
 
 /**
@@ -238,7 +248,12 @@ export function computeRampFrames(params: RampCurveParams, mode: RampCurveMode):
     curPitch = segPitch;
   }
 
-  return { frames, end: curPos, endYawDeg: curYaw, endPitchDeg: curPitch };
+  const overlapPad =
+    frames.length > 1
+      ? 2 * Math.sin(degToRad(angleStepDeg) / 2) * (Math.max(params.width, endWidth) / 2) + 0.1
+      : 0;
+
+  return { frames, end: curPos, endYawDeg: curYaw, endPitchDeg: curPitch, overlapPad };
 }
 
 /**
@@ -268,14 +283,15 @@ export function buildRampCurve(
   for (const frame of path.frames) {
     const { forward, right, normal } = frame;
     const boxCenter = frame.mid.clone().addScaledVector(normal, -thickness / 2);
+    const boxLength = frame.length + path.overlapPad;
 
     const basisMatrix = new Matrix4().makeBasis(right, normal, forward);
     const quaternion = new Quaternion().setFromRotationMatrix(basisMatrix);
-    const halfExtents = new Vector3(frame.width / 2, thickness / 2, frame.length / 2);
+    const halfExtents = new Vector3(frame.width / 2, thickness / 2, boxLength / 2);
 
     if (withColliders) registerCollider({ position: boxCenter, quaternion, halfExtents });
 
-    const geometry = new BoxGeometry(frame.width, thickness, frame.length);
+    const geometry = new BoxGeometry(frame.width, thickness, boxLength);
     const mesh = new Mesh(geometry, material);
     mesh.position.copy(boxCenter);
     mesh.quaternion.copy(quaternion);
@@ -290,7 +306,7 @@ export function buildRampCurve(
         const wallHalfExtents = new Vector3(
           GUIDE_WALL_THICKNESS / 2,
           GUIDE_WALL_HEIGHT / 2,
-          frame.length / 2,
+          boxLength / 2,
         );
         if (withColliders) {
           registerCollider({
@@ -303,7 +319,7 @@ export function buildRampCurve(
         const wallGeometry = new BoxGeometry(
           GUIDE_WALL_THICKNESS,
           GUIDE_WALL_HEIGHT,
-          frame.length,
+          boxLength,
         );
         const wallMesh = new Mesh(wallGeometry, wallMaterial);
         wallMesh.position.copy(wallCenter);
