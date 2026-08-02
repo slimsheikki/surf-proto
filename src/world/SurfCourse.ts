@@ -278,12 +278,72 @@ export const APPROACH_STAIR_RUN =
 const APPROACH_STAIR_LENGTH =
   APPROACH_STAIR_RUN / Math.cos(degToRad(APPROACH_DESCENT_PITCH_DEG));
 /**
- * Level banked straight between the bottom of the descent and the ring. Long
+ * Level banked straight between the end of the journey and the ring. Long
  * enough for the player to settle onto a line and stop trading altitude for
  * speed before the first gap, short enough that they do not simply slide off the
  * open low edge while doing it.
  */
 const APPROACH_STRAIGHT_LENGTH = 70;
+
+/* ------------------------------------------------------------------ *
+ * The journey — the linear surf map between the descent and the ring
+ *
+ * The ring is the arena the run *ends* in (the Monolith arrives over the
+ * island); the journey is the map the player surfs to get there. It is built
+ * from the same single proven piece — one straight banked face — arranged with
+ * the three handoff rules the approach staircase and the ring already paid to
+ * learn: alternate the bank so the next face's high edge catches where the
+ * previous low edge dropped the player; stagger each face toward the drift the
+ * player is already carrying; and step the centreline down enough that they
+ * arrive mid-face with slope in hand. Variety comes entirely from layout —
+ * heading, pitch, width — never from new geometry.
+ * ------------------------------------------------------------------ */
+
+/** Air gap between journey faces. Ring-adjacent speeds, so wider than the staircase's 4. */
+const JOURNEY_GAP = 5;
+/**
+ * Centreline step-down per level-section gap: half a face's vertical extent.
+ * The player leaves a face's low edge `FACE_SIN * width / 2` below its
+ * centreline; dropping the next centreline by the same amount lands them
+ * mid-face with half the slope still beneath them. (The staircase uses 0.75 of
+ * the *full* extent because its faces descend as well; level faces need less.)
+ */
+const JOURNEY_LEVEL_STEP = FACE_SIN * RAMP_FACE_WIDTH * 0.6;
+/**
+ * Extra step-down where a fast, steeply-falling exit has to be caught: into
+ * and out of the dive. Ballistic probes found level-step spacing left the
+ * catch band above where those exits actually arrive (dive-to-climb measured
+ * 2/48 landings; the climb pair 0/48 before its own step was added).
+ */
+const JOURNEY_DIVE_ENTRY_EXTRA = 4;
+const JOURNEY_DIVE_EXIT_STEP = 12;
+/** Step-down between the two climb faces — ascending exits fall back quickly. */
+const JOURNEY_CLIMB_STEP = 6;
+/** Sideways stagger per gap, toward the previous face's low edge — same rule as the staircase. */
+const JOURNEY_STAGGER = 6;
+/** Gap a checkpoint platform sits in. Wider than JOURNEY_GAP so the pad reads as a rest, not a wall. */
+const JOURNEY_CP_GAP = 9;
+
+/** Slalom: how far each turn swings off the base heading. The ring turns 36 deg per gap; this stays under it. */
+const JOURNEY_SLALOM_YAW_DEG = 24;
+/** The dive: pitched like the approach staircase, entered much faster. */
+const JOURNEY_DIVE_PITCH_DEG = 22;
+/**
+ * The climb — the piece of the course that is *not* downhill. Ascending faces
+ * trade the player's speed back into height (v² = v0² − 2gh), so this is a
+ * speed check: arrive off the dive at 25+ u/s and it costs a comfortable
+ * fraction; arrive at a walk and it cannot be completed. The checkpoint layout
+ * makes failure cost a retry of the dive, never a soft-lock: there is
+ * deliberately NO checkpoint between the dive and the climb, because a player
+ * respawning on one would start the climb at walk speed, which is impossible,
+ * forever. The pre-dive platform is the retry point — falling out of the climb
+ * re-runs the dive and arrives with speed again.
+ */
+const JOURNEY_CLIMB_PITCH_DEG = -12;
+/** Narrow-section face width: two thirds of standard, a precision check at speed. */
+const JOURNEY_NARROW_WIDTH = 12;
+/** How close the player must fly to a shrine to collect its blessing. */
+export const SHRINE_COLLECT_RADIUS = 6;
 
 export const FACE_ROUGHNESS = 0.85;
 export const FACE_METALNESS = 0;
@@ -348,17 +408,25 @@ export interface SurfCourse {
   spawnYawDeg: number;
   /**
    * Rest-platform stages, in course order — used for the fall-out-of-bounds
-   * recovery. There are exactly two, and the split matters:
-   *
-   * - `[0]` the elevated start platform at `START_PLATFORM_TOP_Y`, where a run
-   *   begins and where a player who falls off the *approach* is put back.
-   * - `[1]` the ring re-entry platform at `TRACK_Y`, sitting on the approach
-   *   straight's line in the gap before segment 0 so the player crosses it on
-   *   the way in. Once armed, a fall off the ring costs them the ring only —
-   *   `Game` respawns them here rather than at the top of the approach, so they
-   *   do not have to re-run the descent every time.
+   * recovery. `[0]` is the elevated start platform; between it and the final
+   * ring re-entry platform sit the journey's checkpoints, one per section
+   * boundary (except between the dive and the climb — see
+   * `JOURNEY_CLIMB_PITCH_DEG` for why a checkpoint there would soft-lock).
+   * The player crosses each pad's window on the way through, which arms it, so
+   * a fall costs the current section rather than the whole run.
    */
   stages: CourseStage[];
+  /**
+   * Blessing shrines: floating pickups the player reaches by carrying speed
+   * off a face and sailing to them. `Game` builds the actual objects — the
+   * course only knows where they hang.
+   */
+  shrines: Vector3[];
+  /**
+   * The journey's face specs in course order, for headless verification — the
+   * ballistic-handoff probes need real edges, not reconstructed colliders.
+   */
+  journey: { start: Vector3; yawDeg: number; pitchDeg: number; length: number; width: number; bankSign: number }[];
   /**
    * The intended surf line: the centreline point at the leading edge of every
    * ramp in the ring, in loop order. Purely informational — nothing in the game
@@ -632,6 +700,8 @@ interface BankedRampSpec {
   /** Descent along travel; 0 for every face in the ring. */
   pitchDeg: number;
   length: number;
+  /** Face slope-extent. Defaults to the standard `RAMP_FACE_WIDTH`; the journey's narrow section shrinks it. */
+  width?: number;
   /**
    * Which way the face leans: +1 puts its high edge toward `faceHighSideXZ`, -1
    * mirrors it. Every ring face is +1; the descent staircase alternates so each
@@ -670,7 +740,7 @@ function buildBankedRamp(group: Group, faces: BankedFace[], spec: BankedRampSpec
       startPitchDeg: spec.pitchDeg,
       rollDeg: FACE_ANGLE_DEG * (spec.bankSign ?? 1),
       length: spec.length,
-      width: RAMP_FACE_WIDTH,
+      width: spec.width ?? RAMP_FACE_WIDTH,
       thickness: FACE_THICKNESS,
       guideWalls: false,
       color: spec.color,
@@ -778,10 +848,10 @@ export function buildSurfCourse(): SurfCourse {
     if (index === 0) firstSegmentStart = faceStart.clone();
   }
 
-  // The approach is laid out backwards from segment 0 so that everything about it
-  // — heading, bank handing, centreline height, where it stops — is derived from
-  // the ring rather than hand-placed beside it. Change the ring's radius, count
-  // or ramp length and the approach follows.
+  // Everything before the ring is laid out backwards from segment 0 so that
+  // heading, bank handing, centreline height and where each piece stops are all
+  // derived from the ring rather than hand-placed beside it. Change the ring's
+  // radius, count or ramp length and the whole run follows.
   const approachYawDeg = travelYawDeg(0);
   const approachForward = forwardXZ(approachYawDeg);
   const approachHighSide = faceHighSideXZ(approachYawDeg);
@@ -794,42 +864,153 @@ export function buildSurfCourse(): SurfCourse {
     .clone()
     .addScaledVector(approachForward, -APPROACH_STRAIGHT_LENGTH);
 
-  // Descent staircase, laid out backwards from the straight. Every face shares the
-  // approach centreline laterally — no sideways offsets anywhere — because the
-  // alternating bank does that work: mirroring a face swaps which edge is high, so
-  // face n's low edge and face n+1's high edge land on the same line by
-  // construction. See `APPROACH_DESCENT_FACE_COUNT`.
-  //
-  // The chain spans N runs and N gaps: one gap between each pair of faces, and one
-  // more between the last face and the straight.
+  /* ---------------------------------------------------------------- *
+   * The journey, dry pass: walk the section list forward in local space
+   * collecting face specs, checkpoint pads and shrine points, then translate
+   * the whole chain so its exit lands exactly where the straight needs it.
+   * Building forward is what makes heading changes (the slalom) sane; the
+   * translation at the end is what keeps the ring the fixed reference.
+   * ---------------------------------------------------------------- */
+  interface JourneyFace {
+    start: Vector3;
+    yawDeg: number;
+    pitchDeg: number;
+    length: number;
+    bankSign: number;
+    width: number;
+    color: number;
+  }
+  const journeyFaces: JourneyFace[] = [];
+  const journeyPads: Vector3[] = [];
+  const shrines: Vector3[] = [];
+
+  const cursor = new Vector3();
+  let prevYaw = approachYawDeg;
+  let prevBank = -1; // the staircase above ends on −1, so the journey opens +1
+
+  /** Horizontal direction of the previous face's low edge — where the player drifts. */
+  const lowSide = () => faceHighSideXZ(prevYaw).multiplyScalar(-prevBank);
+
+  const pushFace = (
+    yawDeg: number,
+    pitchDeg: number,
+    length: number,
+    bankSign: number,
+    color: number,
+    width = RAMP_FACE_WIDTH,
+  ): void => {
+    journeyFaces.push({ start: cursor.clone(), yawDeg, pitchDeg, length, bankSign, width, color });
+    cursor.addScaledVector(forwardXZ(yawDeg), length * Math.cos(degToRad(pitchDeg)));
+    cursor.y -= length * Math.sin(degToRad(pitchDeg));
+    prevYaw = yawDeg;
+    prevBank = bankSign;
+  };
+  /** Open air to the next face: forward, staggered toward the drift, stepped down. */
+  const gap = (along: number, stepDown: number): void => {
+    cursor.addScaledVector(forwardXZ(prevYaw), along).addScaledVector(lowSide(), JOURNEY_STAGGER);
+    cursor.y -= stepDown;
+  };
+  /** Checkpoint pad centred in a widened gap, at local centreline height — the re-entry pattern. */
+  const checkpoint = (): void => {
+    journeyPads.push(cursor.clone().addScaledVector(forwardXZ(prevYaw), JOURNEY_CP_GAP / 2));
+    gap(JOURNEY_CP_GAP, JOURNEY_LEVEL_STEP);
+  };
+  /** Shrine hung above the current cursor — reachable by launching off the piece just built. */
+  const shrineHere = (up: number, along = 0): void => {
+    shrines.push(cursor.clone().addScaledVector(forwardXZ(prevYaw), along).add(new Vector3(0, up, 0)));
+  };
+
+  const A = approachYawDeg;
+  const S = JOURNEY_SLALOM_YAW_DEG;
+  const C = SEGMENT_FACE_COLORS;
+
+  // Cruise: two level faces to settle onto after the staircase.
+  pushFace(A, 0, 45, 1, C[0]);
+  shrineHere(9, 2.5);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+  pushFace(A, 0, 45, -1, C[1]);
+  checkpoint();
+
+  // Slalom: the ring turns 36 deg per gap, so ±24 swings are well inside proven
+  // turning. Banks follow the turn (high edge outside), not strict alternation.
+  pushFace(A + S, 0, 38, 1, C[2]);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+  pushFace(A, 0, 38, -1, C[3]);
+  shrineHere(12, 3);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+  pushFace(A - S, 0, 38, -1, C[0]);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+  pushFace(A, 0, 38, 1, C[1]);
+  checkpoint(); // pre-dive: the retry point for the whole dive-and-climb passage
+  cursor.y -= JOURNEY_DIVE_ENTRY_EXTRA;
+
+  // The dive: staircase numbers (they are speed-for-altitude, already tuned),
+  // entered much faster than the approach's walk.
+  pushFace(A, JOURNEY_DIVE_PITCH_DEG, 45, -1, APPROACH_FACE_COLOR);
+  gap(APPROACH_STAIR_GAP, APPROACH_STAIR_DROP);
+  pushFace(A, JOURNEY_DIVE_PITCH_DEG, 45, 1, APPROACH_FACE_COLOR);
+  shrineHere(14, 4);
+  gap(JOURNEY_GAP, JOURNEY_DIVE_EXIT_STEP);
+
+  // The climb — deliberately NO checkpoint since the dive (see the constant's
+  // doc: a respawn here would face the ascent at walk speed, forever).
+  pushFace(A, JOURNEY_CLIMB_PITCH_DEG, 30, -1, APPROACH_FACE_COLOR);
+  gap(APPROACH_STAIR_GAP, JOURNEY_CLIMB_STEP);
+  pushFace(A, JOURNEY_CLIMB_PITCH_DEG, 30, 1, APPROACH_FACE_COLOR);
+  shrineHere(8, 2);
+  checkpoint(); // earned: the climb is behind them
+
+  // Narrow: standard handoffs, two-thirds width — a precision check at speed.
+  pushFace(A, 0, 40, -1, C[2], JOURNEY_NARROW_WIDTH);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+  pushFace(A, 0, 40, 1, C[3], JOURNEY_NARROW_WIDTH);
+  shrineHere(11, 2);
+  gap(JOURNEY_GAP, JOURNEY_LEVEL_STEP);
+
+  // Final descent onto the straight's line. Its end obeys the staircase's exit
+  // rule: finish one half-span-plus-margin above the straight's centreline so
+  // the player's low-edge exit meets the straight's face, not the air under it.
+  pushFace(A, 15, 45, -1, APPROACH_FACE_COLOR);
+
+  // Translate the whole chain so the final face's end lands one stair-gap
+  // before the straight, `APPROACH_STAIR_EXIT_Y` above its centreline.
+  const journeyOffset = straightStart
+    .clone()
+    .addScaledVector(approachForward, -APPROACH_STAIR_GAP)
+    .add(new Vector3(0, APPROACH_STAIR_EXIT_Y, 0))
+    .sub(cursor);
+  for (const face of journeyFaces) face.start.add(journeyOffset);
+  for (const pad of journeyPads) pad.add(journeyOffset);
+  for (const shrine of shrines) shrine.add(journeyOffset);
+
+  // Descent staircase, laid out backwards from the journey's entry exactly as
+  // it used to be from the straight: same solved run, same internal drop, same
+  // alternation and stagger — only its exit target moved. Every face shares the
+  // journey-entry centreline laterally; the alternating bank does the lateral
+  // work. See `APPROACH_DESCENT_FACE_COUNT`.
+  const journeyEntry = journeyFaces[0].start;
+  const stairExitDescent = APPROACH_DESCENT_START_Y - APPROACH_STAIR_EXIT_Y;
+  const descentStartY = journeyEntry.y + APPROACH_STAIR_EXIT_Y + stairExitDescent;
   const staircaseSpan =
     APPROACH_DESCENT_FACE_COUNT * APPROACH_STAIR_RUN +
     APPROACH_DESCENT_FACE_COUNT * APPROACH_STAIR_GAP;
-  const descentStart = straightStart
+  const descentStart = journeyEntry
     .clone()
     .addScaledVector(approachForward, -staircaseSpan)
-    .setY(APPROACH_DESCENT_START_Y);
+    .setY(descentStartY);
 
   const stairPitchDrop = APPROACH_STAIR_RUN * Math.tan(degToRad(APPROACH_DESCENT_PITCH_DEG));
   for (let face = 0; face < APPROACH_DESCENT_FACE_COUNT; face++) {
-    // Each face begins one run-plus-gap further along and one full step lower: its
-    // own pitch drop for every face already passed, plus the stair drop for every
-    // gap already crossed.
-    // Each face steps sideways as well as down and along — toward the low edge of
-    // the face before it, which is the direction the player is already drifting.
-    // See `APPROACH_STAIR_LATERAL`. Face 0 is the reference, so it takes no offset.
     const faceStart = descentStart
       .clone()
       .addScaledVector(approachForward, face * (APPROACH_STAIR_RUN + APPROACH_STAIR_GAP))
       .addScaledVector(approachHighSide, -face * APPROACH_STAIR_LATERAL)
-      .setY(APPROACH_DESCENT_START_Y - face * (stairPitchDrop + APPROACH_STAIR_DROP));
+      .setY(descentStartY - face * (stairPitchDrop + APPROACH_STAIR_DROP));
     buildBankedRamp(group, faces, {
       start: faceStart,
       yawDeg: approachYawDeg,
       pitchDeg: APPROACH_DESCENT_PITCH_DEG,
       length: APPROACH_STAIR_LENGTH,
-      // Face 0 leans the same way as the ring so the start platform sits on its
-      // high side; every face after it mirrors the one before.
       bankSign: face % 2 === 0 ? 1 : -1,
       color: APPROACH_FACE_COLOR,
       segmentIndex: -1,
@@ -837,7 +1018,47 @@ export function buildSurfCourse(): SurfCourse {
       radius: 0,
     });
     approachPath.push(faceStart.clone());
+    // The tutorial shrine: over the second stair face, but high and pulled
+    // toward the high side, so the default descent line passes under it —
+    // the smoke autopilot collected the first placement without deviating,
+    // which is a freebie, not a shrine.
+    if (face === 1) {
+      shrines.push(
+        faceStart
+          .clone()
+          .addScaledVector(approachHighSide, -5)
+          .add(new Vector3(0, 13, 0)),
+      );
+    }
   }
+
+  // Emit the journey's faces and checkpoint pads (world space now).
+  journeyFaces.forEach((face, i) => {
+    buildBankedRamp(group, faces, {
+      start: face.start,
+      yawDeg: face.yawDeg,
+      pitchDeg: face.pitchDeg,
+      length: face.length,
+      width: face.width,
+      bankSign: face.bankSign,
+      color: face.color,
+      segmentIndex: -1,
+      sectionIndex: APPROACH_DESCENT_FACE_COUNT + 1 + i,
+      radius: 0,
+    });
+    approachPath.push(face.start.clone());
+  });
+
+  // Ring shrines: high over two of the gaps, plus one hung toward the island —
+  // all reached by launching off a face's high edge with speed to spare.
+  for (const thetaDeg of [126, 270]) {
+    shrines.push(
+      radialOut(thetaDeg)
+        .multiplyScalar(TRACK_RADIUS + 4)
+        .setY(TRACK_Y + 13),
+    );
+  }
+  shrines.push(radialOut(198).multiplyScalar(ISLAND_RADIUS + 18).setY(TRACK_Y + 16));
 
   // The straight is now reached across a gap like every other joint in the course,
   // so it is built exactly where it belongs. That gap is also what retired the
@@ -876,8 +1097,14 @@ export function buildSurfCourse(): SurfCourse {
     .clone()
     .addScaledVector(approachForward, -PLATFORM_DEPTH / 2)
     .addScaledVector(approachHighSide, PLATFORM_OUTWARD_OFFSET)
-    .setY(START_PLATFORM_TOP_Y);
+    .setY(descentStartY + PLATFORM_TOP_ABOVE_FACE);
   stages.push(buildPlatform(group, startPlatformTop, PLATFORM_WIDTH, PLATFORM_DEPTH, approachYawDeg));
+
+  // Journey checkpoints, in course order between the start pad and the ring
+  // re-entry — the order is what the fall-recovery's kill-plane ladder reads.
+  for (const pad of journeyPads) {
+    stages.push(buildPlatform(group, pad, PLATFORM_WIDTH, PLATFORM_DEPTH, approachYawDeg));
+  }
 
   // Ring re-entry platform: the run's checkpoint, centred in the gap between the
   // approach straight and segment 0, on their shared centreline at track level.
@@ -908,6 +1135,15 @@ export function buildSurfCourse(): SurfCourse {
     spawnPoint,
     spawnYawDeg: playerYawDegForHeading(approachYawDeg),
     stages,
+    shrines,
+    journey: journeyFaces.map((f) => ({
+      start: f.start.clone(),
+      yawDeg: f.yawDeg,
+      pitchDeg: f.pitchDeg,
+      length: f.length,
+      width: f.width,
+      bankSign: f.bankSign,
+    })),
     surfPath,
     approachPath,
     faces,

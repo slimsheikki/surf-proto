@@ -10,6 +10,8 @@ export interface HudState {
   dashFraction: number;
   dashCharges: number;
   dashMaxCharges: number;
+  /** Banked shrine blessings, spendable with E. */
+  blessingTokens: number;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -27,6 +29,7 @@ export class Hud {
   private readonly felledEl = document.getElementById('felled-readout')!;
   private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
   private readonly dashReadoutEl = document.getElementById('dash-readout')!;
+  private readonly blessingEl = document.getElementById('blessing-readout')!;
 
   update(state: HudState): void {
     this.speedEl.textContent = `${state.speed.toFixed(1)} u/s`;
@@ -41,5 +44,12 @@ export class Hud {
     this.felledEl.classList.toggle('hidden', state.bossesFelled === 0);
     this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
     this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
+    // Hidden at zero, like the felled counter: a permanently empty prompt is
+    // noise on a HUD read at 35 u/s.
+    this.blessingEl.textContent =
+      state.blessingTokens > 1
+        ? `\u2726 ${state.blessingTokens} blessings \u2014 press E`
+        : '\u2726 Blessing ready \u2014 press E';
+    this.blessingEl.classList.toggle('hidden', state.blessingTokens === 0);
   }
 }
