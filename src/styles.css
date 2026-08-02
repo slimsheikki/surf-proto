@@ -75,17 +75,6 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Matches the shrines' gold so the prompt and the pickup read as one system. */
-#blessing-readout {
-  color: #ffc94d;
-  font-weight: 600;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-}
-
-#blessing-readout.hidden {
-  display: none;
-}
-
 /* Boss fight banner. Top-centre so it never fights the bottom-left HUD for
    space, and pointer-events off so it can't eat a click meant for the canvas. */
 #boss-bar {

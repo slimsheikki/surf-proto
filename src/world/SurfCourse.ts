@@ -423,6 +423,14 @@ export interface SurfCourse {
    */
   shrines: Vector3[];
   /**
+   * Global kill plane: safely under everything (the island's shelf bottoms out
+   * at −29). Falling below it ends the run — the prompt detection lives in
+   * `Game`'s doomed check, so this only needs to be *below the course*, never
+   * cleverly close to it. The old per-checkpoint ladder is gone; it is what
+   * produced invisible mid-air teleport planes when a checkpoint went unarmed.
+   */
+  killPlaneY: number;
+  /**
    * The journey's face specs in course order, for headless verification — the
    * ballistic-handoff probes need real edges, not reconstructed colliders.
    */
@@ -1136,6 +1144,7 @@ export function buildSurfCourse(): SurfCourse {
     spawnYawDeg: playerYawDegForHeading(approachYawDeg),
     stages,
     shrines,
+    killPlaneY: TRACK_Y - 45,
     journey: journeyFaces.map((f) => ({
       start: f.start.clone(),
       yawDeg: f.yawDeg,

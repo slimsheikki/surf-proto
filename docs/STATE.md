@@ -14,6 +14,32 @@ the game: `git checkout ed58d05`.
 
 None blocking. The approach entry is fixed — see below.
 
+## Round two of polish (falls, blessings, sky)
+
+- **Falling is death.** No mid-course respawns; the start zone is the only checkpoint,
+  and a fall ends the run (game-over screen, fresh round). The checkpoint pads remain as
+  geometry/rest spots but carry no respawn function; `Game`'s stage-tracking machinery
+  (`trackLastStage`, `lastStageIndex`, teleport recovery) is deleted.
+- **The "random teleport to start" bug — root-caused.** It was NOT a collider in the sky
+  (the sky is mesh-only; nothing to hit). It was the old checkpoint kill-plane ladder:
+  the plane hung 30 below the *next* stage, stages armed only inside a narrow height band
+  (dy −0.5..2), so flying OVER a pad left it unarmed and the plane stayed ~90 units up —
+  crossed mid-flight later, teleporting the player to the unarmed ladder's start. Replaced
+  by two rules that cannot fire above the course: a **doomed check** (plummeting faster
+  than −22 u/s with no surface within 100 below — probed: 117/117 flight positions above
+  the journey line have ground cover) and a global `killPlaneY = −45` backstop under
+  everything (island bottoms out at −29). Both now end the run instead of teleporting.
+- **Blessings open on contact.** The E/token flow is gone (E key, HUD readout, banner,
+  tokens all removed); flying through a shrine pauses the sim on the choice menu
+  immediately, and the flight resumes exactly where it stopped after picking. Menu
+  heading is now "Choose a Power" since it serves both level-ups and shrines.
+- **Ghibli sky** (`src/world/Sky.ts`): procedurally painted canvas (deterministic
+  mulberry32 seed — reshuffling clouds per refresh reads as a bug) on an inward sphere:
+  cerulean → pale warm horizon gradient, three bands of soft cumulus. Classic skybox
+  mechanics: re-centred on the camera every frame, `fog: false`, renderOrder −1,
+  frustumCulled off, **no collider**. Fog and clear colour now match the painted horizon
+  (`SKY_HORIZON_COLOR`), keeping the bright-sky contrast gotchas valid.
+
 ## The polished standard game (new)
 
 Three additions, per the user's Megabonk-flavoured brief:

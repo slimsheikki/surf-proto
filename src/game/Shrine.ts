@@ -30,11 +30,9 @@ const SPIN_RATE = 0.9;
 /**
  * A blessing shrine: a floating pickup the player reaches by carrying speed
  * off a face and sailing to it — the course places every one off the surf
- * line, so reaching it *costs* line and airtime. Flying through it banks a
- * blessing token; pressing E later opens a free choice of powerup. Banking
- * rather than opening the menu on contact is deliberate: at 30 u/s the player
- * is through the collect radius in a fifth of a second, and a menu that
- * springs up mid-flight would cost them the landing.
+ * line, so reaching it *costs* line and airtime. Flying through it opens the
+ * free powerup choice immediately: the pause freezes the whole sim, so the
+ * flight resumes exactly where it stopped once a power is picked.
  *
  * No collider — it is a pickup, not geometry. Meshes share module-level
  * geometry; each shrine owns its two materials (they dim when spent).

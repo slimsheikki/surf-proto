@@ -17,6 +17,7 @@ import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
 import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
+import { raycast } from '../engine/Raycast';
 import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
@@ -44,7 +45,24 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
-const RESPAWN_HEIGHT_OFFSET = new Vector3(0, 1.2, 0);
+/**
+ * Fall detection, replacing the old checkpoint kill-plane ladder. Two rules,
+ * both of which end the run (falling is death now — there are no mid-course
+ * respawns, the start zone is the only checkpoint):
+ *
+ * - **Doomed**: plummeting (`velocity.y` past `DOOMED_FALL_SPEED`) with no
+ *   surface anywhere within `DOOMED_PROBE_DEPTH` below. This is the prompt
+ *   detector, and unlike the ladder it *cannot* fire above the course — the
+ *   ladder hung an invisible plane 30 below the next unarmed checkpoint, and a
+ *   player who flew over a pad without skimming its narrow arming band later
+ *   crossed that plane mid-flight and was yanked to the start. That was the
+ *   "random teleport" bug: not a collider in the sky, a plane that only
+ *   existed because a checkpoint hadn't armed.
+ * - **Backstop**: below the course's own `killPlaneY`, unconditionally.
+ */
+const DOOMED_FALL_SPEED = -22;
+const DOOMED_PROBE_DEPTH = 100;
+const DOWN_PROBE = new Vector3(0, -1, 0);
 const BASE_MAX_HP = 100;
 
 /**
@@ -112,9 +130,8 @@ export class Game {
   /** Run-scoped perk hooks (heal-on-kill, XP multiplier). See `RunPerks`. */
   readonly perks = createRunPerks();
 
-  /** Blessing shrines built from the course, and the tokens collected from them. */
+  /** Blessing shrines built from the course. */
   private shrines: Shrine[] = [];
-  blessingTokens = 0;
 
   state: GameState = 'playing';
 
@@ -124,8 +141,6 @@ export class Game {
   /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
   bossesFelled = 0;
 
-  /** Index into `stages` of the last rest platform the player stood on. */
-  private lastStageIndex = 0;
   private paused = false;
   private readonly hud = new Hud();
   private readonly bossBar = new BossBar();
@@ -150,8 +165,6 @@ export class Game {
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
 
-  private stages: CourseStage[];
-
   constructor(
     private readonly scene: Scene,
     camera: PerspectiveCamera,
@@ -171,7 +184,6 @@ export class Game {
      */
     private readonly viewModel: ViewModel,
   ) {
-    this.stages = course.stages;
     this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
     this.entityManager = new EntityManager(scene);
@@ -199,25 +211,12 @@ export class Game {
     for (const shrine of this.shrines) this.scene.add(shrine.group);
   }
 
-  private get lastStage(): CourseStage {
-    return this.stages[this.lastStageIndex];
-  }
-
   /**
-   * Kill plane, placed just below the platform the player is currently surfing
-   * *toward* rather than below the whole course.
-   *
-   * A single global plane derived from the lowest stage looks equivalent but
-   * isn't: this course descends over 1100 units, so falling off the first ramp
-   * would mean plummeting ~1000 units — about ten seconds of nothing — before
-   * the recovery triggered. Each stage's ramp stays above the platform it ends
-   * on, so a margin below that platform is below the whole ramp run and catches
-   * a fall promptly wherever it happens.
+   * The unconditional backstop plane. Promptness comes from the doomed check
+   * (see `DOOMED_FALL_SPEED`), so one honest global plane per course is enough.
    */
   private get outOfBoundsY(): number {
-    if (this.course.killPlaneY !== undefined) return this.course.killPlaneY;
-    const target = this.stages[Math.min(this.lastStageIndex + 1, this.stages.length - 1)];
-    return target.center.y - OUT_OF_BOUNDS_MARGIN;
+    return this.course.killPlaneY ?? -OUT_OF_BOUNDS_MARGIN;
   }
 
   /**
@@ -227,7 +226,6 @@ export class Game {
    */
   setCourse(course: GameCourse): void {
     this.course = course;
-    this.stages = course.stages;
     this.rebuildShrines();
     this.restart();
   }
@@ -278,23 +276,26 @@ export class Game {
     this.playerHealth.tick(dt);
 
     // Shrines animate and test pickup on the fixed step like everything else.
+    // Contact opens the blessing choice immediately: the pause freezes the
+    // whole sim, so the flight resumes exactly where it stopped once a power
+    // is picked — flying through a shrine costs the line, not the landing.
     for (const shrine of this.shrines) {
       if (shrine.tick(dt, playerPosition)) {
-        this.blessingTokens += 1;
-        this.banner.show('Blessing collected', 'Press E to choose a free powerup', 3.5);
+        this.startBlessing();
+        return;
       }
     }
-    // Banked rather than opened on contact — see `Shrine` for why. Spending is
-    // gated on `playing` so a token cannot double-open over the level-up menu.
-    if (input.interactPressed && this.blessingTokens > 0) {
-      this.blessingTokens -= 1;
-      this.startBlessing();
-      return;
-    }
 
-    this.trackLastStage(playerPosition);
-    if (playerPosition.y < this.outOfBoundsY) {
-      this.playerController.teleport(this.lastStage.center.clone().add(RESPAWN_HEIGHT_OFFSET));
+    // Falling is death. Doomed check first — it fires seconds sooner than the
+    // backstop plane and reads as an immediate consequence rather than a long
+    // silent plummet.
+    if (
+      playerPosition.y < this.outOfBoundsY ||
+      (playerVelocity.y < DOOMED_FALL_SPEED &&
+        raycast(playerPosition, DOWN_PROBE, DOOMED_PROBE_DEPTH) === null)
+    ) {
+      this.endRun();
+      return;
     }
 
     // Checked before the spawn director runs, so the tick a Monolith arrives on
@@ -509,7 +510,6 @@ export class Game {
     this.playerHealth.regenPerSecond = 0;
     resetRunPerks(this.perks);
     resetXpMagnet();
-    this.blessingTokens = 0;
     for (const shrine of this.shrines) shrine.reset();
     this.playerController.teleport(this.course.spawnPoint.clone());
     // Yaw too, not just position. A free map can start the player on any
@@ -518,7 +518,6 @@ export class Game {
     // backwards off the pad.
     this.playerController.yaw = degToRad(this.course.spawnYawDeg);
     this.playerController.pitch = 0;
-    this.lastStageIndex = 0;
     this.spawnDirector.reset();
     this.levelSystem.reset();
     this.weapon.reset();
@@ -545,21 +544,6 @@ export class Game {
     return new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   }
 
-  private trackLastStage(playerPosition: Vector3): void {
-    for (let i = 0; i < this.stages.length; i++) {
-      const stage = this.stages[i];
-      const dx = Math.abs(playerPosition.x - stage.center.x);
-      const dz = Math.abs(playerPosition.z - stage.center.z);
-      const dy = playerPosition.y - stage.center.y;
-      // Feet are snapped to the platform top when standing, and respawns drop
-      // from RESPAWN_HEIGHT_OFFSET above it, so only a small band above the
-      // surface counts as "on this stage" — a player passing underneath must not.
-      if (dx < stage.halfWidth && dz < stage.halfDepth && dy > -0.5 && dy < 2) {
-        this.lastStageIndex = i;
-        break;
-      }
-    }
-  }
 
   private updateHud(): void {
     // Hidden on the terminal screens so the bar doesn't hang over them.
@@ -583,7 +567,6 @@ export class Game {
       dashFraction: this.dash.fraction,
       dashCharges: this.dash.charges,
       dashMaxCharges: this.dash.maxCharges,
-      blessingTokens: this.blessingTokens,
     });
   }
 }
