@@ -43,6 +43,26 @@ CS2 guide's taxonomy:
   startup from each definition's real geometry (`src/editor/Thumbnails.ts`, offscreen
   renderer, disposed after one pass), hints demoted to tooltips, controls help collapsed
   behind a `<details>`.
+- **One watertight mesh per piece.** The visible piece is a single lofted
+  `BufferGeometry` (`skinGeometry`): widths interpolate continuously (tapers are
+  straight-edged, the pyramid is exact — planar faces, straight hips, one apex point),
+  and under-sides drop vertically so faces sharing an edge meet exactly. Collision
+  stays stepped oriented boxes from the same frame walk. An adversarial audit of all
+  14 definitions found the visuals defect-free and all real issues collision-side;
+  fixed since: collider boxes take *inscribed* (minimum-boundary) widths so collision
+  never reaches past a visible tapered edge (was up to 1.4 over), taper steps halved
+  to 1 unit, and the seam-overlap pad extends toward interior seams only, never past
+  a piece's entry/exit. Accepted trades, on record: up to ~0.5 of visible taper edge
+  is unbacked (slides off marginally early), the intentional ridge-miter slit (±0.4
+  band, no collider on the exact ridge line), and collision slab *sides* extending
+  laterally at sub-surface heights (felt only brushing an underside). Raked ends on
+  roll+pitch channels (vertical-curved-inverted: 4-unit V notch at a free-standing
+  exit) are self-consistent shear that mates flush when chained — cosmetic.
+- **Undo/redo** (`Ctrl/Cmd+Z`, redo on `Ctrl/Cmd+X` by request): whole-map snapshots,
+  one per completed gesture, taken *before* mutation; drags snapshot on grab and
+  discard on release if nothing moved; cap 500. `splineGeneratedIds` survives undo
+  untouched — ids are session-unique, so stale entries are harmless and surviving
+  ones keep regeneration owning its pieces.
 - **Segment seams overlap, not gap.** A rotated segment chain only meets on the
   centreline; at the face edge each seam opened `2·sin(step/2)·(w/2)` of daylight —
   visible on every curve. Boxes now carry `overlapPad` extra length (mesh *and*

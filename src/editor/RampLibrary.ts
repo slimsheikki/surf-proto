@@ -471,7 +471,22 @@ function skinGeometry(strips: FaceStrip[]): BufferGeometry {
   return geometry;
 }
 
-/** Collision boxes for one face path: the stepped-box run the sweep engine needs. */
+/**
+ * Collision boxes for one face path: the stepped-box run the sweep engine
+ * needs. Two discretisation rules, both audit-driven — the visible skin is
+ * smooth and the boxes are not, and every divergence is something the player
+ * feels:
+ *
+ * - **Inscribed widths.** A tapered segment's box takes the *narrower* of its
+ *   two boundary widths, so collision never reaches past the visible edge.
+ *   Boxes at the segments' midpoint width overhung the taper by up to 1.4
+ *   units — an invisible ledge the player could stand on beyond the visible
+ *   ramp. The cost runs the other way: up to half a width-step of visible
+ *   edge is unbacked, which reads as sliding off the edge marginally early.
+ * - **End-aware overlap.** The seam-overlap pad extends boxes toward interior
+ *   seams only; a piece's entry and exit edges get none, so collision ends
+ *   where the piece visibly ends instead of ~0.35 past it.
+ */
 function emitFaceColliders(
   params: RampCurveParams,
   mode: RampCurveMode,
@@ -479,19 +494,33 @@ function emitFaceColliders(
   surfaceOffsetAlongHighDir: number,
 ): void {
   const path = computeRampFrames(params, mode);
-  for (const frame of path.frames) {
+  const count = path.frames.length;
+  const endWidth = params.endWidth ?? params.width;
+
+  path.frames.forEach((frame, i) => {
+    const widthA = params.width + (endWidth - params.width) * (i / count);
+    const widthB = params.width + (endWidth - params.width) * ((i + 1) / count);
+    const boxWidth = Math.max(0.5, Math.min(widthA, widthB));
+
+    const padBack = i === 0 ? 0 : path.overlapPad / 2;
+    const padForward = i === count - 1 ? 0 : path.overlapPad / 2;
+    const boxLength = frame.length + padBack + padForward;
+
     const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
-    const surfaceCenter = frame.mid.clone().addScaledVector(highDir, surfaceOffsetAlongHighDir);
-    const center = surfaceCenter.addScaledVector(frame.normal, -thickness / 2);
+    const center = frame.mid
+      .clone()
+      .addScaledVector(highDir, surfaceOffsetAlongHighDir)
+      .addScaledVector(frame.normal, -thickness / 2)
+      .addScaledVector(frame.forward, (padForward - padBack) / 2);
     const quaternion = new Quaternion().setFromRotationMatrix(
       new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
     );
     registerCollider({
       position: center,
       quaternion,
-      halfExtents: new Vector3(frame.width / 2, thickness / 2, (frame.length + path.overlapPad) / 2),
+      halfExtents: new Vector3(boxWidth / 2, thickness / 2, boxLength / 2),
     });
-  }
+  });
 }
 
 /** Faces steeper than the walkable cutoff so the pyramid is surfable, with margin. */
