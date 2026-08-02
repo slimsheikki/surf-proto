@@ -22,18 +22,30 @@ const SKIN_WIDTH = 0.01;
 const WALKABLE_NORMAL_EPS = 1e-4;
 
 /**
- * Shared by two triggers: the level-up menu, and a manual dash (Shift).
- *
  * The level-up menu pauses `Game.updateGameplay` entirely, so no momentum is
  * actually lost while a player picks an upgrade — but it does cost them a real
  * half-second where they weren't holding strafe/forward, unlike every other
  * moment in a surf line. This nudge compensates for that missed input window;
  * it is a "welcome back" push in the direction already being travelled, not a
- * real speed buff, so it stays small enough not to read as one. A dash spends
- * a charge (see `Dash`) to fire the identical nudge on demand.
+ * real speed buff, so it stays small enough not to read as one.
+ *
+ * The dash deliberately does NOT use this — see `dashImpulse()`.
  */
 const MOMENTUM_BOOST_DURATION = 0.5; // seconds
 const MOMENTUM_BOOST_ACCEL = 3; // u/s^2
+
+/**
+ * One-shot shove the dash adds along the facing direction. It is an impulse,
+ * not a buff: nothing lingers after the tick it fires on, so the player can
+ * dash to *redirect* — snapping their momentum toward where they're looking —
+ * without the mechanic doubling as a speed upgrade.
+ *
+ * Sized against `MAX_GROUND_SPEED` (7): a shade over walk speed, enough to feel
+ * like a shove and to reach a ramp lip from a standstill, small next to the
+ * speeds a real surf line carries so dashing forward at pace is never the
+ * fastest way to go fast.
+ */
+const DASH_IMPULSE_SPEED = 8; // u/s, added instantly
 
 /**
  * Read the limit off the config on each call rather than caching it at module
@@ -200,6 +212,17 @@ export class PlayerController {
   /** Arms the momentum nudge (see `MOMENTUM_BOOST_ACCEL`) for its next `MOMENTUM_BOOST_DURATION` seconds of ticks. */
   grantMomentumBoost(): void {
     this.momentumBoostTimer = MOMENTUM_BOOST_DURATION;
+  }
+
+  /**
+   * Shoves the player along the direction they are facing (see
+   * `DASH_IMPULSE_SPEED`). Yaw only — pitch is left out on purpose, because a
+   * dash that inherited look pitch would be a free ascent while staring up, and
+   * height in a surf line has to be earned off a ramp.
+   */
+  dashImpulse(): void {
+    const forward = new Vector3(0, 0, -1).applyAxisAngle(UP, this.yaw);
+    this.velocity.addScaledVector(forward, DASH_IMPULSE_SPEED);
   }
 
   teleport(position: Vector3): void {

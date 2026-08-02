@@ -142,30 +142,34 @@ are unreachable by scripted input, so without it the endless path can only be te
 playing it. Verified through it: seeders and blasts spawning, boss kill → run continues →
 second Monolith at 3960 HP → death → restart clears the ladder.
 
-### Dash (new)
+### Dash
 
 Shift spends one of the player's rechargeable dash charges (start 2, recharge one every 6 s,
-`src/player/Dash.ts`) to fire the same momentum nudge the level-up menu grants on close —
-`PlayerController.grantMomentumBoost()` (renamed from `grantLevelUpBoost`; both triggers now
-share it). "Extra Dash" in the level-up pool raises max charges by one, granted immediately.
+`src/player/Dash.ts`) to fire `PlayerController.dashImpulse()`: a one-shot 8 u/s shove along
+the facing direction, yaw only. It is an impulse, not a buff — nothing lingers past the tick,
+so the dash reads as a *redirect* (snap momentum toward where you're looking) rather than a
+speed upgrade. Pitch is excluded on purpose; inheriting it would make a look-up dash a free
+ascent, and height has to be earned off a ramp.
 
-Visuals live in two places and are deliberately separate from the boost itself, so removing
+Earlier versions instead armed `grantMomentumBoost()`, the half-second accel the level-up menu
+grants on close. That is now the level-up trigger's alone — the dash no longer grants any
+sustained speed.
+
+Visuals live in two places and are deliberately separate from the impulse itself, so removing
 either never touches movement:
 - `ViewModel.triggerDash()` — a single decaying brace pose on `root` (both hands), composed
   additively with the idle bob/sway rather than overwriting it (`updateIdle` sums bob + sway
   + kick into one `.set()`, the same way the slash's `arm` offsets sum onto `RIGHT_ARM_BASE`).
 - `src/ui/DashEffect.ts` — anime speed lines (`repeating-conic-gradient` masked to a hole at
-  screen centre so the crosshair stays clear) plus four puff-cloud blobs, both driven
-  imperatively from `tick(dt)` like `Banner`, not a CSS animation/transition. That was a
-  deliberate choice after the first pass: driving puff opacity through a CSS `@keyframes`
-  animation needs a forced-reflow restart to fire on a rapid re-trigger, and the imperative
-  version sidesteps that by just resetting a `remaining` counter. The puffs also needed
-  punching up once in a browser — a soft white radial blob at ~0.5 opacity is nearly invisible
-  against the sky colour (`#9fc8e8`); the shipped version holds full opacity for the first
-  half of its life and uses higher-alpha gradient stops.
+  screen centre so the crosshair stays clear), driven imperatively from `tick(dt)` like
+  `Banner`, not a CSS animation/transition. That was a deliberate choice after the first pass:
+  a CSS `@keyframes` animation needs a forced-reflow restart to fire on a rapid re-trigger, and
+  the imperative version sidesteps that by just resetting a `remaining` counter. An earlier
+  version also kicked up four puff-cloud blobs behind the player; those were cut — the lines
+  alone carry the readout.
 
 There is no dedicated test harness for this yet beyond a manual Playwright smoke pass
-(dash consumes a charge, boosts speed, shows/hides the effect on schedule).
+(dash consumes a charge, adds forward velocity, shows/hides the effect on schedule).
 
 ## Free mode
 
