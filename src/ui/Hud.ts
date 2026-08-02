@@ -6,6 +6,10 @@ export interface HudState {
   elapsedSeconds: number;
   /** Monoliths felled this run. Shown only once it is non-zero — see `update`. */
   bossesFelled: number;
+  /** 0..1 fill — whole dash charges plus progress toward the next one. */
+  dashFraction: number;
+  dashCharges: number;
+  dashMaxCharges: number;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -21,6 +25,8 @@ export class Hud {
   private readonly levelEl = document.getElementById('level-readout')!;
   private readonly waveEl = document.getElementById('wave-readout')!;
   private readonly felledEl = document.getElementById('felled-readout')!;
+  private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
+  private readonly dashReadoutEl = document.getElementById('dash-readout')!;
 
   update(state: HudState): void {
     this.speedEl.textContent = `${state.speed.toFixed(1)} u/s`;
@@ -33,5 +39,7 @@ export class Hud {
     this.felledEl.textContent =
       state.bossesFelled > 0 ? `\u25C6 ${state.bossesFelled}` : '';
     this.felledEl.classList.toggle('hidden', state.bossesFelled === 0);
+    this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
+    this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
   }
 }

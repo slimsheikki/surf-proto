@@ -32,6 +32,8 @@ export interface InputFrame {
   cameraTogglePressed: boolean;
   /** Edge-triggered: true on the single frame a left click was pressed. */
   attackPressed: boolean;
+  /** Edge-triggered: true on the single frame Shift was pressed. */
+  dashPressed: boolean;
 }
 
 export class InputSystem {
@@ -40,6 +42,7 @@ export class InputSystem {
   private pendingPitchDelta = 0;
   private cameraToggleQueued = false;
   private attackQueued = false;
+  private dashQueued = false;
   private locked = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -49,6 +52,7 @@ export class InputSystem {
       // e.repeat filters the browser's auto-repeat storm: without it, holding V
       // queued a camera toggle every repeat and flickered first/third person.
       if (e.code === 'KeyV' && !e.repeat) this.cameraToggleQueued = true;
+      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.dashQueued = true;
       if (GAME_KEY_CODES.has(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
@@ -114,12 +118,14 @@ export class InputSystem {
       pitchDelta: this.pendingPitchDelta,
       cameraTogglePressed: this.cameraToggleQueued,
       attackPressed: this.attackQueued,
+      dashPressed: this.dashQueued,
     };
 
     this.pendingYawDelta = 0;
     this.pendingPitchDelta = 0;
     this.cameraToggleQueued = false;
     this.attackQueued = false;
+    this.dashQueued = false;
 
     return frame;
   }

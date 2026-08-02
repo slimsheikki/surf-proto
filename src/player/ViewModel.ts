@@ -90,6 +90,21 @@ const SWAY_SMOOTHING = 11;
 const SWAY_PITCH_SCALE = 0.5;
 
 /* ------------------------------------------------------------------ *
+ * Dash kick
+ * ------------------------------------------------------------------ */
+
+/**
+ * A single decaying pose, not a phase machine like the slash: both hands
+ * briefly brace back and down as if bracing against the sudden speed, then
+ * ease back to the idle pose over the same window the dash itself acts on
+ * (`Dash`'s momentum nudge), so the animation reads as "that" push rather than
+ * as an unrelated flourish.
+ */
+const DASH_KICK_DURATION = 0.3;
+const DASH_KICK_POS = { x: 0, y: -0.035, z: 0.05 };
+const DASH_KICK_ROT = { x: -0.1, y: 0, z: 0.04 };
+
+/* ------------------------------------------------------------------ *
  * Slash animation
  * ------------------------------------------------------------------ */
 
@@ -235,6 +250,7 @@ export class ViewModel {
   private bobTime = 0;
   private swayX = 0;
   private swayY = 0;
+  private dashKickTimer = 0;
 
   private phase: SlashPhase = 'idle';
   private phaseTime = 0;
@@ -354,6 +370,11 @@ export class ViewModel {
     return knife;
   }
 
+  /** Re-arms the dash brace pose; a dash mid-brace just restarts the timer. */
+  triggerDash(): void {
+    this.dashKickTimer = DASH_KICK_DURATION;
+  }
+
   /** Queues a swing. During an active swing at most one follow-up is buffered. */
   triggerSlash(): void {
     if (this.phase === 'idle') {
@@ -394,15 +415,32 @@ export class ViewModel {
     this.swayX += (targetSwayX - this.swayX) * blend;
     this.swayY += (targetSwayY - this.swayY) * blend;
 
+    let dashPX = 0;
+    let dashPY = 0;
+    let dashPZ = 0;
+    let dashRX = 0;
+    let dashRY = 0;
+    let dashRZ = 0;
+    if (this.dashKickTimer > 0) {
+      this.dashKickTimer = Math.max(this.dashKickTimer - dt, 0);
+      const e = easeOutQuad(this.dashKickTimer / DASH_KICK_DURATION);
+      dashPX = DASH_KICK_POS.x * e;
+      dashPY = DASH_KICK_POS.y * e;
+      dashPZ = DASH_KICK_POS.z * e;
+      dashRX = DASH_KICK_ROT.x * e;
+      dashRY = DASH_KICK_ROT.y * e;
+      dashRZ = DASH_KICK_ROT.z * e;
+    }
+
     this.root.position.set(
-      Math.sin(this.bobTime) * BOB_SWING_X * amplitude + this.swayX,
-      Math.sin(this.bobTime * 2) * BOB_SWING_Y * amplitude + this.swayY,
-      0,
+      Math.sin(this.bobTime) * BOB_SWING_X * amplitude + this.swayX + dashPX,
+      Math.sin(this.bobTime * 2) * BOB_SWING_Y * amplitude + this.swayY + dashPY,
+      dashPZ,
     );
     this.root.rotation.set(
-      -this.swayY * 1.2,
-      this.swayX * 1.2,
-      Math.sin(this.bobTime) * BOB_ROLL * amplitude - this.swayX * 2.5,
+      -this.swayY * 1.2 + dashRX,
+      this.swayX * 1.2 + dashRY,
+      Math.sin(this.bobTime) * BOB_ROLL * amplitude - this.swayX * 2.5 + dashRZ,
     );
   }
 
@@ -496,6 +534,7 @@ export class ViewModel {
     this.queuedSlash = false;
     this.swayX = 0;
     this.swayY = 0;
+    this.dashKickTimer = 0;
     this.arm.position.set(RIGHT_ARM_BASE.x, RIGHT_ARM_BASE.y, RIGHT_ARM_BASE.z);
     this.arm.rotation.set(0, 0, 0);
   }

@@ -1,10 +1,12 @@
 import { Health } from '../combat/Health';
 import { Weapon } from '../combat/Weapon';
+import { Dash } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
 
 export interface UpgradeContext {
   weapon: Weapon;
   playerHealth: Health;
+  dash: Dash;
 }
 
 export interface Upgrade {
@@ -55,6 +57,15 @@ export const UPGRADE_POOL: Upgrade[] = [
     description: 'Jump speed +0.8 — handy for chaining ramps',
     apply: () => {
       MovementConfig.JUMP_SPEED += 0.8;
+    },
+  },
+  {
+    id: 'extra-dash',
+    name: 'Extra Dash',
+    description: 'Max dash charges +1, granted immediately',
+    apply: (ctx) => {
+      ctx.dash.maxCharges += 1;
+      ctx.dash.charges += 1;
     },
   },
 ];
