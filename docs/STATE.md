@@ -58,6 +58,33 @@ CS2 guide's taxonomy:
   laterally at sub-surface heights (felt only brushing an underside). Raked ends on
   roll+pitch channels (vertical-curved-inverted: 4-unit V notch at a free-standing
   exit) are self-consistent shear that mates flush when chained — cosmetic.
+- **Landing on a ramp no longer converts the fall into a downhill slide.** `clipVelocity`
+  removes only the component *into* a surface, and the fall line lies *in* the surface
+  plane (`n·d = 0`, so `v'·d = v·d` exactly) — so a 20 u/s drop onto a 51.34° face used to
+  land already sliding down it at ~15.6 u/s, which threw a late landing off the low edge.
+  `PlayerController.redirectLandingVelocity` now re-points that component **along** the
+  ramp instead of down it, preserving speed (the user's explicit choice over simply
+  deleting it).
+  The whole difficulty is firing on a landing and *never* while riding — cancel the
+  downhill component every tick and the player is glued to the face, which destroys the
+  height-for-speed trade that surfing is. The discriminator is approach speed into the
+  surface, which separates the cases by ~35×: riding accumulates only ~0.09 u/s per tick
+  (gravity's normal component, clipped away again immediately), while a 20 u/s drop
+  arrives with 12.5. `SURF_LANDING_IMPACT_SPEED = 3` sits between, needs no cross-tick
+  state, and is self-limiting inside the two-iteration sweep loop.
+  Measured: landings touch down at ~0.0 u/s downhill (was ~15.6) keeping 77–101% of
+  speed, while a rider's downhill drift still builds 3.5 → 13.9 u/s over a second.
+  Walkable ground is excluded, so bunnyhopping is untouched (walk still caps at 7.00).
+  **Consequence to know:** falling onto a ramp is now a way to convert height into
+  along-ramp speed — dropping off the start pad reads 7 → 33 u/s where it read 7 → 17
+  before. That is inherent to "preserve total speed" and was chosen deliberately;
+  `MAX_LANDING_REDIRECT_GAIN` (3) is the knob, and lowering it toward 1 slides the
+  behaviour back toward "keep only the speed you already had along the ramp". The
+  redirect can never *create* speed — its result is bounded by `min(speed, gain×along)`.
+  A near-vertical drop degrades gracefully rather than launching somewhere arbitrary:
+  50 u/s straight down lands at 1.5 u/s.
+  The approach staircase's recorded ballistic-handoff numbers (34/45, 43/45) predate this
+  and should now read *better*; treat them as stale measurements.
 - **Curved-ramp collision is now welded convex wedges, not boxes — and that ended a
   whole class of bugs.** Oriented boxes fundamentally cannot follow a smooth curved
   surface: independent boxes leave each segment's end-cap standing proud of its
