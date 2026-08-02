@@ -134,6 +134,8 @@ interface DragState {
   startPositions: Map<string, Vector3>;
   /** Exit/entry sockets of every *unselected* ramp, frozen at drag start. */
   socketTargets: { id: string; path: PiecePath }[];
+  /** Whether the drag actually changed anything — a click-without-move discards its history entry. */
+  moved: boolean;
 }
 
 interface SplineDragState {
@@ -217,6 +219,15 @@ export class Editor {
   /** XYZ translate gizmo, following whatever is selected. Built once. */
   private readonly gizmo: Group;
   private axisDrag: AxisDragState | null = null;
+
+  /**
+   * Undo/redo history: whole-map snapshots, one per completed gesture (a
+   * drag, a drop, a delete, a key nudge). Snapshots are a few KB of plain
+   * numbers, so depth is effectively unlimited; the cap exists only so a
+   * marathon session cannot grow without bound.
+   */
+  private undoStack: FreeMap[] = [];
+  private redoStack: FreeMap[] = [];
 
   private readonly raycaster = new Raycaster();
   private readonly pointer = new Vector2();
@@ -347,6 +358,7 @@ export class Editor {
     this.setPointer(event);
     this.raycaster.setFromCamera(this.pointer, this.camera);
 
+    this.snapshot(); // discarded on release if the drag never moved
     if (this.splineMode && this.selectedHandle !== null) {
       this.axisDrag = {
         axis,
@@ -421,14 +433,73 @@ export class Editor {
     return cloneMap(this.map);
   }
 
-  /** Replaces the whole map — loading a saved one, or starting a new one. */
+  /** Replaces the whole map — loading a saved one, or starting a new one. Undoable. */
   setMap(map: FreeMap): void {
+    this.snapshot();
     this.map = cloneMap(map);
     this.selectedIds = [];
     this.splineGeneratedIds.clear();
     this.adoptSplineFromMap();
     this.rebuildAll();
     this.frameOnMap();
+    this.callbacks.onChange();
+  }
+
+  // ------------------------------------------------------------- undo / redo
+
+  private static readonly HISTORY_CAP = 500;
+
+  /**
+   * Records the current map as an undo point. Call **before** mutating —
+   * every gesture that changes the map starts with one of these, and taking
+   * any new snapshot invalidates the redo branch, exactly like every other
+   * editor's history.
+   */
+  private snapshot(): void {
+    this.syncSplineIntoMap();
+    this.undoStack.push(cloneMap(this.map));
+    if (this.undoStack.length > Editor.HISTORY_CAP) this.undoStack.shift();
+    this.redoStack.length = 0;
+  }
+
+  /** Discards the most recent undo point — a gesture that turned out to change nothing. */
+  private discardSnapshot(): void {
+    this.undoStack.pop();
+  }
+
+  undo(): void {
+    const previous = this.undoStack.pop();
+    if (!previous) return;
+    this.syncSplineIntoMap();
+    this.redoStack.push(cloneMap(this.map));
+    this.applyHistoryState(previous);
+  }
+
+  redo(): void {
+    const next = this.redoStack.pop();
+    if (!next) return;
+    this.syncSplineIntoMap();
+    this.undoStack.push(cloneMap(this.map));
+    this.applyHistoryState(next);
+  }
+
+  /**
+   * Restores a history snapshot. Selection and any in-flight drag are
+   * dropped — they may reference pieces that no longer exist — but the camera
+   * stays put: an undo that also teleports the view is disorienting.
+   * `splineGeneratedIds` is deliberately left alone; piece ids are unique for
+   * the whole session, so stale entries are harmless and surviving entries
+   * keep spline regeneration owning exactly the pieces it created.
+   */
+  private applyHistoryState(map: FreeMap): void {
+    this.map = cloneMap(map);
+    this.selectedIds = [];
+    this.selectedHandle = null;
+    this.drag = null;
+    this.splineDrag = null;
+    this.axisDrag = null;
+    this.adoptSplineFromMap();
+    this.rebuildAll();
     this.callbacks.onChange();
   }
 
@@ -683,6 +754,7 @@ export class Editor {
   deleteSelected(): void {
     const doomed = this.selectedIds.filter((id) => id !== SPAWN_ID && id !== BOSS_ID);
     if (doomed.length === 0) return;
+    this.snapshot();
     for (const id of doomed) {
       const group = this.built.get(id);
       if (group) disposeObject(group);
@@ -699,6 +771,7 @@ export class Editor {
       .map((id) => this.findPiece(id))
       .filter((piece): piece is FreePiece => piece !== undefined);
     if (originals.length === 0) return;
+    this.snapshot();
 
     // Offset along the first piece's travel rather than sideways, so a
     // duplicate lands where the next piece of a chain wants to be and one
@@ -729,17 +802,17 @@ export class Editor {
     );
   }
 
-  /** Applies `mutate` to every selected ramp piece and rebuilds them. */
+  /** Applies `mutate` to every selected ramp piece and rebuilds them. One undo step. */
   private nudgeSelected(mutate: (piece: FreePiece) => void): void {
-    let touched = false;
+    if (!this.selectedIds.some((id) => this.findPiece(id))) return;
+    this.snapshot();
     for (const id of this.selectedIds) {
       const piece = this.findPiece(id);
       if (!piece) continue;
       mutate(piece);
       this.rebuildPiece(piece);
-      touched = true;
     }
-    if (touched) this.callbacks.onChange();
+    this.callbacks.onChange();
   }
 
   private rotateSelected(deltaDeg: number): void {
@@ -750,6 +823,7 @@ export class Editor {
       const id = this.selectedIds[0];
       if (id === BOSS_ID) return; // A cylinder has no heading.
       if (id === SPAWN_ID) {
+        this.snapshot();
         this.map.spawn.yawDeg = this.wrapYaw(this.map.spawn.yawDeg + deltaDeg);
         this.rebuildById(SPAWN_ID);
         return;
@@ -766,6 +840,7 @@ export class Editor {
       .map((id) => ({ id, position: this.positionOf(id) }))
       .filter((entry): entry is { id: string; position: Vector3 } => entry.position !== null);
     if (positions.length === 0) return;
+    this.snapshot();
     const centroid = positions
       .reduce((sum, entry) => sum.add(entry.position), new Vector3())
       .divideScalar(positions.length);
@@ -801,6 +876,8 @@ export class Editor {
   }
 
   private raiseSelected(delta: number): void {
+    if (this.selectedIds.length === 0) return;
+    this.snapshot();
     for (const id of this.selectedIds) {
       const position = this.positionOf(id);
       if (position) this.setPosition(id, position.setY(position.y + delta));
@@ -930,6 +1007,7 @@ export class Editor {
       }
     }
 
+    this.snapshot();
     this.map.pieces.push(piece);
     this.rebuildPiece(piece);
     this.select(piece.id);
@@ -1005,6 +1083,8 @@ export class Editor {
 
   /** Forgets the guide curve. The generated pieces stay — they are ordinary pieces. */
   clearSpline(): void {
+    if (this.splinePoints.length === 0) return;
+    this.snapshot();
     this.splinePoints = [];
     this.splineGeneratedIds.clear();
     this.selectedHandle = null;
@@ -1095,6 +1175,7 @@ export class Editor {
 
   private deleteSelectedSplinePoint(): void {
     if (this.splinePoints.length === 0) return;
+    this.snapshot();
     const index = this.selectedHandle ?? this.splinePoints.length - 1;
     this.splinePoints.splice(index, 1);
     this.selectedHandle = null;
@@ -1107,6 +1188,7 @@ export class Editor {
     if (handleIndex !== null) {
       this.selectedHandle = handleIndex;
       const position = this.splinePoints[handleIndex];
+      this.snapshot(); // discarded on release if the handle never moved
       this.splineDrag = {
         index: handleIndex,
         vertical: event.altKey,
@@ -1121,6 +1203,7 @@ export class Editor {
     }
 
     // Clicked the world: lay the next guide point there.
+    this.snapshot();
     const point = this.snapVector(this.dropPoint(event));
     this.splinePoints.push(point);
     this.selectedHandle = this.splinePoints.length - 1;
@@ -1202,6 +1285,7 @@ export class Editor {
     }
 
     const piece = this.findPiece(id);
+    this.snapshot(); // discarded on release if the drag never moved
     this.drag = {
       id,
       vertical: event.altKey,
@@ -1214,6 +1298,7 @@ export class Editor {
         this.selectedIds.length === 1 && piece && piece.def !== 'platform'
           ? this.collectSocketTargets(new Set(this.selectedIds))
           : [],
+      moved: false,
     };
     this.canvas.setPointerCapture(event.pointerId);
   }
@@ -1288,6 +1373,7 @@ export class Editor {
     }
 
     const delta = primaryTarget.clone().sub(primaryStart);
+    if (delta.lengthSq() > 1e-9) this.drag.moved = true;
     for (const [selectedId, start] of this.drag.startPositions) {
       this.setPosition(selectedId, start.clone().add(delta));
     }
@@ -1336,16 +1422,21 @@ export class Editor {
   private onPointerUp(event: PointerEvent): void {
     if (event.button === 2) this.looking = false;
     if (event.button === 0) {
-      this.drag = null;
+      if (this.drag) {
+        if (!this.drag.moved) this.discardSnapshot();
+        this.drag = null;
+      }
       if (this.splineDrag) {
         const moved = this.splineDrag.moved;
         this.splineDrag = null;
         if (moved) this.regenerateFromSpline();
+        else this.discardSnapshot();
       }
       if (this.axisDrag) {
-        const regen = this.axisDrag.splineIndex !== null && this.axisDrag.moved;
+        const { moved, splineIndex } = this.axisDrag;
         this.axisDrag = null;
-        if (regen) this.regenerateFromSpline();
+        if (!moved) this.discardSnapshot();
+        else if (splineIndex !== null) this.regenerateFromSpline();
       }
     }
     if (this.canvas.hasPointerCapture?.(event.pointerId)) {
@@ -1361,6 +1452,19 @@ export class Editor {
     if (isTextEntryTarget(event.target)) return;
 
     this.keys.add(event.code);
+
+    // History works in both modes; Z is the universal undo, X is redo per
+    // this project's binding (there is no cut for it to collide with).
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+      event.preventDefault();
+      this.undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
+      event.preventDefault();
+      this.redo();
+      return;
+    }
 
     if (this.splineMode) {
       switch (event.code) {

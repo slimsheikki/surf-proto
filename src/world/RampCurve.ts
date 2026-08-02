@@ -207,8 +207,11 @@ export function computeRampFrames(params: RampCurveParams, mode: RampCurveMode):
     1,
     Math.round(totalAngleChange / angleStepDeg) || 1,
     // A taper needs steps of its own or it degenerates to one average-width
-    // box. Two units of width change per segment keeps the side steps small.
-    Math.ceil(Math.abs(endWidth - params.width) / 2),
+    // box. One unit of width change per segment: the visible skin tapers
+    // continuously, so this bounds how far the stepped *collision* edge can
+    // sit from the visible edge — the audit measured the player-facing cost
+    // of coarser steps as invisible ledges along every tapered side.
+    Math.ceil(Math.abs(endWidth - params.width)),
   );
   const segmentLength = params.length / segmentCount;
 
