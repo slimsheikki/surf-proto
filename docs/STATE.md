@@ -58,7 +58,29 @@ CS2 guide's taxonomy:
   laterally at sub-surface heights (felt only brushing an underside). Raked ends on
   roll+pitch channels (vertical-curved-inverted: 4-unit V notch at a free-standing
   exit) are self-consistent shear that mates flush when chained — cosmetic.
-- **The "stuck partway along a curved ramp" bug — fixed, and it was engine-level.**
+- **Curved-ramp collision is now welded convex wedges, not boxes — and that ended a
+  whole class of bugs.** Oriented boxes fundamentally cannot follow a smooth curved
+  surface: independent boxes leave each segment's end-cap standing proud of its
+  neighbour (the player is stopped dead), and sinking them to bury the caps only trades
+  the stall for collision sitting *below* the visible surface (the player clips through
+  it). Every knob in between — shingle sinks, circumscribed widths, ridge miters, ridge
+  overlaps, per-seam pads — was an attempt to balance those two, and each fix traded one
+  for the other. Measured proof it was a real trade and not a tuning miss: disabling the
+  shingle took holes to 0.00% and sink to ~0 but brought back −21 u/s stalls, and
+  tripling the segment count (2° → 0.75°) left those stalls *unchanged*, which disproved
+  the second-order-skew model they were built on.
+  `Colliders.registerPrism` + `Raycast.rayIntersectConvex` add a convex primitive
+  (intersection of half-spaces, with a broadphase sphere), and ramp collision is now the
+  **same triangles as the visible skin**, extruded straight down. Adjacent wedges share
+  a face exactly, so a ray leaves one and enters the next at the same point — no cap
+  between them, no gap. This is also what real surf maps do; the CS2 guide compiles
+  curved ramps as *Multiple Convex Hulls* for exactly this reason.
+  **Result across all 14 definitions: sink 0.000, lip 0.000, holes 0.00%, no stalls at
+  any of seven lateral positions.** What you see is what you ride.
+  Standard course is untouched (still 28 boxes, 0 wedges — it builds through
+  `buildRampCurve`). Cost: a heavy 30-curved-piece map is 1470 volumes at ~14.5 µs/ray,
+  about 2.8% of the 1/128 s tick budget.
+- **The "stuck partway along a curved ramp" bug — first fix, engine-level.**
   `sweep()` spreads its five sample rays **horizontally**; a surf face is banked, so at
   51° a sample 0.4 to the side sits 0.31 *inside* the slab. `rayIntersectBox` already
   declined to report the box a ray starts in — but that ray then flew on and hit the
