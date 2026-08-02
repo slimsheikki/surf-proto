@@ -404,6 +404,7 @@ export class Game {
     this.upgradeMenu.show(choices, (choice) => {
       const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth };
       choice.apply(ctx);
+      this.playerController.grantLevelUpBoost();
       this.state = 'playing';
     });
   }

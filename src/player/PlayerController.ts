@@ -22,6 +22,17 @@ const SKIN_WIDTH = 0.01;
 const WALKABLE_NORMAL_EPS = 1e-4;
 
 /**
+ * The level-up menu pauses `Game.updateGameplay` entirely, so no momentum is
+ * actually lost while a player picks an upgrade — but it does cost them a real
+ * half-second where they weren't holding strafe/forward, unlike every other
+ * moment in a surf line. This nudge compensates for that missed input window;
+ * it is a "welcome back" push in the direction already being travelled, not a
+ * real speed buff, so it stays small enough not to read as one.
+ */
+const LEVEL_UP_BOOST_DURATION = 0.5; // seconds
+const LEVEL_UP_BOOST_ACCEL = 3; // u/s^2
+
+/**
  * Read the limit off the config on each call rather than caching it at module
  * load, so it stays correct if MAX_SLOPE_WALKABLE_DEG is retuned or reset at
  * runtime. This runs a handful of times per tick; the cos() is free at that rate.
@@ -76,6 +87,7 @@ export class PlayerController {
   grounded = false;
   groundNormal = new Vector3(0, 1, 0);
   private jumpHeldLastTick = false;
+  private levelUpBoostTimer = 0;
 
   constructor(spawnPosition: Vector3, spawnYawDeg: number) {
     this.position = spawnPosition.clone();
@@ -168,13 +180,29 @@ export class PlayerController {
       this.velocity.y += MovementConfig.GRAVITY * dt;
     }
 
+    if (this.levelUpBoostTimer > 0) {
+      this.levelUpBoostTimer = Math.max(this.levelUpBoostTimer - dt, 0);
+      const speed = this.speed;
+      const boostDir =
+        speed > 1e-6 ? new Vector3(this.velocity.x, 0, this.velocity.z).divideScalar(speed) : wishDir;
+      if (boostDir.lengthSq() > 1e-6) {
+        this.velocity.addScaledVector(boostDir, LEVEL_UP_BOOST_ACCEL * dt);
+      }
+    }
+
     this.integrateMovement(dt);
     this.updateGroundState();
+  }
+
+  /** Arms the level-up momentum nudge (see `LEVEL_UP_BOOST_ACCEL`) for its next `LEVEL_UP_BOOST_DURATION` seconds of ticks. */
+  grantLevelUpBoost(): void {
+    this.levelUpBoostTimer = LEVEL_UP_BOOST_DURATION;
   }
 
   teleport(position: Vector3): void {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
     this.grounded = false;
+    this.levelUpBoostTimer = 0;
   }
 }
