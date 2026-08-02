@@ -40,7 +40,12 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 const DROP_DISTANCE = 60;
 
 const POSITION_SNAP = 2;
-const YAW_SNAP = 15;
+/**
+ * Degrees per Q/E press, and the yaw grid rotations and drops snap to.
+ * Halved from the original 15 — a full step turned a piece too far to line a
+ * ramp up with its neighbour; Alt+Q/E still gives 1° for fine work.
+ */
+const YAW_SNAP = 7.5;
 /**
  * How close a dragged piece's socket has to come to another piece's before it
  * snaps on. In *piece-position* space, not socket space, so the feel is "the
