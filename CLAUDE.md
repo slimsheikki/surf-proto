@@ -7,6 +7,11 @@ Vite + TypeScript + Three.js. **No physics engine** — the controller is a hand
 kinematic pipeline mirroring Source's `PM_AirAccelerate` / `PM_Friction` /
 `PM_ClipVelocity` / `PM_GroundTrace`. A constraint solver fights this; don't add one.
 
+**`docs/ARCHITECTURE.md`** explains the shape of the codebase — boot, frame loop, collision,
+where things live, and what adding a model actually involves. Read it if you're new here or
+handing the project to someone. **`docs/CS2_SURF_MAPPING.md`** is a vendored surf-mapping
+guide with a note on which parts transfer; it's the reference the level is held against.
+
 ```
 npm run dev      # localhost:5173
 npm run build    # tsc -b && vite build — must pass before any commit
