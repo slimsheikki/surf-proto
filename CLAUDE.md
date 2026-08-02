@@ -64,6 +64,18 @@ movement.
 - `sleep` chains are blocked; use `until <check>; do sleep 2; done`.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
 
+## Endless runs
+
+There is **no win state** — felling the Monolith continues the run, and death is the only
+exit. All scaling lives in `src/enemies/Difficulty.ts`; when you touch it, check that
+`difficultyAt(1, 120)` still returns the pre-endless numbers, because a level term applied
+to an unfloored time term silently retunes the early game. Monoliths recur every 10 levels,
+scaled. The seeder (`src/enemies/Seeder.ts`) plants dodgeable AoE spheres whose escape speed
+is deliberately just above walk speed: it is the enemy that punishes *not* surfing.
+
+`window.__surf` is a dev-only handle on the live `Game` (stripped from prod) — the late game
+is otherwise unreachable by scripted input. See `docs/STATE.md`.
+
 ## Free mode
 
 A second mode off the main menu: a free-camera map editor where ramps are dragged in from
@@ -72,6 +84,11 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 — **the editor registers no colliders** (they cannot be retired, and a drag rebuilds
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
+
+Maps are shared as links, not through a server (`src/editor/MapCode.ts`): JSON → deflate →
+base64url behind a format tag, carried in the URL **fragment** so it never reaches a host.
+Decoding routes through `parseMap`, imported names go through `uniqueMapName` (or Save
+overwrites the recipient's own map of that name), and the hash is cleared after import.
 
 ## Where things stand
 

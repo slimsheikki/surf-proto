@@ -7,8 +7,16 @@ const MOUSE_SENSITIVITY = 0.0022;
  */
 const GAME_KEY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyV']);
 
-/** Never steal keys from real text entry — that would break normal page behaviour. */
-function isTextEntryTarget(target: EventTarget | null): boolean {
+/**
+ * Never steal keys from real text entry — that would break normal page
+ * behaviour.
+ *
+ * Exported because the editor needs exactly the same rule: it has its own
+ * global keydown handler driving the fly camera, and any text field the editor
+ * grows has to be invisible to it too. One definition, so a field type can't be
+ * covered here and missed there.
+ */
+export function isTextEntryTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName;

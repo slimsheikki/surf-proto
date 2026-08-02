@@ -11,13 +11,16 @@ import {
   Vector3,
 } from 'three';
 import { Health } from '../combat/Health';
+import { BossScale } from './Difficulty';
 import { LaserBeam, pointSegmentDistance, rotateToward } from '../combat/LaserBeam';
 
 /* ------------------------------------------------------------------ *
  * Identity and trigger
  * ------------------------------------------------------------------ */
 
-export const BOSS_SPAWN_LEVEL = 10;
+// Which level a Monolith arrives at — and, since the run no longer ends when one
+// dies, which levels the *next* ones arrive at — is a difficulty-curve question,
+// so it lives with the rest of the curve in `Difficulty.bossLevelFor`.
 export const BOSS_NAME = 'THE MONOLITH';
 
 /**
@@ -376,7 +379,7 @@ class HomingOrb {
  */
 export class Boss {
   readonly group = new Group();
-  readonly health = new Health(BOSS_MAX_HP);
+  readonly health: Health;
   readonly name = BOSS_NAME;
   /** Hover anchor. The body bobs around this; `firePoint` is where beams start. */
   readonly position: Vector3;
@@ -408,12 +411,24 @@ export class Boss {
 
   private ringTimer = 0;
   private orbTimer = 0;
+  private readonly damageScale: number;
 
   constructor(
     islandCenter: Vector3,
     private readonly trackRadius: number,
     private readonly trackY: number,
+    /**
+     * Multipliers for repeat encounters — the run no longer ends when a
+     * Monolith dies, so the next one has to be worth fighting. Applied to the
+     * health pool once here and to every damage figure at the point it is dealt;
+     * the *patterns* are untouched, because their difficulty comes from the
+     * player having to dodge them while holding a line and inflating a beam's
+     * tick would only make a clean line stop being rewarded.
+     */
+    scale: BossScale = { hp: 1, damage: 1 },
   ) {
+    this.health = new Health(BOSS_MAX_HP * scale.hp);
+    this.damageScale = scale.damage;
     // Anchored to the track's plane rather than to the island mesh's own
     // origin, so "18 units up" means 18 units above the surface the player
     // rides no matter where the island's pivot ends up.
@@ -590,7 +605,7 @@ export class Boss {
 
     if (!live) return;
     if (pointSegmentDistance(playerPosition, this.firePoint, this.beamAimPoint) < BEAM_DAMAGE_RADIUS) {
-      dealDamage(BEAM_DPS * dt);
+      dealDamage(BEAM_DPS * this.damageScale * dt);
     }
   }
 
@@ -675,7 +690,7 @@ export class Boss {
       projectile.tick(dt);
 
       if (projectile.position.distanceTo(playerPosition) < RING_HIT_RADIUS) {
-        dealDamage(RING_DAMAGE);
+        dealDamage(RING_DAMAGE * this.damageScale);
         this.removeProjectileAt(i);
         continue;
       }
@@ -723,7 +738,7 @@ export class Boss {
       orb.tick(dt, playerPosition);
 
       if (orb.position.distanceTo(playerPosition) < ORB_HIT_RADIUS) {
-        dealDamage(ORB_DAMAGE);
+        dealDamage(ORB_DAMAGE * this.damageScale);
         this.removeOrbAt(i);
         continue;
       }

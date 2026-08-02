@@ -15,8 +15,9 @@ import { InputSystem } from '../engine/Input';
 import { Editor } from '../editor/Editor';
 import { EditorUi } from '../editor/EditorUi';
 import { buildFreeWorld } from '../editor/FreeCourse';
+import { clearMapCodeFromLocation, decodeMapCode, mapCodeFromLocation } from '../editor/MapCode';
 import { createStarterMap, FreeMap } from '../editor/MapData';
-import { lastMapName, loadMap, rememberLastMap } from '../editor/MapStorage';
+import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/MapStorage';
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
 import { GameMode, MainMenu } from '../ui/MainMenu';
@@ -105,7 +106,39 @@ export class App {
 
     this.installListeners();
     this.loadStandardWorld();
-    this.openMenu();
+    void this.bootFromUrl();
+  }
+
+  /**
+   * Opens the main menu, or — if the page was opened from a share link — the
+   * editor with that map already loaded.
+   *
+   * Async because decoding is: `DecompressionStream` is stream-based. The menu
+   * is not shown first and then replaced, because a menu that appears and then
+   * yanks itself away reads as a bug; the decode is fast enough that the extra
+   * frames before either appears are invisible.
+   */
+  private async bootFromUrl(): Promise<void> {
+    const code = mapCodeFromLocation();
+    if (!code) {
+      this.openMenu();
+      return;
+    }
+
+    const map = await decodeMapCode(code);
+    // Dropped whether or not the decode worked: a bad code should not survive a
+    // refresh either, and a good one must not silently revert the recipient's
+    // edits the next time they reload.
+    clearMapCodeFromLocation();
+
+    if (!map) {
+      this.openMenu();
+      return;
+    }
+    // Renamed before it reaches the editor, so the name in the field is the one
+    // Save will actually use rather than something quietly changed underneath.
+    map.name = uniqueMapName(map.name);
+    this.openEditor(map);
   }
 
   start(): void {
@@ -166,7 +199,8 @@ export class App {
 
   // ------------------------------------------------------------ mode: editor
 
-  private openEditor(): void {
+  /** `map` is supplied when arriving from a share link; otherwise the editor keeps whatever it had. */
+  private openEditor(map?: FreeMap): void {
     this.mode = 'editor';
     this.input.releasePointerLock();
     this.startOverlay.classList.add('hidden');
@@ -184,11 +218,16 @@ export class App {
       });
     }
 
+    // Applied before `show`, so the toolbar's name field picks up the imported
+    // name rather than the one the editor was constructed with.
+    if (map) this.editor.setMap(map);
+
     // The editor world carries no colliders, so nothing needs clearing here —
     // the registry is wiped again the moment a map is handed over to be played.
     this.setWorld(this.editor.root, this.world !== this.editor.root);
     this.editor.enter();
     this.editorUi!.show();
+    if (map) this.editorUi!.flashImported(map.name);
   }
 
   /** The last map the player worked on, or a generated starter the first time through. */
@@ -227,6 +266,15 @@ export class App {
 
     if (!this.game) {
       this.game = new Game(this.scene, this.camera, course, this.viewModel);
+      // Dev-only handle on the live run, for driving the game from a headless
+      // browser: the late game is gated behind ten levels and a 2200 HP boss,
+      // which no scripted input can reach in reasonable time, so without this
+      // the endless-run code path is untestable outside of playing it. Vite
+      // constant-folds `import.meta.env.DEV` to false and drops the branch from
+      // the production bundle.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__surf = this.game;
+      }
     } else {
       this.game.setCourse(course);
     }
@@ -257,7 +305,7 @@ export class App {
     document.addEventListener('pointerlockchange', () => {
       if (this.mode !== 'play') return;
       const locked = this.input.isLocked();
-      // Never surface "click to start" on top of a game-over or victory panel.
+      // Never surface "click to start" on top of the game-over panel.
       this.startOverlay.classList.toggle('hidden', locked || !!this.game?.isMenuOpen);
       this.game?.setPaused(!locked);
     });

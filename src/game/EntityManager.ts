@@ -1,4 +1,5 @@
 import { Scene, Vector3 } from 'three';
+import { Blast } from '../combat/Blast';
 import { Enemy } from '../enemies/Enemy';
 import { XPOrb } from '../progression/XPOrb';
 
@@ -6,6 +7,13 @@ import { XPOrb } from '../progression/XPOrb';
 export class EntityManager {
   readonly enemies: Enemy[] = [];
   readonly orbs: XPOrb[] = [];
+  /**
+   * Live area attacks. Kept apart from `enemies` because a blast is not a
+   * target: it has no health, the auto-weapon must never lock onto one, and it
+   * outlives the seeder that planted it — killing the planter does not defuse
+   * what is already ticking.
+   */
+  readonly blasts: Blast[] = [];
 
   constructor(private readonly scene: Scene) {}
 
@@ -14,13 +22,25 @@ export class EntityManager {
     this.scene.add(enemy.mesh);
   }
 
+  addBlast(blast: Blast): void {
+    this.blasts.push(blast);
+    this.scene.add(blast.group);
+  }
+
   addOrb(orb: XPOrb): void {
     this.orbs.push(orb);
     this.scene.add(orb.mesh);
   }
 
   get entityCount(): number {
-    return this.enemies.length + this.orbs.length;
+    return this.enemies.length + this.orbs.length + this.blasts.length;
+  }
+
+  /** Drops blasts that have finished detonating. They expire on their own clock, so there is no distance cull. */
+  cullSpentBlasts(): void {
+    for (let i = this.blasts.length - 1; i >= 0; i--) {
+      if (this.blasts[i].finished) this.removeBlastAt(i);
+    }
   }
 
   cullDeadEnemies(onKilled: (enemy: Enemy) => void): void {
@@ -76,6 +96,16 @@ export class EntityManager {
   clear(): void {
     this.clearEnemies();
     for (let i = this.orbs.length - 1; i >= 0; i--) this.removeOrbAt(i);
+    this.clearBlasts();
+  }
+
+  /**
+   * Wipes live area attacks. Used when a Monolith arrives and when a run
+   * restarts: a blast planted a second before the arena changed would otherwise
+   * detonate under a player who never saw it planted.
+   */
+  clearBlasts(): void {
+    for (let i = this.blasts.length - 1; i >= 0; i--) this.removeBlastAt(i);
   }
 
   /**
@@ -93,6 +123,13 @@ export class EntityManager {
     this.scene.remove(enemy.mesh);
     enemy.dispose();
     this.enemies.splice(index, 1);
+  }
+
+  /** Blasts share their geometry but own their two materials. */
+  private removeBlastAt(index: number): void {
+    this.scene.remove(this.blasts[index].group);
+    this.blasts[index].dispose();
+    this.blasts.splice(index, 1);
   }
 
   /** Orbs share one module-level geometry+material, so unparenting is the whole teardown. */
