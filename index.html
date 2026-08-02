@@ -80,13 +80,16 @@
           <button id="editor-spline">Spline (P)</button>
           <button id="editor-spline-clear" disabled>Clear</button>
         </div>
-        <div id="editor-help">
+        <details id="editor-help">
+          <summary>Controls</summary>
           <h3>Camera</h3>
           <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly &middot; <kbd>Space</kbd>/<kbd>C</kbd> up &amp; down
           &middot; <kbd>Shift</kbd> faster &middot; hold <kbd>right&nbsp;mouse</kbd> to look</p>
           <h3>Pieces</h3>
           <p><kbd>click</kbd> select &middot; <kbd>Shift</kbd>+click multi-select &middot;
-          <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down</p>
+          <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down &middot;
+          drag an <span class="axis-x">X</span>/<span class="axis-y">Y</span>/<span class="axis-z">Z</span>
+          arrow to move along one axis</p>
           <p><kbd>Q</kbd><kbd>E</kbd> rotate &middot; <kbd>R</kbd><kbd>F</kbd> raise/lower &middot;
           <kbd>T</kbd><kbd>Y</kbd> pitch &middot; <kbd>B</kbd> flip bank</p>
           <p><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate &middot; <kbd>Del</kbd> delete &middot;
@@ -96,7 +99,7 @@
           the curve &middot; <kbd>Del</kbd> remove a point</p>
           <h3>Mode</h3>
           <p><kbd>Enter</kbd> play &middot; <kbd>M</kbd> back to the editor &middot; <kbd>Esc</kbd> main menu</p>
-        </div>
+        </details>
       </div>
 
       <div id="editor-toolbar">

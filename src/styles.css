@@ -303,24 +303,36 @@ html, body {
   opacity: 0.7;
 }
 
+/* Content-browser grid: two columns of square thumbnail tiles. */
 #editor-palette-items {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
 .palette-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 9px 11px;
+  gap: 3px;
+  padding: 5px 5px 6px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.16);
+  text-align: center;
   /* The whole point of the panel: these are dragged, never clicked. `grab`
      advertises that before the player has to guess. */
   cursor: grab;
   user-select: none;
+}
+
+.palette-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  background: rgba(127, 168, 200, 0.18);
+  /* The tile is the drag target, not its image — a dragged <img> ghosts the
+     browser's own image-drag instead of the piece drop. */
+  pointer-events: none;
 }
 
 .palette-item:hover {
@@ -332,13 +344,16 @@ html, body {
 }
 
 .palette-item span {
-  font-size: 11px;
-  opacity: 0.65;
+  font-size: 10px;
+  line-height: 1.25;
+  opacity: 0.8;
 }
 
-/* Family headers inside the palette — the library is grouped, not flat. */
+/* Family headers inside the palette — the library is grouped, not flat.
+   They span the whole grid row so tiles never sit beside a heading. */
 .palette-family {
-  margin: 8px 0 0;
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -347,6 +362,17 @@ html, body {
 
 .palette-family:first-child {
   margin-top: 0;
+}
+
+/* Collapsed by default: the controls list is reference material, and screen
+   height belongs to the content browser. */
+#editor-help summary {
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  user-select: none;
 }
 
 .palette-hint {
@@ -370,6 +396,11 @@ html, body {
   background: rgba(127, 232, 255, 0.25);
   border-color: rgba(127, 232, 255, 0.7);
 }
+
+/* Help-text swatches matching the translate gizmo's arm colours. */
+.axis-x { color: #e5484d; font-weight: 600; }
+.axis-y { color: #46a758; font-weight: 600; }
+.axis-z { color: #6ba6ff; font-weight: 600; }
 
 #editor-help {
   margin-top: 16px;
