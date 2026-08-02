@@ -11,12 +11,9 @@ import {
 import { degToRad } from '../engine/MathUtils';
 import { GameCourse } from '../game/Game';
 import { registerCollider } from '../world/Colliders';
-import { buildRampCurve, forwardFromAngles } from '../world/RampCurve';
 import {
   APPROACH_FACE_COLOR,
   CourseStage,
-  FACE_METALNESS,
-  FACE_ROUGHNESS,
   FACE_SIN,
   FACE_THICKNESS,
   ISLAND_COLOR,
@@ -25,6 +22,7 @@ import {
   PLATFORM_THICKNESS,
 } from '../world/SurfCourse';
 import { FreeMap, FreePiece } from './MapData';
+import { buildRampPiece } from './RampLibrary';
 
 const WORLD_UP = new Vector3(0, 1, 0);
 
@@ -116,15 +114,11 @@ function yawQuaternion(yawDeg: number): Quaternion {
   return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right, WORLD_UP, forward));
 }
 
-/** Leading-edge centreline point of a piece stored by its centre. See `FreePiece`. */
-export function pieceStart(piece: FreePiece): Vector3 {
-  const forward = forwardFromAngles(piece.yawDeg, piece.pitchDeg);
-  return new Vector3(piece.x, piece.y, piece.z).addScaledVector(forward, -piece.length / 2);
-}
-
 function pieceColor(piece: FreePiece): number {
-  if (piece.kind === 'platform') return PLATFORM_COLOR;
-  return piece.pitchDeg !== 0 ? APPROACH_FACE_COLOR : SURF_FACE_COLOR;
+  if (piece.def === 'platform') return PLATFORM_COLOR;
+  return piece.pitchDeg !== 0 || (piece.endPitchDeg ?? 0) !== 0
+    ? APPROACH_FACE_COLOR
+    : SURF_FACE_COLOR;
 }
 
 /**
@@ -176,46 +170,32 @@ function buildPad(
  * World space rather than a local build parented under a transform, because
  * `RampCurve` bakes its segment transforms into mesh positions and the
  * colliders it registers are world-space boxes — a parent transform would move
- * the meshes and leave the collision behind. Every free-mode piece is a
- * straight run, so `buildRampCurve` emits a single segment and rebuilding one
- * on every step of a drag costs one box.
+ * the meshes and leave the collision behind. Ramp pieces route through
+ * `RampLibrary.buildRampPiece`, so a piece is one `buildRampCurve` run per
+ * face (one for a half, two for an A-frame or channel) and mesh and collision
+ * always come from the same frames.
  */
 export function buildPiece(piece: FreePiece, options: PieceBuildOptions): Group {
-  const group = new Group();
-  group.userData.pieceId = piece.id;
-  const color = options.color ?? pieceColor(piece);
-
-  if (piece.kind === 'platform') {
+  if (piece.def === 'platform') {
+    const group = new Group();
+    group.userData.pieceId = piece.id;
     buildPad(
       group,
       new Vector3(piece.x, piece.y, piece.z),
       piece.width,
       piece.length,
       piece.yawDeg,
-      color,
+      options.color ?? pieceColor(piece),
       options.colliders,
     );
     return group;
   }
 
-  const curve = buildRampCurve(
-    {
-      start: pieceStart(piece),
-      startYawDeg: piece.yawDeg,
-      startPitchDeg: piece.pitchDeg,
-      rollDeg: piece.rollDeg,
-      length: piece.length,
-      width: piece.width,
-      thickness: FACE_THICKNESS,
-      guideWalls: false,
-      color,
-      roughness: FACE_ROUGHNESS,
-      metalness: FACE_METALNESS,
-      registerColliders: options.colliders,
-    },
-    'straight',
-  );
-  group.add(curve.group);
+  const group = buildRampPiece(piece, {
+    colliders: options.colliders,
+    color: options.color ?? pieceColor(piece),
+  });
+  group.userData.pieceId = piece.id;
   return group;
 }
 
@@ -328,9 +308,12 @@ function lowestY(map: FreeMap): number {
     // A banked face hangs `FACE_SIN * width / 2` below its centreline; a pitched
     // one drops another half-length of travel. Both matter — the low edge of the
     // last ramp is exactly where a player is when they most need the plane to be
-    // below them.
-    const bankDrop = piece.kind === 'platform' ? 0 : (FACE_SIN * piece.width) / 2;
-    const pitchDrop = (Math.abs(Math.sin(degToRad(piece.pitchDeg))) * piece.length) / 2;
+    // below them. Tapered pieces use their widest end and curved ones their
+    // steepest pitch: over-estimating the drop only moves the plane down.
+    const widest = Math.max(piece.width, piece.endWidth ?? piece.width);
+    const steepest = Math.max(Math.abs(piece.pitchDeg), Math.abs(piece.endPitchDeg ?? piece.pitchDeg));
+    const bankDrop = piece.def === 'platform' ? 0 : (FACE_SIN * widest) / 2;
+    const pitchDrop = (Math.abs(Math.sin(degToRad(steepest))) * piece.length) / 2;
     lowest = Math.min(lowest, piece.y - bankDrop - pitchDrop - FACE_THICKNESS);
   }
   return lowest;
@@ -358,7 +341,7 @@ export function buildFreeWorld(map: FreeMap, colliders = true): FreeWorld {
   for (const piece of map.pieces) {
     const pieceGroup = buildPiece(piece, { colliders });
     group.add(pieceGroup);
-    if (piece.kind === 'platform') {
+    if (piece.def === 'platform') {
       // Pads double as checkpoints, in placement order. That ordering is the
       // whole reason the editor appends rather than inserts: a player who falls
       // is put back on the last pad they actually stood on, so the order only

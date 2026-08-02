@@ -74,18 +74,26 @@
       <div id="editor-palette">
         <h2>Pieces</h2>
         <div id="editor-palette-items"></div>
-        <p class="palette-hint">Drag a piece into the world.</p>
+        <p class="palette-hint">Drag a piece into the world &mdash; it snaps onto nearby ramp ends.</p>
         <button id="editor-delete-piece" class="danger" disabled>Delete selected piece</button>
+        <div id="editor-spline-tools">
+          <button id="editor-spline">Spline (P)</button>
+          <button id="editor-spline-clear" disabled>Clear</button>
+        </div>
         <div id="editor-help">
           <h3>Camera</h3>
           <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly &middot; <kbd>Space</kbd>/<kbd>C</kbd> up &amp; down
           &middot; <kbd>Shift</kbd> faster &middot; hold <kbd>right&nbsp;mouse</kbd> to look</p>
           <h3>Pieces</h3>
-          <p><kbd>click</kbd> select &middot; <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down</p>
+          <p><kbd>click</kbd> select &middot; <kbd>Shift</kbd>+click multi-select &middot;
+          <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down</p>
           <p><kbd>Q</kbd><kbd>E</kbd> rotate &middot; <kbd>R</kbd><kbd>F</kbd> raise/lower &middot;
           <kbd>T</kbd><kbd>Y</kbd> pitch &middot; <kbd>B</kbd> flip bank</p>
           <p><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate &middot; <kbd>Del</kbd> delete &middot;
-          <kbd>N</kbd> grid snap</p>
+          <kbd>N</kbd> snapping</p>
+          <h3>Spline</h3>
+          <p><kbd>P</kbd> spline mode &middot; <kbd>click</kbd> lay a point &middot; ramps generate along
+          the curve &middot; <kbd>Del</kbd> remove a point</p>
           <h3>Mode</h3>
           <p><kbd>Enter</kbd> play &middot; <kbd>M</kbd> back to the editor &middot; <kbd>Esc</kbd> main menu</p>
         </div>
