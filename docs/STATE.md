@@ -58,6 +58,28 @@ CS2 guide's taxonomy:
   laterally at sub-surface heights (felt only brushing an underside). Raked ends on
   roll+pitch channels (vertical-curved-inverted: 4-unit V notch at a free-standing
   exit) are self-consistent shear that mates flush when chained — cosmetic.
+- **The "stuck partway along a curved ramp" bug — fixed, and it was engine-level.**
+  `sweep()` spreads its five sample rays **horizontally**; a surf face is banked, so at
+  51° a sample 0.4 to the side sits 0.31 *inside* the slab. `rayIntersectBox` already
+  declined to report the box a ray starts in — but that ray then flew on and hit the
+  **next segment's leading end-cap**, whose backward-facing normal made `clipVelocity`
+  delete the entire forward component. Hence: only multi-segment runs showed it (the
+  standard course's ring is one box per ramp with gaps, so it never could), and it hit
+  hardest on the first seam of a curve. `isInsideAnyCollider` now makes `sweep` skip
+  buried samples outright — the consistent form of the rule `rayIntersectBox` already
+  applied. **Measured: zero buried samples across a 1151-tick standard-course run, so
+  behaviour there is bit-identical** (collider count still 28).
+  Three geometry fixes went with it: segment step 4°→2° (seam mismatch grows with its
+  square), forward-only box overlap plus a per-seam shingle offset so every seam is a
+  step *down* in the travel direction, and taper widths switched back to circumscribed —
+  inscribed widths left crescent holes that dropped the player below the surface into
+  the next end-cap. A-frame ridges now *overlap* past the peak instead of mitering short
+  of it: the ridge is convex, so the overshoot hides below the opposite face, and the
+  slit that used to stop a player tracking the ridge is gone.
+  **Verified by simulating the real `PlayerController` down all 14 definitions at five
+  lateral positions each: no sudden stops anywhere.** The probe must judge stalls by
+  *absolute* one-tick speed loss — a relative test flags a player gently decelerating
+  as they climb a 55° pyramid face, which is physics, not a defect.
 - **Undo/redo** (`Ctrl/Cmd+Z`, redo on `Ctrl/Cmd+X` by request): whole-map snapshots,
   one per completed gesture, taken *before* mutation; drags snapshot on grab and
   discard on release if nothing moved; cap 500. `splineGeneratedIds` survives undo

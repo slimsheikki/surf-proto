@@ -483,35 +483,90 @@ function skinGeometry(strips: FaceStrip[]): BufferGeometry {
  *   units — an invisible ledge the player could stand on beyond the visible
  *   ramp. The cost runs the other way: up to half a width-step of visible
  *   edge is unbacked, which reads as sliding off the edge marginally early.
- * - **End-aware overlap.** The seam-overlap pad extends boxes toward interior
- *   seams only; a piece's entry and exit edges get none, so collision ends
- *   where the piece visibly ends instead of ~0.35 past it.
+ * - **Shingled seams.** On a *banked* curve, consecutive segments' lateral
+ *   axes are not parallel — the frame rotates about the world-horizontal (or
+ *   vertical) axis while the face is rolled away from it — so a segment's
+ *   leading end-cap lands skewed across its predecessor's trailing edge and
+ *   pokes above that surface. The sweep hits that end-cap head-on and
+ *   `clipVelocity` deletes the whole forward component: the player simply
+ *   stops dead, mid-ramp. Boxes therefore overlap **forward only** and each
+ *   is sunk along its own normal by however much its leading edge would
+ *   otherwise rise above the previous surface, so every seam is a step *down*
+ *   in the direction of travel and nothing is ever a wall. The cost is a
+ *   shallow, monotone drift of collision below the visible surface — at the
+ *   2 deg segment step it totals well under 0.1 across a whole curve.
+ *
+ * The shingle is directional, like the pieces themselves: it guarantees a
+ * smooth ride along the piece's travel direction, not against it.
  */
+/** Clearance added per seam so the leading edge is strictly under, not merely level. */
+const SHINGLE_EPSILON = 0.002;
 function emitFaceColliders(
   params: RampCurveParams,
   mode: RampCurveMode,
   thickness: number,
   surfaceOffsetAlongHighDir: number,
+  widthBonus = 0,
 ): void {
   const path = computeRampFrames(params, mode);
   const count = path.frames.length;
   const endWidth = params.endWidth ?? params.width;
 
+  /** Top-surface centre of segment `i`, before its shingle offset. */
+  const surfaceCentre = (i: number): Vector3 => {
+    const frame = path.frames[i];
+    const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
+    return frame.mid.clone().addScaledVector(highDir, surfaceOffsetAlongHighDir);
+  };
+
+  // Shingle offsets: how far each segment is sunk along its own normal so its
+  // leading edge never rises above the previous segment's surface. See the
+  // block comment above for why a raw chain leaves a wall there.
+  const sink: number[] = [0];
+  for (let i = 1; i < count; i++) {
+    const prev = path.frames[i - 1];
+    const here = path.frames[i];
+    const planePoint = surfaceCentre(i - 1).addScaledVector(prev.normal, -sink[i - 1]);
+    const leadCentre = surfaceCentre(i)
+      .addScaledVector(here.forward, -here.length / 2)
+      .addScaledVector(here.normal, -sink[i - 1]);
+
+    // Worst corner of this segment's leading edge, measured against the plane
+    // the previous segment's top surface lies in.
+    let worst = 0;
+    for (const t of [-here.width / 2, here.width / 2]) {
+      const corner = leadCentre.clone().addScaledVector(here.right, t);
+      worst = Math.max(worst, corner.sub(planePoint).dot(prev.normal));
+    }
+    const alignment = Math.max(0.2, here.normal.dot(prev.normal));
+    sink[i] = sink[i - 1] + Math.max(0, worst / alignment) + SHINGLE_EPSILON;
+  }
+
   path.frames.forEach((frame, i) => {
+    // Circumscribed width: the *wider* of the segment's two boundaries, so a
+    // taper's collision covers every point of the visible face. Inscribed
+    // widths (the previous choice, to avoid an invisible ledge) left crescent
+    // holes at each width step; the player riding the low edge dropped through
+    // one, fell below the surface, and was then stopped dead by the next
+    // segment's end-cap. A hole that drops you is far worse than a hand's
+    // width of collision past a visible edge — at one unit of width per
+    // segment that overhang is at most 0.5.
     const widthA = params.width + (endWidth - params.width) * (i / count);
     const widthB = params.width + (endWidth - params.width) * ((i + 1) / count);
-    const boxWidth = Math.max(0.5, Math.min(widthA, widthB));
+    const boxWidth = Math.max(0.5, Math.max(widthA, widthB)) + widthBonus;
 
-    const padBack = i === 0 ? 0 : path.overlapPad / 2;
-    const padForward = i === count - 1 ? 0 : path.overlapPad / 2;
-    const boxLength = frame.length + padBack + padForward;
+    // Forward-only overlap: a box may reach over the seam ahead of it, never
+    // back over the one behind it. Reaching backward is what puts a box's
+    // leading end-cap above its predecessor's surface.
+    const padForward = i === count - 1 ? 0 : path.overlapPad;
+    const boxLength = frame.length + padForward;
 
     const highDir = frame.right.y >= 0 ? frame.right.clone() : frame.right.clone().negate();
     const center = frame.mid
       .clone()
       .addScaledVector(highDir, surfaceOffsetAlongHighDir)
-      .addScaledVector(frame.normal, -thickness / 2)
-      .addScaledVector(frame.forward, (padForward - padBack) / 2);
+      .addScaledVector(frame.normal, -sink[i] - thickness / 2)
+      .addScaledVector(frame.forward, padForward / 2);
     const quaternion = new Quaternion().setFromRotationMatrix(
       new Matrix4().makeBasis(frame.right, frame.normal, frame.forward),
     );
@@ -604,15 +659,22 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
     }
   } else if (def.variant === 'full' || def.variant === 'inverted' || def.family === 'slide') {
     const { entry } = piecePath(piece);
-    const edge: FaceEdgeMode = def.variant === 'full' ? 'ridge' : 'valley';
-    // Collision keeps the ridge miter (see the emit call): a box whose deep
-    // corner crossed the centreline would present an invisible lip just above
-    // the opposite face's surface, and the player would clip it at speed.
-    const ridgeInset =
-      def.variant === 'full'
-        ? Math.min(2, COMPOSITE_THICKNESS * Math.tan(degToRad(Math.abs(piece.rollDeg)))) + 0.02
-        : 0;
-    const towardCentre = def.variant === 'full' ? -1 : 1;
+    const isRidge = def.variant === 'full';
+    const edge: FaceEdgeMode = isRidge ? 'ridge' : 'valley';
+    const towardCentre = isRidge ? -1 : 1;
+
+    /**
+     * An A-frame's ridge is **convex**, so each face's collision is widened to
+     * reach slightly *past* the ridge: the overshoot descends below the
+     * opposite face's surface, where it can never be touched, and in exchange
+     * the ridge line itself is solid. The previous construction did the
+     * opposite — it held each face short of the ridge so their slabs would not
+     * cross — which left an uncovered slit exactly along the peak, and a
+     * player tracking the ridge dropped into it and was stopped by the next
+     * segment's end-cap. A valley needs none of this: there the two faces
+     * already meet on the path and their slabs cross harmlessly underneath.
+     */
+    const ridgeOverlap = isRidge ? COMPOSITE_THICKNESS * 2 : 0;
 
     for (const sign of [1, -1]) {
       const params = centreParams(piece, entry);
@@ -623,7 +685,8 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
           params,
           mode,
           COMPOSITE_THICKNESS,
-          (params.width / 2) * towardCentre - ridgeInset,
+          (params.width / 2) * towardCentre + (ridgeOverlap / 2) * -towardCentre,
+          ridgeOverlap,
         );
       }
     }

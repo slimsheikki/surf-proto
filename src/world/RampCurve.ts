@@ -82,7 +82,13 @@ export interface RampCurveResult {
 }
 
 const DEFAULT_THICKNESS = 0.4;
-const DEFAULT_ANGLE_STEP = 4;
+/**
+ * Degrees of arc per segment. Lowered from 4: on a *banked* curve the seam
+ * mismatch between consecutive segments grows with the square of this step
+ * (see `emitFaceColliders`), and that mismatch is what the player hits as a
+ * wall. Still inside the 2-5 deg band real surf maps are built at.
+ */
+const DEFAULT_ANGLE_STEP = 2;
 const GUIDE_WALL_HEIGHT = 1.4;
 const GUIDE_WALL_THICKNESS = 0.3;
 

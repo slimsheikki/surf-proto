@@ -24,6 +24,7 @@ const rayDir = new Vector3();
 const bestNormal = new Vector3();
 const rayOrigin = new Vector3();
 const sweepDir = new Vector3();
+const insideLocal = new Vector3();
 
 /**
  * Ray-vs-oriented-box intersection via the slab method in the box's local space.
@@ -98,6 +99,38 @@ export function raycast(origin: Vector3, direction: Vector3, maxDistance: number
   };
 }
 
+/**
+ * Whether a point is inside any collider.
+ *
+ * `sweep` needs this because its sample ring is spread **horizontally** around
+ * the player, while a surf face is banked: at a 51 deg bank, a sample 0.4 out
+ * to the side sits 0.31 *into* the slab it is riding on. `rayIntersectBox`
+ * already declines to report the box a ray starts inside — but such a ray then
+ * flew on and struck the *next* segment's leading end-cap from within the
+ * material, and clipping against that cap's backward-facing normal deleted the
+ * player's entire forward velocity. That is the "stuck partway along a curved
+ * ramp" bug: it needed a multi-segment collision run to appear, so single-box
+ * pieces and the standard course's ring (one box per ramp, gaps between) never
+ * showed it.
+ *
+ * Ignoring buried samples outright is the consistent form of the rule
+ * `rayIntersectBox` already applies: a sample point inside solid geometry
+ * describes no free-space motion, so it must not veto the samples that do.
+ */
+export function isInsideAnyCollider(point: Vector3): boolean {
+  for (const box of getColliders()) {
+    insideLocal.copy(point).sub(box.position).applyQuaternion(box.invQuaternion);
+    if (
+      Math.abs(insideLocal.x) <= box.halfExtents.x &&
+      Math.abs(insideLocal.y) <= box.halfExtents.y &&
+      Math.abs(insideLocal.z) <= box.halfExtents.z
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const GROUND_SAMPLE_OFFSETS = [
   new Vector3(0, 0, 0),
   new Vector3(1, 0, 0),
@@ -152,6 +185,10 @@ export function sweep(position: Vector3, displacement: Vector3, radius: number):
   let best: RayHit | null = null;
   for (const offset of GROUND_SAMPLE_OFFSETS) {
     rayOrigin.copy(position).addScaledVector(offset, radius);
+    // Samples buried in geometry are skipped rather than trusted — see
+    // `isInsideAnyCollider`. Without this, riding a banked multi-segment ramp
+    // stops the player dead at the first seam.
+    if (isInsideAnyCollider(rayOrigin)) continue;
     const hit = raycast(rayOrigin, direction, distance);
     if (hit && (!best || hit.distance < best.distance)) best = hit;
   }
