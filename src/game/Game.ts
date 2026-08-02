@@ -17,7 +17,6 @@ import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
 import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
-import { raycast } from '../engine/Raycast';
 import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
@@ -46,23 +45,21 @@ const XP_PER_BOSS = 45;
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
 /**
- * Fall detection, replacing the old checkpoint kill-plane ladder. Two rules,
- * both of which end the run (falling is death now — there are no mid-course
- * respawns, the start zone is the only checkpoint):
+ * Fall detection: one rule only — below the course's `killPlaneY`, the run
+ * ends. The plane is the map's true floor, safely under every piece of
+ * geometry, so nothing in the air can ever trigger it.
  *
- * - **Doomed**: plummeting (`velocity.y` past `DOOMED_FALL_SPEED`) with no
- *   surface anywhere within `DOOMED_PROBE_DEPTH` below. This is the prompt
- *   detector, and unlike the ladder it *cannot* fire above the course — the
- *   ladder hung an invisible plane 30 below the next unarmed checkpoint, and a
- *   player who flew over a pad without skimming its narrow arming band later
- *   crossed that plane mid-flight and was yanked to the start. That was the
- *   "random teleport" bug: not a collider in the sky, a plane that only
- *   existed because a checkpoint hadn't armed.
- * - **Backstop**: below the course's own `killPlaneY`, unconditionally.
+ * Two prompter detectors came before it and both are gone for cause. The
+ * checkpoint kill-plane ladder hung an invisible plane below the next unarmed
+ * checkpoint and yanked mid-flight players to the start (the "random
+ * teleport" bug). Its replacement, a plummeting-with-no-ground-below check,
+ * killed players the moment they carved a bank at speed: their feet sit ON
+ * the face, the downward probe starts inside that slab — which raycasts
+ * ignore — finds nothing beneath, and a fast carve's vertical speed crossed
+ * the threshold. Falling to the floor takes a few seconds; a few seconds of
+ * plummet is honest, and no clever detector has survived contact with this
+ * game yet.
  */
-const DOOMED_FALL_SPEED = -22;
-const DOOMED_PROBE_DEPTH = 100;
-const DOWN_PROBE = new Vector3(0, -1, 0);
 const BASE_MAX_HP = 100;
 
 /**
@@ -286,14 +283,8 @@ export class Game {
       }
     }
 
-    // Falling is death. Doomed check first — it fires seconds sooner than the
-    // backstop plane and reads as an immediate consequence rather than a long
-    // silent plummet.
-    if (
-      playerPosition.y < this.outOfBoundsY ||
-      (playerVelocity.y < DOOMED_FALL_SPEED &&
-        raycast(playerPosition, DOWN_PROBE, DOOMED_PROBE_DEPTH) === null)
-    ) {
+    // Falling is death, judged at the map's floor and nowhere else.
+    if (playerPosition.y < this.outOfBoundsY) {
       this.endRun();
       return;
     }
