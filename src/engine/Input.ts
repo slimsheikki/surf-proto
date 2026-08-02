@@ -5,7 +5,7 @@ const MOUSE_SENSITIVITY = 0.0022;
  * neither scrolls the page nor activates a focused <button> (the upgrade-choice
  * and restart buttons), and WASD never triggers scroll/quick-find.
  */
-const GAME_KEY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyV']);
+const GAME_KEY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyV', 'KeyE']);
 
 /**
  * Never steal keys from real text entry — that would break normal page
@@ -34,6 +34,8 @@ export interface InputFrame {
   attackPressed: boolean;
   /** Edge-triggered: true on the single frame Shift was pressed. */
   dashPressed: boolean;
+  /** Edge-triggered: true on the single frame E was pressed — spends a banked blessing. */
+  interactPressed: boolean;
 }
 
 export class InputSystem {
@@ -43,6 +45,7 @@ export class InputSystem {
   private cameraToggleQueued = false;
   private attackQueued = false;
   private dashQueued = false;
+  private interactQueued = false;
   private locked = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -53,6 +56,7 @@ export class InputSystem {
       // queued a camera toggle every repeat and flickered first/third person.
       if (e.code === 'KeyV' && !e.repeat) this.cameraToggleQueued = true;
       if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) this.dashQueued = true;
+      if (e.code === 'KeyE' && !e.repeat) this.interactQueued = true;
       if (GAME_KEY_CODES.has(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
@@ -119,6 +123,7 @@ export class InputSystem {
       cameraTogglePressed: this.cameraToggleQueued,
       attackPressed: this.attackQueued,
       dashPressed: this.dashQueued,
+      interactPressed: this.interactQueued,
     };
 
     this.pendingYawDelta = 0;
@@ -126,6 +131,7 @@ export class InputSystem {
     this.cameraToggleQueued = false;
     this.attackQueued = false;
     this.dashQueued = false;
+    this.interactQueued = false;
 
     return frame;
   }

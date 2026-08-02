@@ -14,6 +14,47 @@ the game: `git checkout ed58d05`.
 
 None blocking. The approach entry is fixed — see below.
 
+## The polished standard game (new)
+
+Three additions, per the user's Megabonk-flavoured brief:
+
+- **The journey** (`SurfCourse.ts`): the standard course is now a ~800-unit linear surf
+  map between the descent staircase and the ring arena — cruise, ±24° slalom, a 22° dive,
+  **a climb** (two faces pitched −12°: the not-only-downhill piece, a genuine speed check),
+  a narrow-width precision section, and a final descent onto the old straight. Built
+  entirely from the proven single-face piece with the staircase's handoff rules (alternate
+  bank, stagger toward drift, step the centreline down); dry-passed forward in local space
+  then translated so the exit feeds the straight exactly. The start tower is now at y≈180.
+  Checkpoints between sections (in-line, re-entry-pattern pads); **deliberately none
+  between the dive and the climb** — a respawn there would face the ascent at walk speed,
+  forever, so the pre-dive pad is the retry point for the whole passage.
+  **Verified by the original approach's method** — ballistic exit coverage per handoff
+  (70–100% along, 16–34 u/s, 3–7 drift): every straight-heading pair lands 24–41/48
+  (misses are the 16 u/s rows; slow exits dying is the game), turn pairs 12–46/48 with
+  strafing supplying the rest. First tuning pass measured dive→climb 2/48 and the climb
+  pair **0/48** — fixed with `JOURNEY_DIVE_EXIT_STEP` (12) and `JOURNEY_CLIMB_STEP` (6).
+  The journey's specs are exported on the course (`course.journey`) for probes.
+- **Shrines** (`src/game/Shrine.ts`, positions on `course.shrines`): nine gold floating
+  pickups placed off the surf line — reaching one costs speed, line and airtime. Contact
+  **banks a blessing token** (menu-on-contact would spring mid-flight at 30 u/s and cost
+  the landing); **E** spends a token on a free three-way powerup choice — the same menu,
+  pause and momentum-boost contract as a level-up. Gold on purpose: pickups are identified
+  by colour before shape, and teal is XP, violet is seeder. Spent shrines stay visible but
+  go dark. `Game` owns the objects and resets them per run; free-mode maps have none (yet).
+- **The item pool** (`Upgrades.ts`) grew 6 → 15: weapon range, Velocity Rounds (shots
+  scale with speed like the knife; duplicate draws fall back to +3 damage so no dead
+  picks), knife damage/reach, Regeneration, Vampiric Edge (heal on kill), Quick Recovery
+  (dash recharge), XP Magnet, Scholar (+25% XP). New plumbing, each with a reset path:
+  `RunPerks` on `Game` (copy-the-defaults reset like MovementConfig), `Health.regenPerSecond`
+  + `tick`, `Knife.bonusDamage/bonusRange`, `Dash.rechargeSeconds`, `XP_MAGNET` box in
+  XPOrb, `Weapon.velocityRounds` (+ speed param on `Weapon.tick`).
+
+Ramps and movement untouched, per the brief. Smoke-verified in-browser: shrine collect →
+banner → gold HUD prompt → E opens the choice, hands-free descent surfs at 21 u/s, free
+mode unaffected. The first shrine placement was collected by the *autopilot* without
+deviating — moved up and toward the high side; a shrine the default line collects is a
+freebie, not a shrine.
+
 ## Free-map editor rework (new)
 
 The editor is now built on a **modular ramp library** (`src/editor/RampLibrary.ts`),

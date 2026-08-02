@@ -15,12 +15,13 @@ import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
 import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
-import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
-import { XPOrb } from '../progression/XPOrb';
+import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
+import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
+import { Shrine } from './Shrine';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
 import { CourseStage } from '../world/SurfCourse';
@@ -79,6 +80,8 @@ export interface GameCourse {
   trackY: number;
   /** Radius of the surf loop, which sizes the boss's engagement and cull radii. */
   trackRadius: number;
+  /** Blessing-shrine positions. Absent on free-mode maps (for now). */
+  shrines?: Vector3[];
   /**
    * Absolute world Y of the kill plane, overriding the per-stage one below.
    *
@@ -106,6 +109,12 @@ export class Game {
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
   readonly dash = new Dash();
+  /** Run-scoped perk hooks (heal-on-kill, XP multiplier). See `RunPerks`. */
+  readonly perks = createRunPerks();
+
+  /** Blessing shrines built from the course, and the tokens collected from them. */
+  private shrines: Shrine[] = [];
+  blessingTokens = 0;
 
   state: GameState = 'playing';
 
@@ -173,6 +182,21 @@ export class Game {
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
+    this.rebuildShrines();
+  }
+
+  /**
+   * Tears down and rebuilds the shrine objects for the current course. Called
+   * from the constructor and from `setCourse` — a new map brings new shrine
+   * positions, and the old meshes must not linger in the scene.
+   */
+  private rebuildShrines(): void {
+    for (const shrine of this.shrines) {
+      this.scene.remove(shrine.group);
+      shrine.dispose();
+    }
+    this.shrines = (this.course.shrines ?? []).map((position) => new Shrine(position.clone()));
+    for (const shrine of this.shrines) this.scene.add(shrine.group);
   }
 
   private get lastStage(): CourseStage {
@@ -204,6 +228,7 @@ export class Game {
   setCourse(course: GameCourse): void {
     this.course = course;
     this.stages = course.stages;
+    this.rebuildShrines();
     this.restart();
   }
 
@@ -248,6 +273,23 @@ export class Game {
       this.playerController.dashImpulse();
       this.viewModel.triggerDash();
       this.dashFx.trigger();
+    }
+
+    this.playerHealth.tick(dt);
+
+    // Shrines animate and test pickup on the fixed step like everything else.
+    for (const shrine of this.shrines) {
+      if (shrine.tick(dt, playerPosition)) {
+        this.blessingTokens += 1;
+        this.banner.show('Blessing collected', 'Press E to choose a free powerup', 3.5);
+      }
+    }
+    // Banked rather than opened on contact — see `Shrine` for why. Spending is
+    // gated on `playing` so a token cannot double-open over the level-up menu.
+    if (input.interactPressed && this.blessingTokens > 0) {
+      this.blessingTokens -= 1;
+      this.startBlessing();
+      return;
     }
 
     this.trackLastStage(playerPosition);
@@ -300,7 +342,7 @@ export class Game {
     this.weaponTargets.length = 0;
     for (const enemy of this.entityManager.enemies) this.weaponTargets.push(enemy);
     if (this.boss) this.weaponTargets.push(this.boss);
-    this.weapon.tick(dt, playerPosition, this.weaponTargets);
+    this.weapon.tick(dt, playerPosition, this.weaponTargets, this.playerController.speed);
 
     // After the auto-weapon, before the kill pass, so a drone finished off by
     // the knife this tick still drops its XP on this tick.
@@ -314,6 +356,7 @@ export class Game {
 
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
+      if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
     });
     // Runs after the kill pass so a drone that dies this tick still drops XP;
     // distance culling itself awards nothing — leaving play is not a kill.
@@ -322,7 +365,7 @@ export class Game {
     for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition);
 
     this.entityManager.cullCollectedOrbs((orb) => {
-      this.levelSystem.addXp(orb.value, () => this.startLevelUp());
+      this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier), () => this.startLevelUp());
     });
     this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
     this.entityManager.cullSpentBlasts();
@@ -411,10 +454,31 @@ export class Game {
   }
 
   private startLevelUp(): void {
+    this.openUpgradeChoice();
+  }
+
+  /** A shrine blessing: identical menu, identical stakes, no level required. */
+  private startBlessing(): void {
+    this.openUpgradeChoice();
+  }
+
+  /**
+   * Pauses the run on a three-way powerup choice — the shared body of a
+   * level-up and a shrine blessing. The pause is the same "welcome back"
+   * contract as ever: `grantMomentumBoost` compensates the input window the
+   * menu ate.
+   */
+  private openUpgradeChoice(): void {
     this.state = 'pausedForUpgrade';
     const choices = drawUpgradeChoices(3);
     this.upgradeMenu.show(choices, (choice) => {
-      const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth, dash: this.dash };
+      const ctx: UpgradeContext = {
+        weapon: this.weapon,
+        knife: this.knife,
+        playerHealth: this.playerHealth,
+        dash: this.dash,
+        perks: this.perks,
+      };
       choice.apply(ctx);
       this.playerController.grantMomentumBoost();
       this.state = 'playing';
@@ -442,6 +506,11 @@ export class Game {
     this.bossesFelled = 0;
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
+    this.playerHealth.regenPerSecond = 0;
+    resetRunPerks(this.perks);
+    resetXpMagnet();
+    this.blessingTokens = 0;
+    for (const shrine of this.shrines) shrine.reset();
     this.playerController.teleport(this.course.spawnPoint.clone());
     // Yaw too, not just position. A free map can start the player on any
     // heading, and `restart` is also the path `setCourse` takes — leaving the
@@ -514,6 +583,7 @@ export class Game {
       dashFraction: this.dash.fraction,
       dashCharges: this.dash.charges,
       dashMaxCharges: this.dash.maxCharges,
+      blessingTokens: this.blessingTokens,
     });
   }
 }

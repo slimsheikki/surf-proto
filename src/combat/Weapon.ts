@@ -62,6 +62,12 @@ export class Weapon {
   damage = BASE_STATS.damage;
   attacksPerSecond = BASE_STATS.attacksPerSecond;
   range = BASE_STATS.range;
+  /**
+   * Velocity Rounds upgrade: when true, shots gain damage with carried speed —
+   * the same bargain the knife offers, bolted onto the auto-weapon. Half a
+   * point per u/s over 10, capped at +15 (reached at 40 u/s).
+   */
+  velocityRounds = false;
   private cooldown = 0;
   /**
    * Sticky target. Always retargeting the nearest enemy sprays partial damage
@@ -81,7 +87,7 @@ export class Weapon {
    * flying on ticks where there is no target or the weapon is on cooldown,
    * which is most ticks.
    */
-  tick(dt: number, playerPosition: Vector3, targets: readonly WeaponTarget[]): void {
+  tick(dt: number, playerPosition: Vector3, targets: readonly WeaponTarget[], playerSpeed = 0): void {
     this.fx.tick(dt);
 
     if (this.cooldown > 0) this.cooldown -= dt;
@@ -96,7 +102,10 @@ export class Weapon {
     // corpse where it is — it is a picture of a past event, not a projectile.
     this.fx.fire(playerPosition, this.target.position);
 
-    this.target.health.takeDamage(this.damage);
+    const speedBonus = this.velocityRounds
+      ? Math.min(15, Math.max(0, playerSpeed - 10) * 0.5)
+      : 0;
+    this.target.health.takeDamage(this.damage + speedBonus);
     this.target.flashHit();
     this.cooldown = 1 / this.attacksPerSecond;
   }
@@ -134,6 +143,7 @@ export class Weapon {
    */
   reset(): void {
     this.damage = BASE_STATS.damage;
+    this.velocityRounds = false;
     this.attacksPerSecond = BASE_STATS.attacksPerSecond;
     this.range = BASE_STATS.range;
     this.cooldown = 0;
