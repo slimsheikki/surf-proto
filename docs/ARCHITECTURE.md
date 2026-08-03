@@ -298,9 +298,10 @@ are ordered for a reason:
 8. Cull dead enemies (dropping XP orbs), then distant ones (**awarding nothing** — leaving play
    is not a kill). Orbs magnet toward the player and are collected.
 9. **Player death is resolved first**, so a simultaneous kill is a loss.
-10. Last: the ultimate meter charges, and `Rewind` records the tick. Both read
-    the *settled* end-of-tick world — a recorded frame is what the player is
-    handed back if they rewind to it, so it must never be a half-updated one.
+10. Last: flow XP pays out for sustained speed (`FlowXP`), the ultimate meter
+    charges, and `Rewind` records the tick. The recorder reads the *settled*
+    end-of-tick world — a recorded frame is what the player is handed back if
+    they rewind to it, so it must never be a half-updated one.
 
 `Game.state` has two extra states for the ReWind ultimate (`rewinding`,
 `rewindCountdown`) in which `updateGameplay` does not run at all: the world is

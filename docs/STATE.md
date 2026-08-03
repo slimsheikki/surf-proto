@@ -50,6 +50,58 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
 
+## XP at speed — registration fixes + flow XP (new)
+
+User report: kill an enemy while surfing fast and the XP sometimes never arrives. Four causes,
+all one story — the loot pipeline was tuned against a ~40 u/s world and the v2 movement
+(airaccelerate 100, the landing redirect) left it behind, while the weapon's kill envelope was
+never checked against the magnet's. Fixed across `XPOrb.ts` / `EntityManager.ts` / `Game.ts`:
+
+- **The magnet pull could be outrun.** The pull was a constant 55 (+4/unit of distance); past
+  ~59 u/s a latched orb settles at the equilibrium gap where pull equals player speed —
+  measured 1.27u behind at 62 u/s, just outside the 1u collect radius, *forever*.
+  `MAGNET_SPEED_LEAD` now keeps the pull 25% above the player's actual 3D speed, so a latched
+  orb always converges. At or below 44 u/s (55 / 1.25) the `max()` resolves to the old
+  constant — probed bit-identical, so nothing already tuned moved.
+- **The latch radius sat inside the kill radius.** Magnet 12 vs weapon range 22: a kill in the
+  12–22 shell dropped an orb the player was usually already leaving behind, and it never
+  latched at all. Default radius is now **18** (+50%, the user's requested bump), covering
+  most of the base envelope; the +6/+10 magnet upgrades still stack on top.
+- **The orb cull was a fixed 40 and the weapon's reach is not.** A base-range kill behind a
+  receding surfer was deleted about half a second after it dropped — and +Range picks push the
+  weapon past 40 entirely, at which point a max-range kill spawned its orb *outside* the cull
+  sphere and it was deleted the tick it appeared. `orbCullDistance(weaponRange)` =
+  `max(70, range + 30)` makes the sphere track what the weapon can actually reach.
+- **Magnetised orbs could be culled mid-chase.** Latched loot is earned and now exempt from
+  the distance cull — which cannot leak, because the lead guarantees it lands.
+
+The "XP magnet at all speeds (100% collection)" line under *Verified good* below was measured
+before the v2 speeds and is superseded by this section.
+
+**Flow XP** (`src/game/FlowXP.ts`, new): holding real speed now pays a trickle of XP, per the
+user's brief — scalable with speed, never competitive with killing.
+
+- The `flow` meter spools 0→1 over 4 s above **16 u/s** and drains in 1.5 s below it. 16 is
+  more than double the walk cap, and the grounded clamp caps *actual* velocity at that cap, so
+  flow is unreachable on foot by construction (walk 7 + dash impulse 8 = 15, still under).
+  Speed is the controller's horizontal `speed`, same as the ultimate: a straight plummet earns
+  nothing until it is converted along a face.
+- Payout = `min(2.2, 0.05 · (speed − 16))` %/s **of the current level requirement**, × flow ×
+  the XP multiplier (Scholar applies, like every source). 30 u/s pays 0.7%/s, 40 pays 1.2%/s,
+  the cap lands at 60 u/s. Percent-of-`xpToNext` is what makes it scale forever without
+  retuning — and the budget keeps enemies the food: a probed minute of held 35 u/s is **57% of
+  one level**; twelve lazy kills in the same minute are **three levels**.
+- The meter rides `Rewind`'s `Frame` (`flow`) beside the `LevelSnapshot` that carries the XP
+  it granted, `restart` resets it, and the HUD shows the live rate as a suffix on the speed
+  readout (`34.0 u/s +0.9%/s`) that only appears while it actually pays.
+
+Verified: `.probe-xp-before.ts` fails 4/4 on the pre-fix code (kept for the record);
+`.probe-xp.ts` runs 18 green — pull convergence at 62 and 90 u/s, sub-44 parity (max drift
+0.0e+0 over a full chase), cull floor + range tracking, the magnetised exemption, flow
+build/drain/floor/cap/capture-restore, and the kills-dominate budget through the real
+`LevelSystem`. Browser pass through `__surf`: the live loop at 40 u/s holds flow at 1, pays
+1.2%/s into the bar, shows the readout suffix, and restart clears all of it.
+
 ## ReWind — the ultimate (new)
 
 Hold **R** with the ultimate bar full and up to **15 seconds of the run play

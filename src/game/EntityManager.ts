@@ -80,12 +80,20 @@ export class EntityManager {
     return removed;
   }
 
-  /** Same for orbs dropped mid-surf that the player rocketed past and will never come back for. */
+  /**
+   * Same for orbs dropped mid-surf that the player rocketed past and will never
+   * come back for. Magnetised orbs are exempt: a latched orb is earned loot in
+   * flight, and the pull always outruns the player (`MAGNET_SPEED_LEAD`), so it
+   * provably lands — deleting one mid-chase is exactly the "kill paid no XP"
+   * bug this cull once caused.
+   */
   cullDistantOrbs(playerPosition: Vector3, maxDistance: number): number {
     const maxDistSq = maxDistance * maxDistance;
     let removed = 0;
     for (let i = this.orbs.length - 1; i >= 0; i--) {
-      if (this.orbs[i].position.distanceToSquared(playerPosition) > maxDistSq) {
+      const orb = this.orbs[i];
+      if (orb.magnetised) continue;
+      if (orb.position.distanceToSquared(playerPosition) > maxDistSq) {
         this.removeOrbAt(i);
         removed += 1;
       }

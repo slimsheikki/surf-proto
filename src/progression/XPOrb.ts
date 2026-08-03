@@ -15,8 +15,16 @@ const MATERIAL = new MeshStandardMaterial({
   emissiveIntensity: 1.9,
 });
 
-/** Distance at which an orb notices the player and starts homing. */
-const MAGNET_RADIUS_DEFAULT = 12;
+/**
+ * Distance at which an orb notices the player and starts homing.
+ *
+ * 18 covers most of the auto-weapon's 22-unit kill envelope, which is what
+ * decides whether a kill made *while surfing* ever pays out: an orb that never
+ * latches is an orb the player has already left behind. The old 12 left a
+ * 12-22 shell where the weapon routinely killed and the loot routinely
+ * evaporated — at 35+ u/s that read as "the XP didn't register".
+ */
+const MAGNET_RADIUS_DEFAULT = 18;
 /**
  * Live magnet radius, mutable because upgrades grow it. A module-level box
  * rather than per-orb state so an upgrade applies to orbs already in flight;
@@ -31,14 +39,45 @@ export function resetXpMagnet(): void {
 const COLLECT_RADIUS = 1;
 /**
  * Homing speed must exceed the player's travel speed, or an orb can never close
- * the gap on someone surfing away from it. Surf speeds reach ~40 u/s, so this
- * sits above that. Note a *proportional* pull (lerping a fraction of the
- * remaining distance each tick) is the wrong shape here: its closing speed
- * vanishes exactly where it's needed most, right next to a fast-moving player.
+ * the gap on someone surfing away from it. Note a *proportional* pull (lerping
+ * a fraction of the remaining distance each tick) is the wrong shape here: its
+ * closing speed vanishes exactly where it's needed most, right next to a
+ * fast-moving player.
  */
 const MAGNET_SPEED = 55;
 /** Extra speed per unit of distance, so far-off orbs streak in rather than crawl. */
 const MAGNET_SPEED_PER_UNIT = 4;
+/**
+ * The pull also has to *stay* ahead of the player, and a constant cannot: this
+ * movement has no top speed (airaccelerate 100, and the landing redirect turns
+ * height into speed), so the old fixed 55 was outrun on any long descent. The
+ * orb then trailed at the equilibrium gap where pull equals player speed —
+ * measured 1.27u at 62 u/s, just outside the 1u collect radius, forever. The
+ * lead keeps the pull 25% over whatever the player is actually doing, so a
+ * magnetised orb always converges. At or below 44 u/s (55 / 1.25) the max()
+ * resolves to the old constant and the tuned behaviour is bit-identical.
+ */
+const MAGNET_SPEED_LEAD = 1.25;
+
+/**
+ * How far an uncollected orb may fall behind before `Game` despawns it.
+ *
+ * Owned here beside the magnet numbers because the three only make sense
+ * together — the cull must sit far enough outside both the latch radius and
+ * the *kill* radius that nothing plausibly collectable is deleted. The old
+ * fixed 40 failed that twice over: a base-range (22) kill behind a 38 u/s
+ * player was deleted about half a second after it dropped, and a few +Range
+ * picks put the weapon's reach past 40 entirely, so a max-range kill spawned
+ * its orb already outside the sphere and it was culled the tick it appeared.
+ * The floor gives the base envelope ~1.2 s of grace at surf speed; the margin
+ * term makes the sphere track whatever the upgraded weapon can actually reach.
+ */
+const ORB_CULL_FLOOR = 70;
+const ORB_CULL_RANGE_MARGIN = 30;
+
+export function orbCullDistance(weaponRange: number): number {
+  return Math.max(ORB_CULL_FLOOR, weaponRange + ORB_CULL_RANGE_MARGIN);
+}
 
 const toPlayer = new Vector3();
 
@@ -75,14 +114,20 @@ export class XPOrb {
     this.mesh.position.copy(this.position);
   }
 
-  tick(dt: number, playerPosition: Vector3): void {
+  /**
+   * `playerSpeed` is the player's full 3D speed this tick; it feeds the pull's
+   * lead so the orb can never be outrun (see MAGNET_SPEED_LEAD). Defaulted so
+   * a stationary caller reads exactly as before.
+   */
+  tick(dt: number, playerPosition: Vector3, playerSpeed = 0): void {
     toPlayer.copy(playerPosition).sub(this.position);
     let dist = toPlayer.length();
 
     if (dist < XP_MAGNET.radius) this.magnetised = true;
 
     if (this.magnetised && dist > 1e-6) {
-      const pullSpeed = MAGNET_SPEED + dist * MAGNET_SPEED_PER_UNIT;
+      const pullSpeed =
+        Math.max(MAGNET_SPEED, playerSpeed * MAGNET_SPEED_LEAD) + dist * MAGNET_SPEED_PER_UNIT;
       // Clamp the step to the remaining distance so the orb settles on the
       // player instead of overshooting past them at 128 Hz.
       const step = Math.min(pullSpeed * dt, dist);

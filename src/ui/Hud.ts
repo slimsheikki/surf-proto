@@ -2,6 +2,11 @@ import { UltimateArc } from './UltimateArc';
 
 export interface HudState {
   speed: number;
+  /**
+   * Flow XP paying out right now, in % of the level bar per second (after the
+   * XP multiplier). Zero hides it — see `update`.
+   */
+  flowXpPctPerSecond: number;
   hpFraction: number;
   xpFraction: number;
   level: number;
@@ -48,7 +53,13 @@ export class Hud {
   private readonly ultArc = new UltimateArc();
 
   update(state: HudState): void {
-    this.speedEl.textContent = `${state.speed.toFixed(1)} u/s`;
+    // Flow rides the existing speed cell rather than adding a HUD element: it
+    // is a property *of* the speed, and the readout only grows while the trickle
+    // is actually paying (>= 0.05%/s — below that the suffix is churn, not news).
+    this.speedEl.textContent =
+      state.flowXpPctPerSecond >= 0.05
+        ? `${state.speed.toFixed(1)} u/s +${state.flowXpPctPerSecond.toFixed(1)}%/s`
+        : `${state.speed.toFixed(1)} u/s`;
     this.hpFillEl.style.width = `${Math.max(0, Math.min(1, state.hpFraction)) * 100}%`;
     this.xpFillEl.style.width = `${Math.max(0, Math.min(1, state.xpFraction)) * 100}%`;
     this.levelEl.textContent = `Lv ${state.level}`;

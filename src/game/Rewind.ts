@@ -13,6 +13,7 @@ import { LevelSnapshot, LevelSystem } from '../progression/LevelSystem';
 import { RunPerks } from '../progression/Upgrades';
 import { XP_MAGNET, XPOrb } from '../progression/XPOrb';
 import { EntityManager } from './EntityManager';
+import { FlowXP } from './FlowXP';
 import { Shrine, ShrineSnapshot } from './Shrine';
 
 /** The advertised ceiling on the ability: fifteen seconds and not a frame more. */
@@ -112,6 +113,12 @@ class Frame {
   level: LevelSnapshot = { level: 1, xp: 0, xpToNext: 0, bankedPicks: 0 };
   dash: DashSnapshot = { charges: 0, maxCharges: 0, rechargeSeconds: 0, rechargeTimer: 0 };
   spawn: SpawnSnapshot = { survivalTime: 0, timeSinceLastSpawn: 0, suspended: false };
+  /**
+   * The flow-XP meter. The XP it granted rides `level` above; the meter that
+   * granted it has to travel too, or a rewind hands back full-rate flow the
+   * player has not re-earned (or confiscates one they had).
+   */
+  flow = 0;
 
   /**
    * Bumped by `Game` whenever a Monolith arrives or falls. The rewind window is
@@ -155,6 +162,7 @@ export interface RewindContext {
   playerHealth: Health;
   levelSystem: LevelSystem;
   dash: Dash;
+  flowXp: FlowXP;
   weapon: Weapon;
   knife: Knife;
   perks: RunPerks;
@@ -265,6 +273,7 @@ export class Rewind {
     frame.level = c.levelSystem.capture();
     frame.dash = c.dash.capture();
     frame.spawn = c.spawnDirector.capture();
+    frame.flow = c.flowXp.capture();
 
     frame.bossEpoch = c.getBossEpoch();
     frame.bossHp = c.getBoss()?.health.hp ?? -1;
@@ -416,6 +425,7 @@ export class Rewind {
     c.levelSystem.restore(frame.level);
     c.dash.restore(frame.dash);
     c.spawnDirector.restore(frame.spawn);
+    c.flowXp.restore(frame.flow);
 
     c.weapon.damage = frame.weaponDamage;
     c.weapon.attacksPerSecond = frame.weaponAttacksPerSecond;
