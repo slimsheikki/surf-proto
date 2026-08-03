@@ -87,8 +87,18 @@ export class Shrine {
 
   /** Un-collects for a fresh run. */
   reset(): void {
-    this.collected = false;
-    this.setSpent(false);
+    this.setCollected(false);
+  }
+
+  /**
+   * Puts the collected flag back where it was, dimming or relighting to match.
+   * The rewind recorder uses this: rewinding past a shrine you flew through has
+   * to hand the blessing back, and a shrine that stayed dark would be a
+   * landmark promising something it no longer gives.
+   */
+  setCollected(collected: boolean): void {
+    this.collected = collected;
+    this.setSpent(collected);
   }
 
   /** Spent shrines stay visible but go dark — a landmark, no longer a promise. */

@@ -443,12 +443,7 @@ export class PlayerController {
    * CS preserves speed instead of bleeding a few percent per landing.
    */
   tick(dt: number, input: InputFrame): void {
-    this.yaw += input.yawDelta;
-    this.pitch = clamp(
-      this.pitch + input.pitchDelta,
-      -degToRad(MovementConfig.PITCH_LIMIT_DEG),
-      degToRad(MovementConfig.PITCH_LIMIT_DEG),
-    );
+    this.applyLook(input.yawDelta, input.pitchDelta);
 
     const wishDir = this.wishDir(input);
     const wishSpeed = wishDir.lengthSq() > 1e-6 ? MovementConfig.MAX_GROUND_SPEED : 0;
@@ -499,6 +494,24 @@ export class PlayerController {
     // FinishGravity
     this.velocity.y += MovementConfig.GRAVITY * 0.5 * dt;
     if (this.grounded) this.velocity.y = 0;
+  }
+
+  /**
+   * Turns the view without simulating anything else.
+   *
+   * Split out of `tick` so the ReWind countdown can let the player re-aim while
+   * the world is held still. They have just watched fifteen seconds run
+   * backwards and are usually mid-air on a ramp — resuming on whatever heading
+   * the recording happened to end on is the difference between landing the line
+   * and being handed back a botched one.
+   */
+  applyLook(yawDelta: number, pitchDelta: number): void {
+    this.yaw += yawDelta;
+    this.pitch = clamp(
+      this.pitch + pitchDelta,
+      -degToRad(MovementConfig.PITCH_LIMIT_DEG),
+      degToRad(MovementConfig.PITCH_LIMIT_DEG),
+    );
   }
 
   private applyMomentumBoost(dt: number, wishDir: Vector3): void {

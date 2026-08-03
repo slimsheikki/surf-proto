@@ -18,6 +18,18 @@
       <div id="felled-readout" class="hidden"></div>
       <div id="bar-dash" class="bar"><div id="bar-dash-fill" class="bar-fill dash"></div></div>
       <div id="dash-readout">Dash 2/2</div>
+      <!-- Ultimate meter. The flame row is a sibling of the bar, not a child:
+           .bar clips its overflow so the fill can round its own ends, and
+           flames have to lick up past the top edge. -->
+      <div id="ult-meter">
+        <div id="ult-bar-flames" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div id="bar-ult" class="bar"><div id="bar-ult-fill" class="bar-fill ult"></div></div>
+        <div id="ult-readout">Ultimate 0%</div>
+      </div>
     </div>
     <div id="boss-bar" class="hidden" data-phase="1">
       <div id="boss-bar-labels">
@@ -43,10 +55,27 @@
     <div id="dash-fx" class="hidden">
       <div class="dash-lines"></div>
     </div>
+    <!-- ReWind: activation burst, purple flames held for the length of the
+         rewind, the seconds readout, and the 3-2-1 countdown. -->
+    <div id="ult-fx" class="hidden">
+      <div id="ult-burst"></div>
+      <div id="ult-flames" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div id="ult-hud">
+        <div id="ult-label"></div>
+        <div id="ult-seconds"></div>
+        <div id="ult-countdown" class="hidden"></div>
+      </div>
+    </div>
     <div id="start-overlay" class="overlay hidden">
       <h1>surf-proto</h1>
       <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
       <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
+      <p>Hold <kbd>R</kbd> when the purple ultimate bar is full to <strong>ReWind</strong> &mdash; up to 15 seconds of the run play backwards, XP and powerups included. Let go anywhere to resume from there after a 3-2-1 countdown.</p>
       <p>SHIFT to dash &mdash; a shove in the direction you are facing, spending one of your dash charges. Charges refill over time.</p>
       <p>Golden shrines float off the surf line &mdash; carry enough speed to fly through one and choose a free powerup.</p>
       <p>Falling is death: there are no mid-course respawns. The run restarts from the top.</p>

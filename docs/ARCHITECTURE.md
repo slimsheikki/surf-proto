@@ -265,6 +265,13 @@ are ordered for a reason:
 8. Cull dead enemies (dropping XP orbs), then distant ones (**awarding nothing** — leaving play
    is not a kill). Orbs magnet toward the player and are collected.
 9. **Player death is resolved first**, so a simultaneous kill is a loss.
+10. Last: the ultimate meter charges, and `Rewind` records the tick. Both read
+    the *settled* end-of-tick world — a recorded frame is what the player is
+    handed back if they rewind to it, so it must never be a half-updated one.
+
+`Game.state` has two extra states for the ReWind ultimate (`rewinding`,
+`rewindCountdown`) in which `updateGameplay` does not run at all: the world is
+being written from the recording instead of simulated. See `docs/STATE.md`.
 
 Enemies steer by solving an *interception* on the player's trajectory, not by chasing their
 current position — a 12 u/s drone cannot catch a 30 u/s surfer, so chasing means trailing
@@ -291,13 +298,14 @@ does not.
 
 | Class | Owns |
 |---|---|
-| `Hud` | Speed, HP, XP, level, dash charges, run clock, Monoliths felled |
+| `Hud` | Speed, HP, XP, level, dash charges, run clock, Monoliths felled, ultimate meter |
 | `MainMenu` | Mode select at boot |
 | `UpgradeMenu` | Level-up choice of three (**keyboard 1/2/3** — see pointer lock, §2) |
 | `GameOverScreen` | Death panel and restart |
 | `Banner` | Transient headline that pauses nothing |
 | `BossBar` | Monolith health |
 | `DashEffect` | Full-screen anime speed lines |
+| `UltimateEffect` | ReWind: activation shockwave, purple flames, 3-2-1 countdown |
 
 ---
 

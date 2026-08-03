@@ -1,8 +1,15 @@
 const DASH_MAX_CHARGES_DEFAULT = 2;
 export const DASH_RECHARGE_SECONDS_DEFAULT = 6;
 
+export interface DashSnapshot {
+  charges: number;
+  maxCharges: number;
+  rechargeSeconds: number;
+  rechargeTimer: number;
+}
+
 /**
- * Shift-triggered charge economy gating `PlayerController.grantMomentumBoost()`.
+ * Shift-triggered charge economy gating `PlayerController.dashImpulse()`.
  * Recharges on the fixed sim tick, like everything else — a wall-clock timer
  * would keep filling behind the level-up menu's pause.
  */
@@ -33,6 +40,27 @@ export class Dash {
   get fraction(): number {
     const partial = this.charges < this.maxCharges ? this.rechargeTimer / this.rechargeSeconds : 0;
     return (this.charges + partial) / this.maxCharges;
+  }
+
+  /**
+   * Whole dash economy as one value, for the rewind recorder — including
+   * `rechargeTimer` (private) and the two fields upgrades raise, so rewinding
+   * past an Extra Dash pickup actually takes the charge back.
+   */
+  capture(): DashSnapshot {
+    return {
+      charges: this.charges,
+      maxCharges: this.maxCharges,
+      rechargeSeconds: this.rechargeSeconds,
+      rechargeTimer: this.rechargeTimer,
+    };
+  }
+
+  restore(snapshot: DashSnapshot): void {
+    this.charges = snapshot.charges;
+    this.maxCharges = snapshot.maxCharges;
+    this.rechargeSeconds = snapshot.rechargeSeconds;
+    this.rechargeTimer = snapshot.rechargeTimer;
   }
 
   reset(): void {

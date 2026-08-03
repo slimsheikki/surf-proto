@@ -64,10 +64,32 @@ const DRONE_VISUAL: EnemyVisual = {
  * surfer approaching it head-on without ever being able to hound them from
  * behind (which would break the surf flow).
  */
+let rewindIdCounter = 0;
+function nextRewindId(): number {
+  rewindIdCounter += 1;
+  return rewindIdCounter;
+}
+
 export class Enemy {
   readonly mesh: Mesh;
   readonly health: Health;
   readonly position: Vector3;
+
+  /**
+   * Identity that survives being destroyed and rebuilt.
+   *
+   * The rewind plays the world backwards at 128 Hz, and enemies come and go
+   * across that window. Reconciling the live list against a recorded frame *by
+   * index* would be wrong the moment anything was culled — the arrays are
+   * spliced, so every enemy after the gap shifts and would be teleported into
+   * its neighbour's recorded position. Matching on this instead means a
+   * re-created enemy resumes being the same enemy, and the common case (nothing
+   * changed between two frames) does no work at all.
+   *
+   * Mutable so `Rewind` can stamp a rebuilt enemy with the id it is standing in
+   * for; ids are only ever compared, never ordered.
+   */
+  rewindId = nextRewindId();
 
   protected readonly material: MeshStandardMaterial;
   private contactCooldown = 0;

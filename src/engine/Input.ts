@@ -49,6 +49,12 @@ export interface InputFrame {
   attackPressed: boolean;
   /** Edge-triggered: true on the single frame Shift was pressed. */
   dashPressed: boolean;
+  /**
+   * Held, not edge-triggered. ReWind runs for exactly as long as the button is
+   * down — the release is what picks the moment to resume from, so the
+   * controller has to see the whole hold, not its leading edge.
+   */
+  ultimateHeld: boolean;
 }
 
 export class InputSystem {
@@ -161,6 +167,7 @@ export class InputSystem {
       cameraTogglePressed: this.cameraToggleQueued,
       attackPressed: this.attackQueued,
       dashPressed: this.dashQueued,
+      ultimateHeld: this.keys.has('KeyR'),
     };
 
     this.pendingYawDelta -= yawDelta;
