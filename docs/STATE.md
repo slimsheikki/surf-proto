@@ -50,6 +50,37 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
 
+## Seeder blasts telegraph ahead (new)
+
+Playtest: seeder AoE "hit almost every time". Root cause: the old plant point was a
+velocity lead (0.3 s, capped 10u) — at surf speed that put the 7u-radius sphere's centre
+dead on the flight line with its near edge ~3u from the player's face, on a 1 s fuse.
+Effectively an intercept, not a telegraph.
+
+Now (`Blast.ts`):
+
+- **Planted 15u ahead along the travel direction** (`BLAST_PLANT_AHEAD`), a fixed medium
+  distance — near edge 8u off the player at plant time, never directly on them, never far
+  enough to be someone else's problem.
+- **2 s fuse** (`BLAST_FUSE`). At any real surf speed the straight line is through and past
+  before it lands; the players it catches are the ones who slow into claimed ground.
+- **Still-player fallback** (`BLAST_MIN_LEAD_SPEED` = 5): below that speed there is no
+  meaningful "ahead", so the blast plants on the player — even walk speed (7) clears the
+  radius in 2 s, so it is an eviction notice, not a kill, and it preserves the seeder's
+  design role (the enemy that punishes not-surfing).
+- **The landing telegraph got two more channels.** The fill still grows over the fuse, and
+  now also *cooks orange → near-white* (`FILL_HOT`, lerped on filled²) while the shell's
+  pulse quickens and widens toward detonation — size, rhythm and colour all say "about to
+  land", readable from inside the volume, where it matters most.
+
+`Seeder.ts` logic untouched (it already routed through `Blast.plantPoint`); Rewind's
+"live blasts are cleared, not restored" note now covers ~2 s of life instead of ~1 — same
+contract, seeders come back and re-plant.
+
+Verified: `.probe-seeder.ts` — plant lands exactly 15u ahead at 30 u/s and 8u off the
+sphere edge, on-player under 5 u/s, no damage before the full fuse, a 30 u/s straight line
+through the claim takes zero damage, a parked player inside takes it exactly once at 2 s.
+
 ## Enemies persist forever (new)
 
 The 55-unit enemy despawn is gone — same Vampire-Survivors rule the orbs got: a drone the
@@ -1072,11 +1103,12 @@ course as its reward for winning.
 (same interception solve, slower) but instead of ramming plants a **`Blast`** — a telegraphed
 sphere that fills up over a 1 s fuse and then damages anything inside once.
 
-The two numbers are the mechanic: escape speed is `RADIUS / (FUSE - LEAD)` = **10 u/s**.
-Walk speed is 7 and a surf line is 20-40, so a blast is lethal to a player who has stopped,
-botched a landing, or hovered to fight, and irrelevant to one who is actually surfing. That
-asymmetry is the whole reason it exists — it is the enemy that punishes *not* surfing, which
-is the one thing the combat layer is otherwise unable to do.
+Retuned after play (see "Seeder blasts telegraph ahead" above): the blast is now **area
+denial**, planted a fixed 15u ahead along the player's travel (near edge 8u off them — never
+directly on them) with a **2 s fuse**, and planted *on* a player only when they are too slow
+(< 5 u/s) to have an "ahead". Holding speed clears it trivially; dawdling into claimed
+ground does not. The still-player fallback is what keeps it the enemy that punishes *not*
+surfing — the one thing the combat layer is otherwise unable to do.
 
 Two things about it that look like details and are not: it is a **sphere, not a ground disc**
 (the player is airborne against a banked wall most of the time, so a circle on the floor is

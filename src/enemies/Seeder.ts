@@ -43,15 +43,16 @@ const SPIN_RATE = 1.4;
  *
  * Everything about how it flies is the base `Enemy` — the same interception
  * solve, the same turn-rate cap — at a lower speed. The one addition is a
- * timer: whenever it is inside `SEED_RANGE`, it plants a `Blast` at the
- * player's near-future position and goes on cooldown.
+ * timer: whenever it is inside `SEED_RANGE`, it claims a patch of the line a
+ * medium distance ahead of the player (`Blast.plantPoint`) and goes on
+ * cooldown.
  *
  * The role this fills is the one the drone cannot. A drone is a thing you meet
- * head-on and shoot; it threatens a player who is *moving into it*. A seeder
- * threatens a player who is **slow**, because a blast is escaped purely by
- * covering ground before the fuse runs out. That makes the pair complementary
- * rather than redundant: between them there is no speed at which the run is
- * safe, and — importantly — the answer to the seeder is always *surf faster*,
+ * head-on and shoot; it threatens the space you are *in*. A seeder threatens
+ * the space you were *about* to use: two seconds of telegraph, then that patch
+ * detonates — so the answer is a line change or holding real speed through and
+ * past it, and the still-player fallback in `plantPoint` keeps a parked player
+ * from ignoring it entirely. Either way the answer is always *surf better*,
  * never *stop and fight*.
  *
  * The blast is not created here. This class has no scene and no entity list,

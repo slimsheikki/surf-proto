@@ -1,39 +1,38 @@
-import { DoubleSide, Group, Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import { Color, DoubleSide, Group, Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
 
 /**
  * Radius of the danger volume, and the fuse before it goes off.
  *
- * These two numbers *are* the mechanic, and they are chosen together. A player
- * escapes iff they cover more than `RADIUS` in `FUSE` seconds from where the
- * blast was planted, so the speed that survives is `RADIUS / FUSE` — about 7
- * u/s here, before the planting lead is accounted for. Walk speed is exactly
- * 7.0 and a surf line runs 20-40, so the rule the player learns is simply
- * *keep moving*: a blast is lethal to someone standing on a platform, someone
- * who has just botched a landing and bled their speed, or someone hovering to
- * fight, and irrelevant to someone actually surfing.
- *
- * That asymmetry is the point. The combat layer is not allowed to make the
- * player stop surfing, and this is the one enemy that actively punishes them
- * for having stopped.
+ * Retuned from the original 1 s on-your-line intercept, which play showed was
+ * nearly unavoidable at surf speed: the old velocity-lead (0.3 s, capped 10u)
+ * planted the centre on the flight line with its edge ~3u from the player's
+ * face. The blast is now **area denial**: planted a fixed medium distance
+ * ahead (see `plantPoint`), with two full seconds of telegraph — the claim is
+ * "that patch of your line is spoken for; be past it or around it in 2 s". A
+ * surfer holding any real speed clears it on the straight; the players it
+ * catches are the ones who dawdle into the claimed ground, and the
+ * still-player fallback below keeps the old "keep moving" rule alive.
  */
 export const BLAST_RADIUS = 7;
-export const BLAST_FUSE = 1;
+export const BLAST_FUSE = 2;
 
 /**
- * How far ahead of the player, in seconds of their current velocity, the centre
- * is placed.
+ * How far ahead of the player, along their travel direction, the centre lands.
  *
- * Small but not zero. At zero, a blast is a pure "you are standing still"
- * check; a modest lead pushes the escape threshold up to
- * `RADIUS / (FUSE - LEAD)` — around 10 u/s — so it also catches the genuinely
- * slow recovery, which is the state a player is most often in when they are
- * about to die anyway. A lead near the fuse would instead land the blast on top
- * of wherever a straight line is going, which every surfer is on all the time,
- * and the attack would become undodgeable-by-default rather than dodgeable.
+ * A fixed distance, not a velocity lead — the old lead scaled with speed and
+ * capped in exactly the band where it sat dead on the line. 15 puts the
+ * sphere's near edge (15 − radius 7 = 8u) clearly off the player at plant
+ * time: never directly on you, never so far it reads as someone else's
+ * problem.
  */
-export const BLAST_LEAD_SECONDS = 0.3;
-/** Cap on that lead, so a 40 u/s player doesn't get blasts planted in empty sky ahead of them. */
-const MAX_LEAD_DISTANCE = 10;
+export const BLAST_PLANT_AHEAD = 15;
+/**
+ * Below this speed there is no meaningful "ahead", so the blast plants on the
+ * player instead. At a 2 s fuse even walk speed (7) clears the 7u radius with
+ * room to spare — the fallback is not a kill, it is the eviction notice that
+ * keeps the seeder the enemy that punishes *not* surfing.
+ */
+export const BLAST_MIN_LEAD_SPEED = 5;
 
 /** Bright flash on detonation, then a quick fade. Cosmetic only — damage is resolved on one tick. */
 const AFTERGLOW = 0.28;
@@ -41,6 +40,15 @@ const AFTERGLOW = 0.28;
 const SHELL_COLOR = 0xffb347;
 const FILL_COLOR = 0xff7a3c;
 const DETONATION_COLOR = 0xfff0b0;
+/**
+ * What the fill heats toward as the fuse runs down. The 2 s telegraph is long
+ * enough that "how full is the sphere" alone under-reads at a glance, so the
+ * last stretch also *changes colour* — orange cooking to near-white — which is
+ * the channel that survives peripheral vision at 35 u/s.
+ */
+const FILL_HOT = new Color(0xffe08a);
+const FILL_BASE = new Color(FILL_COLOR);
+const FILL_SCRATCH = new Color();
 
 const SHELL_OPACITY = 0.5;
 const FILL_OPACITY = 0.16;
@@ -138,14 +146,20 @@ export class Blast {
 
     if (!this.detonated) {
       this.fuse -= dt;
-      this.pulsePhase += dt * 9;
 
       const filled = Math.min(1, 1 - this.fuse / BLAST_FUSE);
+      // The pulse quickens AND widens as the fuse runs down, and the fill
+      // cooks from orange toward white — three redundant channels (size,
+      // rhythm, colour) so "it is about to land" is legible from any one of
+      // them, at any angle, from inside or outside the volume.
+      this.pulsePhase += dt * (7 + 8 * filled);
       this.fill.scale.setScalar(Math.max(0.001, filled * this.radius));
-      // The shell breathes harder as the fuse runs down, so the last third
-      // reads as urgent from peripheral vision alone.
-      this.shell.scale.setScalar(this.radius * (1 + Math.sin(this.pulsePhase) * 0.02 * filled));
-      this.fillMaterial.opacity = FILL_OPACITY + filled * 0.14;
+      this.shell.scale.setScalar(
+        this.radius * (1 + Math.sin(this.pulsePhase) * (0.015 + 0.045 * filled * filled)),
+      );
+      this.fillMaterial.opacity = FILL_OPACITY + filled * 0.18;
+      this.fillMaterial.color.copy(FILL_SCRATCH.copy(FILL_BASE).lerp(FILL_HOT, filled * filled));
+      this.shellMaterial.opacity = SHELL_OPACITY + filled * 0.25;
 
       if (this.fuse > 0) return;
 
@@ -173,13 +187,17 @@ export class Blast {
   }
 
   /**
-   * Where a blast aimed at a moving player belongs. Exported as a helper rather
-   * than done at the call site so the lead rule lives next to the constants
-   * that justify it.
+   * Where a blast aimed at a moving player belongs: a fixed medium distance
+   * ahead along their travel direction — claimed ground, not an intercept.
+   * Exported as a helper rather than done at the call site so the rule lives
+   * next to the constants that justify it. Falls back to the player's own
+   * position when they are too slow to have a meaningful "ahead".
    */
   static plantPoint(playerPosition: Vector3, playerVelocity: Vector3): Vector3 {
-    const lead = playerVelocity.clone().multiplyScalar(BLAST_LEAD_SECONDS);
-    if (lead.length() > MAX_LEAD_DISTANCE) lead.setLength(MAX_LEAD_DISTANCE);
-    return playerPosition.clone().add(lead);
+    const speed = playerVelocity.length();
+    if (speed < BLAST_MIN_LEAD_SPEED) return playerPosition.clone();
+    return playerPosition
+      .clone()
+      .addScaledVector(playerVelocity, BLAST_PLANT_AHEAD / speed);
   }
 }
