@@ -172,8 +172,17 @@ never up front), `HTMLAudioElement` with `loop = true` — no Web Audio anywhere
 in the project, and none needed for a stereo bed. Adding a track is one entry in
 `MUSIC_TRACKS` plus the file.
 
-- Menu and editor: the fixed `ultra-speed` track. Every run: a random one that
-  is **not** the track that just played, drawn in `pickTrack`.
+- Menu and editor: the fixed `ultra-speed` track, looping. A run is a **shuffled
+  playlist** instead — `pickTrack` deals off a Fisher-Yates bag, so all nine
+  play before any repeats, and the bag's refill swaps position 0 if it would
+  repeat the track that just ended.
+- **`loop` is set per playback, not per element** (`playTrack`), because the
+  menu bed is in the shuffle bag too: the menu loops, a run's track has to be
+  allowed to end so the next can be dealt.
+- The hand-over fires ~2 s *before* the end so the two overlap, driven by
+  `timeupdate` with `ended` as the backstop — a backgrounded tab throttles
+  timers and an unknown duration reports `NaN`, so both paths are needed.
+  `advancing` stops them dealing twice.
 - 2 s fade in, 1 s fade out, crossfaded when one track replaces another. Fades
   are per element and ramp on `requestAnimationFrame`, so they keep moving while
   the sim is paused behind "click to start".
