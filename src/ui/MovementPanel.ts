@@ -7,7 +7,8 @@ import {
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
 
 /**
- * Live tuning panel for the movement constants, on `O`.
+ * Live tuning for the CS convars, shown under **Advanced Settings** on the
+ * settings screen.
  *
  * It exists because the movement is being judged by feel, by a person, in the
  * deployed build — and the round trip "it feels wrong" -> guess a number ->
@@ -15,14 +16,13 @@ import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
  * With this the reviewer can find the number themselves and report it, which
  * turns a vague note into a change request.
  *
- * Two constraints shaped it, both already paid for elsewhere in this project:
- *
- * - **Pointer lock hides the cursor and swallows clicks**, so the panel releases
- *   the lock while it is open and takes it back on close. Sliders are unusable
- *   otherwise.
- * - **The sim is paused while it is open.** Editing gravity mid-flight would
- *   scramble the very run being judged, and a paused world also means the
- *   numbers can be read without dying.
+ * It is a *content builder*, not a screen: it owns `element` and nothing else —
+ * no positioning, no visibility, no pointer-lock handling. All of that belongs
+ * to whatever hosts it, which is `SettingsPanel`. It used to be a floating
+ * panel of its own on `O`, and having two independent screens that both
+ * released the pointer lock and both paused the sim was two of everything to
+ * keep in agreement. `O` still works — it now opens Settings with this section
+ * already expanded.
  *
  * Values set here are *preferences* (`setMovementPreference`): they survive a
  * run reset, which reverts the config so a level-up buff cannot compound across
@@ -130,27 +130,29 @@ const FIELDS: Field[] = [
 ];
 
 export class MovementPanel {
-  private readonly root: HTMLDivElement;
+  /** The content, for a host to place. Never parented or shown by this class. */
+  readonly element: HTMLDivElement;
+
   private readonly rows: (() => void)[] = [];
-  private open = false;
 
   constructor() {
-    this.root = document.createElement('div');
-    this.root.id = 'movement-panel';
-    this.root.className = 'hidden';
+    this.element = document.createElement('div');
+    this.element.id = 'movement-panel';
 
     const heading = document.createElement('h2');
     heading.textContent = MOVEMENT_VERSION_LABEL;
-    this.root.appendChild(heading);
+    this.element.appendChild(heading);
 
     const note = document.createElement('p');
     note.className = 'movement-panel-note';
     note.textContent =
-      'Paused while open. O to close. Settings survive a restart. FOV and sensitivity are on ESC.';
-    this.root.appendChild(note);
+      'Every slider is a CS convar, with the Hammer-unit value alongside. These survive a restart.';
+    this.element.appendChild(note);
 
     for (const field of FIELDS) {
-      this.root.appendChild(field.kind === 'range' ? this.buildRange(field) : this.buildToggle(field));
+      this.element.appendChild(
+        field.kind === 'range' ? this.buildRange(field) : this.buildToggle(field),
+      );
     }
 
     const reset = document.createElement('button');
@@ -161,9 +163,7 @@ export class MovementPanel {
       clearMovementPreferences();
       this.refresh();
     });
-    this.root.appendChild(reset);
-
-    document.body.appendChild(this.root);
+    this.element.appendChild(reset);
   }
 
   private buildRange(field: Extract<Field, { kind: 'range' }>): HTMLElement {
@@ -224,24 +224,8 @@ export class MovementPanel {
     return row;
   }
 
-  private refresh(): void {
+  /** Re-reads every control from the live config. The host calls this on open. */
+  refresh(): void {
     for (const row of this.rows) row();
-  }
-
-  get isOpen(): boolean {
-    return this.open;
-  }
-
-  toggle(): boolean {
-    this.open = !this.open;
-    this.root.classList.toggle('hidden', !this.open);
-    if (this.open) this.refresh();
-    return this.open;
-  }
-
-  close(): void {
-    if (!this.open) return;
-    this.open = false;
-    this.root.classList.add('hidden');
   }
 }

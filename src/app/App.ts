@@ -21,8 +21,9 @@ import { createStarterMap, FreeMap } from '../editor/MapData';
 import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/MapStorage';
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
-import { GameMode, MainMenu } from '../ui/MainMenu';
-import { MovementPanel } from '../ui/MovementPanel';
+import { MainMenu } from '../ui/MainMenu';
+import { PauseMenu } from '../ui/PauseMenu';
+import { renderWorldThumbnail } from '../ui/MapThumbnails';
 import { SettingsPanel } from '../ui/SettingsPanel';
 import { getSettings, loadSettings, onSettingsChanged, setMusicMuted } from '../game/Settings';
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
@@ -49,6 +50,13 @@ const MENU_LOOK_AT = new Vector3(0, -6, 0);
 type AppMode = 'menu' | 'editor' | 'play';
 
 /**
+ * Which course a run is on, and therefore where `M` goes back to. Named here
+ * rather than imported from the menu now that the menu has three items and no
+ * longer describes a "mode" at all.
+ */
+type PlayMode = 'standard' | 'free';
+
+/**
  * Composition root above `Game`: owns the renderer, the scene, and the one
  * camera everything borrows, and switches between the main menu, the free-mode
  * editor, and a run.
@@ -68,20 +76,16 @@ export class App {
   private readonly loop = new FixedStepLoop();
   private readonly mainMenu = new MainMenu();
   /**
-   * Live movement tuning, on `O`. Opening it drops pointer lock, which the
-   * existing `pointerlockchange` handler already turns into a pause — so the
-   * panel never has to reach into `Game` to stop the sim.
-   */
-  private readonly movementPanel = new MovementPanel();
-  /**
    * Background music. Owned here rather than by `Game` because it outlives a
    * run: the menu and the editor have a bed too, and the manager is what knows
    * which track played last so the next run can avoid repeating it.
    */
   private readonly music = new MusicManager();
   /**
-   * Field of view, sensitivity, and music volume, on `Escape` — and the run's
-   * pause screen, see `SettingsPanel` for why those have to be the same thing.
+   * Field of view, sensitivity, and music volume, on `Escape`, and the run's
+   * pause screen — see `SettingsPanel` for why those have to be the same thing.
+   * It also hosts the movement tuning bench under Advanced Settings, which is
+   * why there is no separate movement panel here any more.
    */
   private readonly settingsPanel = new SettingsPanel(() => this.closeSettings(), {
     isMuted: () => this.music.isMuted,
@@ -89,6 +93,18 @@ export class App {
     // of the live state, one place it is written down.
     toggleMute: () => setMusicMuted(this.music.toggleMute()),
   });
+  /** Mid-run `Escape`: Continue / Restart / Quit. */
+  private readonly pauseMenu = new PauseMenu();
+  /**
+   * Whether the settings screen was opened *from* the pause menu, and so should
+   * hand back to it rather than straight to the game.
+   *
+   * Without this, `O` pressed mid-flight to nudge a convar would dump the
+   * player back into the pause menu they never opened, and `Settings` reached
+   * from the pause menu would silently resume the run on close. The two entry
+   * points want different exits.
+   */
+  private settingsFromPause = false;
   /**
    * Whether the player has taken pointer lock at least once this run.
    *
@@ -114,7 +130,7 @@ export class App {
 
   private mode: AppMode = 'menu';
   /** Which mode a run belongs to — decides whether `M` goes to the menu or back to the editor. */
-  private playMode: GameMode = 'standard';
+  private playMode: PlayMode = 'standard';
 
   private game: Game | null = null;
   /** The world currently in the scene. Owned here, disposed on every swap. */
@@ -165,7 +181,22 @@ export class App {
     this.camera.fov = getSettings().fov;
     this.camera.updateProjectionMatrix();
     this.installListeners();
-    this.loadStandardWorld();
+    const standard = this.loadStandardWorld();
+    // Photographed here and nowhere else. This is the only moment the standard
+    // course is guaranteed to be live: `setWorld` disposes whatever it replaces,
+    // so a reference kept for a lazy render would be pointing at freed geometry
+    // the first time the player visited the editor. One small render at boot
+    // buys a tile that is always correct. `this.world` is what
+    // `loadStandardWorld` just installed.
+    const standardShot = this.world
+      ? renderWorldThumbnail(this.world, {
+          center: standard.islandCenter.clone().setY(standard.trackY),
+          // The ring plus a margin. Fitting the whole course instead would frame
+          // the approach, which starts 600 units out and shrinks the ring to a dot.
+          radius: standard.trackRadius * 1.5,
+        })
+      : null;
+    this.mainMenu.setStandardThumbnailSource(() => standardShot);
     void this.bootFromUrl();
   }
 
@@ -243,6 +274,8 @@ export class App {
   private openMenu(): void {
     this.mode = 'menu';
     this.menuElapsed = 0;
+    this.pauseMenu.hide();
+    this.settingsPanel.hide();
     this.input.releasePointerLock();
     this.editorUi?.hide();
     this.editor?.exit();
@@ -253,14 +286,28 @@ export class App {
     // Crossfades whatever the run was playing out underneath it. At boot this
     // is the one start that can be refused by autoplay policy — the manager
     // re-arms on the first click or keypress, which is the same gesture that
-    // picks a mode, so the menu is silent for at most a beat.
+    // picks a menu entry, so the menu is silent for at most a beat.
     this.music.playMenuMusic();
-    this.mainMenu.show((mode) => this.enterMode(mode));
+    this.mainMenu.show({
+      onStandard: () => this.startStandardRun(),
+      onEditor: () => this.openEditor(),
+      onSettings: () => this.settingsPanel.show('back'),
+      onFreeMap: (map) => this.startMapRun(map),
+    });
   }
 
-  private enterMode(mode: GameMode): void {
-    if (mode === 'standard') this.startStandardRun();
-    else this.openEditor();
+  /**
+   * Plays a saved map straight from the menu, without a trip through the
+   * editor. The editor is still handed the map, because leaving a free run with
+   * `M` goes *back to the editor* — arriving there on a different map than the
+   * one just played would be baffling.
+   */
+  private startMapRun(map: FreeMap): void {
+    rememberLastMap(map.name);
+    this.editor?.setMap(map);
+    const course = this.loadFreeWorld(map);
+    this.playMode = 'free';
+    this.beginRun(course);
   }
 
   // ------------------------------------------------------------ mode: editor
@@ -365,11 +412,40 @@ export class App {
     this.game.setPaused(true);
     this.hasStartedRun = false;
     this.settingsPanel.hide();
+    this.pauseMenu.hide();
     this.startOverlay.classList.remove('hidden');
+  }
+
+  private openPauseMenu(): void {
+    this.pauseMenu.show({
+      onContinue: () => this.input.requestPointerLock(),
+      onRestart: () => {
+        this.game?.restartRun();
+        this.input.requestPointerLock();
+      },
+      // Always the front menu, even for a free-mode run. `M` is the one that
+      // goes back to the editor, because that is the useful exit while you are
+      // iterating on a map; Quit is the one that leaves.
+      onQuit: () => this.openMenu(),
+      onSettings: () => {
+        // Plain — no Advanced. `O` is the shortcut that expands it, and a menu
+        // item that dumped a player into a wall of convars would be the wrong
+        // first thing to show someone who only wants their FOV back.
+        this.settingsFromPause = true;
+        this.settingsPanel.show('back');
+      },
+    });
   }
 
   private closeSettings(): void {
     this.settingsPanel.hide();
+    // Back where it came from: the pause menu if that is where it was opened,
+    // otherwise straight into the run.
+    if (this.settingsFromPause && this.mode === 'play') {
+      this.settingsFromPause = false;
+      this.openPauseMenu();
+      return;
+    }
     if (this.mode === 'play') this.input.requestPointerLock();
   }
 
@@ -378,6 +454,7 @@ export class App {
     if (this.mode !== 'play') return;
     this.hasStartedRun = false;
     this.settingsPanel.hide();
+    this.pauseMenu.hide();
     this.game?.setPaused(true);
     this.input.releasePointerLock();
     if (this.playMode === 'free') this.openEditor();
@@ -399,8 +476,8 @@ export class App {
     // the panel is the way back in, so it has to come back.
     document.addEventListener('pointerlockerror', () => {
       if (this.mode !== 'play' || this.input.isLocked()) return;
-      if (this.game?.isMenuOpen || this.movementPanel.isOpen) return;
-      this.settingsPanel.show();
+      if (this.game?.isMenuOpen || this.settingsPanel.isOpen) return;
+      this.openPauseMenu();
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -409,24 +486,18 @@ export class App {
       if (locked) {
         this.hasStartedRun = true;
         this.settingsPanel.hide();
-      } else if (
-        this.hasStartedRun &&
-        !this.game?.isMenuOpen &&
-        !this.movementPanel.isOpen
-      ) {
+        this.pauseMenu.hide();
+      } else if (this.hasStartedRun && !this.game?.isMenuOpen && !this.settingsPanel.isOpen) {
         // This is the Escape path. Under pointer lock the browser consumes the
         // Escape keydown and only releases the lock, so a key handler can never
         // see it — but this event always fires, and the pause it already caused
-        // now opens a screen worth looking at.
-        this.settingsPanel.show();
+        // now has a menu on it.
+        this.openPauseMenu();
       }
       // Never surface "click to start" on top of another panel.
       this.startOverlay.classList.toggle(
         'hidden',
-        locked ||
-          !!this.game?.isMenuOpen ||
-          this.movementPanel.isOpen ||
-          this.settingsPanel.isOpen,
+        locked || !!this.game?.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen,
       );
       this.game?.setPaused(!locked);
     });
@@ -440,19 +511,34 @@ export class App {
       // uses to drop pointer lock, and the keydown for it is not reliably
       // delivered to the page, so binding it here would work on some browsers
       // and silently do nothing on others.
-      if (event.code === 'KeyO') {
+      // `O` is the movement bench's old shortcut, kept because the tuning loop
+      // runs on it. It now opens the settings screen with Advanced already
+      // expanded rather than a second floating panel.
+      if (event.code === 'KeyO' && this.mode !== 'editor') {
         event.preventDefault();
-        const opened = this.movementPanel.toggle();
-        if (opened) this.input.releasePointerLock();
-        else if (this.mode === 'play') this.input.requestPointerLock();
-        this.startOverlay.classList.toggle('hidden', opened || this.input.isLocked());
+        this.settingsFromPause = this.pauseMenu.isOpen;
+        this.pauseMenu.hide();
+        // Resumes the run only when `O` was pressed while playing; from the
+        // pause menu it goes back there, and the button has to say so.
+        this.settingsPanel.show(
+          this.mode === 'play' && !this.settingsFromPause ? 'resume' : 'back',
+          true,
+        );
+        if (this.mode === 'play') this.input.releasePointerLock();
+        this.startOverlay.classList.add('hidden');
         return;
       }
-      if (event.code === 'Escape' && this.mode === 'play') {
+      if (event.code === 'Escape' && this.settingsPanel.isOpen) {
         event.preventDefault();
-        // Only ever a *close*: opening happens on the pointer-lock loss that
-        // this same keypress caused, one handler up.
-        if (this.settingsPanel.isOpen) this.closeSettings();
+        // Only ever a *close*. In a run, the pause menu is opened by the
+        // pointer-lock loss that this same keypress caused, one handler up; in
+        // the front menu the Settings item opens it.
+        this.closeSettings();
+        return;
+      }
+      if (event.code === 'Escape' && this.pauseMenu.isOpen) {
+        event.preventDefault();
+        this.pauseMenu.continue();
         return;
       }
       if (event.code === 'KeyM' && this.mode === 'play') {
@@ -502,7 +588,7 @@ export class App {
       // hidden and every click goes to the canvas, so the restart button would
       // be unreachable and the run would dead-end.
       if (
-        (this.game.isMenuOpen || this.movementPanel.isOpen || this.settingsPanel.isOpen) &&
+        (this.game.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen) &&
         this.input.isLocked()
       ) {
         this.input.releasePointerLock();

@@ -84,7 +84,8 @@ movement.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
 - **Under pointer lock the browser owns `Escape`** — it releases the lock and never delivers
   the keydown, so a key handler cannot open anything with it. `pointerlockchange` always
-  fires, so that is what opens the settings/pause screen; `Escape` only ever *closes* it.
+  fires, so that is what opens the pause menu; `Escape` only ever *closes* a screen (and
+  once the lock is gone the page gets the key normally, which is why closing works).
   Chrome also refuses a re-lock for ~1 s afterwards, so `pointerlockerror` has to put the
   panel back or the player is left on a paused world with no prompt.
 - Playwright's synthetic `Escape` does **not** trigger the native pointer-lock exit. Test
@@ -133,6 +134,11 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 — **the editor registers no colliders** (they cannot be retired, and a drag rebuilds
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
+
+The front menu's map tiles render **real geometry** for their aerial thumbnails
+(`ui/MapThumbnails.ts`), which means they call `buildFreeWorld(map, **false**)` —
+the colliders flag is not optional, or every map in storage joins the collision
+world.
 
 Maps are shared as links, not through a server (`src/editor/MapCode.ts`): JSON → deflate →
 base64url behind a format tag, carried in the URL **fragment** so it never reaches a host.
