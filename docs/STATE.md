@@ -120,9 +120,16 @@ boss name; `--font-body` (IBM Plex Mono Regular) on everything else. Both live
 in `public/fonts/`. **`font-display: block`, not `swap`** — they are the first
 thing on screen.
 
-The logo turns `rotateY` 0→360 over 11 s, perspective on the parent, backface
-left visible so the mirrored reverse shows through the second half (a flat
+The logo turns `rotateY` 0→360 over 11 s, perspective on the parent (a flat
 `rotate` would just be a pinwheel). Stops under `prefers-reduced-motion`.
+
+**The back half is mirrored back to forwards with `scaleX(-1)` folded into the
+keyframes**, so the wordmark reads correctly from both sides. The swap is at 90°
+and 270°, *not* 180° — those are the instants the element is edge-on and renders
+zero-width, so it happens with nothing on screen to see it; at 180° the logo is
+fully face-on and the flip would be a visible snap. The 0.01% keyframe pairs are
+what make the swap discrete: interpolated, `scaleX` 1→−1 squashes the logo flat
+across the whole segment instead of switching instantly.
 
 **An absolute `src` in `index.html` does not get the base path.** Vite rewrites
 `url()` inside CSS but leaves HTML `src` alone, so the logo's path is built from

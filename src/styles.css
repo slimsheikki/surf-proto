@@ -373,9 +373,9 @@ h2,
  * on the transformed element itself has no depth reference to work against, so
  * the turn would flatten into a horizontal squash.
  *
- * `backface-visibility` is deliberately left visible: a real flat sign shows
- * its mirrored back through the second half of the turn, and hiding it would
- * blank the logo for half of every rotation.
+ * `backface-visibility` is deliberately left visible — hiding it would blank
+ * the logo for half of every rotation. What stops the back half reading
+ * backwards is the `scaleX(-1)` folded into the keyframes; see below.
  */
 .menu-logo {
   perspective: 1500px;
@@ -410,12 +410,44 @@ h2,
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.55));
 }
 
+/*
+ * One continuous 360° turn, with the image mirrored across the half of it that
+ * faces away — so the wordmark reads forwards from both sides.
+ *
+ * `rotateY(180deg)` maps x to -x, which is why the back of a flat image reads
+ * backwards. Composing `scaleX(-1)` with it maps x back to x, and the reverse
+ * side reads correctly.
+ *
+ * The flip is at **90° and 270°, not at 180°**, and that is the whole trick:
+ * those are the two instants the element is edge-on to the camera and renders
+ * zero-width, so the mirror is swapped while nothing is on screen to see it.
+ * Flipping at 180° — where the logo is fully face-on — would be a visible snap.
+ *
+ * The 0.01% pairs are the discrete swap: a keyframe interpolating scaleX from 1
+ * to -1 would squash the logo flat and back over the whole segment instead of
+ * switching instantly. 0.01% of 11 s is about a millisecond.
+ *
+ * Angular speed stays uniform across the segments — 90° per 25%, then 180° per
+ * 50%, then 90° per 25% — so the turn does not surge at the seams.
+ */
 @keyframes megaflow-turn {
-  from {
-    transform: rotateY(0deg);
+  0% {
+    transform: rotateY(0deg) scaleX(1);
   }
-  to {
-    transform: rotateY(360deg);
+  25% {
+    transform: rotateY(90deg) scaleX(1);
+  }
+  25.01% {
+    transform: rotateY(90deg) scaleX(-1);
+  }
+  75% {
+    transform: rotateY(270deg) scaleX(-1);
+  }
+  75.01% {
+    transform: rotateY(270deg) scaleX(1);
+  }
+  100% {
+    transform: rotateY(360deg) scaleX(1);
   }
 }
 
