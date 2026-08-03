@@ -338,6 +338,23 @@ own. `O` still works and opens Settings with that section already expanded.
 
 None blocking. The approach entry is fixed — see below.
 
+**Fixed: Escape out of the pause menu used to bring it straight back.** Chrome refuses a
+re-lock for about a second after the *user* escaped out of one, and Escape-to-pause then
+Escape-to-resume is always inside that window — so the resume's single attempt failed and the
+`pointerlockerror` handler, which read any refusal as "the player is stranded, put the panel
+back", reopened the menu it had just closed. Every way back into a run now goes through
+`App.resumeRun`: it keeps asking for the lock for `RELOCK_WINDOW_MS` (3 s, several times the
+observed cooldown) at 120 ms intervals, and only falls back to a screen once that is spent.
+A retry re-checks what is on screen before firing, so a resume left over from a dismissed
+pause menu cannot snatch the lock out from under the settings panel opened instead; Escape
+during the wait cancels it and gives the menu back.
+
+Note for testing this: a *scripted* `document.exitPointerLock()` does not arm the cooldown,
+so the bug does not reproduce headlessly on its own. Stub `requestPointerLock` to fire
+`pointerlockerror` for ~1.25 s after the exit and it does — verified failing before the fix
+(menu back up, still unlocked at +1.8 s) and passing after (menu stays closed through 3
+refusals, lock taken as soon as the stub relents).
+
 ## Third-person body (new)
 
 `V` used to switch to a camera looking at nothing — there was no player model. There is one
