@@ -1,6 +1,6 @@
 /**
- * Background music: one looping track under the menu, a different one picked at
- * random for every run.
+ * Background music: one looping track under the menu, and a shuffled playlist
+ * across a run — each track crossfading into the next as it ends.
  *
  * `HTMLAudioElement`, not Web Audio. There is no audio graph in this project —
  * nothing pans, ducks, or reacts to the world — and a plain media element gets
@@ -97,6 +97,14 @@ const FADE_IN_SECONDS = 2;
 const FADE_OUT_SECONDS = 1;
 
 /**
+ * The seam between two gameplay tracks: the outgoing one ramps down over this
+ * while the incoming one ramps up, starting this long before the outgoing track
+ * runs out. Shorter than the 2 s opening fade on purpose — that one introduces
+ * the music, this one just gets out of the way.
+ */
+const CROSSFADE_SECONDS = 2;
+
+/**
  * What counts as the interaction that lifts the autoplay block. `keydown` is in
  * here because a player who starts the menu with `1` instead of the mouse has
  * still interacted, and `pointerdown` rather than `click` so the pointer-lock
@@ -135,36 +143,68 @@ export class MusicManager {
   private lastFrameMs = 0;
 
   private currentId: string | null = null;
-  /** What `playGameplayMusic` refuses to pick again — set by *any* start, menu included. */
+  /** What the shuffle refuses to deal next — set by *any* start, menu included. */
   private lastTrackId: string | null = null;
+
+  /**
+   * True while a run owns the audio. It is what decides whether a track loops
+   * (menu, editor) or hands over to the next one (gameplay), and it gates the
+   * end-of-track watcher so a menu bed never advances.
+   */
+  private playlist = false;
+
+  /**
+   * The shuffle bag: every track, in a random order, dealt one at a time and
+   * refilled when empty.
+   *
+   * A bag rather than an independent random draw each time, because "shuffle"
+   * means what it means on a music player — you hear all nine before you hear
+   * any of them twice. Drawing at random with only a no-immediate-repeat rule
+   * would happily play four songs and leave five untouched for an hour.
+   */
+  private bag: string[] = [];
+
+  /** Guards the hand-over so a burst of `timeupdate`s cannot deal twice. */
+  private advancing = false;
 
   private master = DEFAULT_MUSIC_VOLUME;
   private muted = false;
 
   /** The element an autoplay block is holding, waiting on the next interaction. */
   private blocked: HTMLAudioElement | null = null;
+  /** The fade the blocked start was going to use, so the retry matches it. */
+  private blockedFade = FADE_IN_SECONDS;
   private unlockArmed = false;
 
   // ------------------------------------------------------------------ public
 
   /**
-   * Starts a run's music: a random track that is not the one that just played.
+   * Starts a run's music and keeps it going: the shuffle bag deals a track, and
+   * when that track nears its end the next one is dealt and crossfaded in. A
+   * run outlasts any single song, so gameplay is a playlist rather than a loop.
    *
    * Called once per run — including restarts off the game-over screen, which is
    * why `Game` gets a run-start hook rather than `App` calling this only on the
    * way in from the menu.
    */
   playGameplayMusic(): void {
+    this.playlist = true;
     this.playTrack(this.pickTrack().id);
   }
 
   /** Fades the run's music out over 1 s and parks it at the top of the track. */
   stopGameplayMusic(): void {
+    this.playlist = false;
     this.stop();
   }
 
-  /** The fixed menu bed. Also what plays in the editor — a build session is not silence. */
+  /**
+   * The fixed menu bed. Also what plays in the editor — a build session is not
+   * silence. This one *does* loop: it is a single chosen track holding one
+   * screen, where the run's music is a playlist that has to keep moving.
+   */
   playMenuMusic(): void {
+    this.playlist = false;
     this.playTrack(MENU_TRACK_ID);
   }
 
@@ -204,23 +244,33 @@ export class MusicManager {
    * Everything that starts audio funnels through here, so the crossfade and the
    * autoplay retry exist in exactly one place.
    */
-  private playTrack(id: string): void {
+  private playTrack(
+    id: string,
+    fadeIn = FADE_IN_SECONDS,
+    fadeOut = FADE_OUT_SECONDS,
+  ): void {
     const track = MUSIC_TRACKS.find((candidate) => candidate.id === id);
     if (!track) return;
     this.lastTrackId = id;
 
     const el = this.element(track);
+    // A menu bed holds one screen and should loop; a run's track is one entry in
+    // a playlist and has to be allowed to end so the next can be dealt. Set per
+    // playback rather than per element, because the same file is both — the menu
+    // track is in the shuffle bag too.
+    el.loop = !this.playlist;
+
     if (this.currentId === id) {
       // Already the current track — this is a re-entry (menu → editor → menu),
       // not a change. Ride the existing playhead back up rather than restarting
       // the song from the top under the player.
-      this.start(el);
+      this.start(el, fadeIn);
       return;
     }
 
     // Everything else goes down as this one comes up.
     for (const other of this.elements.values()) {
-      if (other !== el) this.rampTo(other, 0, FADE_OUT_SECONDS, true);
+      if (other !== el) this.rampTo(other, 0, fadeOut, true);
     }
 
     this.currentId = id;
@@ -228,7 +278,7 @@ export class MusicManager {
     // From the top: a run's music should open on the intro, not wherever the
     // last visit to this track left the playhead.
     el.currentTime = 0;
-    this.start(el);
+    this.start(el, fadeIn);
   }
 
   private stop(): void {
@@ -237,13 +287,52 @@ export class MusicManager {
     for (const el of this.elements.values()) this.rampTo(el, 0, FADE_OUT_SECONDS, true);
   }
 
-  /** Uniform over everything except the track that just played. */
+  /** Deals the next track off the shuffle bag, refilling it when it runs dry. */
   private pickTrack(): MusicTrack {
-    const pool = MUSIC_TRACKS.filter((track) => track.id !== this.lastTrackId);
-    // The filter can only empty the pool if there is a single track installed,
-    // in which case repeating it is the only option there is.
-    const from = pool.length > 0 ? pool : MUSIC_TRACKS;
-    return from[Math.floor(Math.random() * from.length)];
+    if (this.bag.length === 0) this.refillBag();
+    const id = this.bag.shift();
+    return MUSIC_TRACKS.find((track) => track.id === id) ?? MUSIC_TRACKS[0];
+  }
+
+  /** Fisher-Yates over every track. */
+  private refillBag(): void {
+    const ids = MUSIC_TRACKS.map((track) => track.id);
+    for (let i = ids.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    // The one seam a bag does not fix by itself: the last track of the old bag
+    // and the first of the new one can be the same, which is the one repeat a
+    // listener actually notices. Push it deeper rather than reshuffling, which
+    // could land on it again.
+    if (ids.length > 1 && ids[0] === this.lastTrackId) {
+      const swap = 1 + Math.floor(Math.random() * (ids.length - 1));
+      [ids[0], ids[swap]] = [ids[swap], ids[0]];
+    }
+    this.bag = ids;
+  }
+
+  /**
+   * Hands over to the next track shortly *before* the current one runs out, so
+   * the two overlap instead of leaving a hole.
+   *
+   * Driven by `timeupdate` (roughly 4 Hz, plenty of resolution for a 2 s lead)
+   * with `ended` as the backstop: a backgrounded tab throttles timers, and a
+   * stream whose duration is not known yet reports `NaN`, so both paths have to
+   * work. `advancing` is what stops the two of them dealing twice.
+   */
+  private maybeAdvance(el: HTMLAudioElement, ended: boolean): void {
+    if (!this.playlist || this.advancing) return;
+    if (el !== this.elements.get(this.currentId ?? '')) return;
+
+    if (!ended) {
+      const remaining = el.duration - el.currentTime;
+      if (!Number.isFinite(remaining) || remaining > CROSSFADE_SECONDS) return;
+    }
+
+    this.advancing = true;
+    this.playTrack(this.pickTrack().id, CROSSFADE_SECONDS, CROSSFADE_SECONDS);
+    this.advancing = false;
   }
 
   private element(track: MusicTrack): HTMLAudioElement {
@@ -254,14 +343,19 @@ export class MusicManager {
     // Hard-coding a leading slash here is what would 404 every track in
     // production while working perfectly on localhost.
     const el = new Audio(`${import.meta.env.BASE_URL}${MUSIC_DIR}${track.file}`);
-    // The element's own loop, not a timeupdate seek: the browser restarts the
-    // decode at the buffer boundary, which is as close to gapless as an mp3
-    // gets (the format's encoder padding is the remaining seam, and it is well
-    // under a frame at these bitrates).
+    // Looping is decided per playback in `playTrack` — the menu loops, a run's
+    // playlist has to be allowed to end. When it does loop it is the element's
+    // own `loop`, not a timeupdate seek: the browser restarts the decode at the
+    // buffer boundary, which is as close to gapless as an mp3 gets.
     el.loop = true;
     el.preload = 'auto';
     el.volume = 0;
     el.muted = this.muted;
+    // Registered once per element, for the lifetime of the manager. Both paths
+    // are guarded in `maybeAdvance`, so an element that is not the current one —
+    // or a menu bed, which never advances — costs a compare and returns.
+    el.addEventListener('timeupdate', () => this.maybeAdvance(el, false));
+    el.addEventListener('ended', () => this.maybeAdvance(el, true));
     this.elements.set(track.id, el);
     this.gains.set(el, 0);
     return el;
@@ -277,21 +371,21 @@ export class MusicManager {
    * begins, so a blocked or still-buffering track no longer burns its two
    * seconds of ramp in silence and then snap on at full volume.
    */
-  private start(el: HTMLAudioElement): void {
+  private start(el: HTMLAudioElement, seconds: number): void {
     const attempt = el.play() as Promise<void> | undefined;
     // Older Safari returns undefined from play() rather than a promise.
     if (!attempt) {
-      this.fadeIn(el);
+      this.fadeIn(el, seconds);
       return;
     }
     attempt.then(
-      () => this.fadeIn(el),
+      () => this.fadeIn(el, seconds),
       () => {
         // Either autoplay policy, or `halt()` pausing this element out from
         // under an in-flight play() — the guard in `armUnlock` tells them
         // apart, since only the first can still be the wanted track.
         this.setGain(el, 0);
-        this.armUnlock(el);
+        this.armUnlock(el, seconds);
       },
     );
   }
@@ -301,14 +395,15 @@ export class MusicManager {
    * plays, the player may already have moved on, and fading in a track that has
    * since been swapped out would leave two songs going.
    */
-  private fadeIn(el: HTMLAudioElement): void {
+  private fadeIn(el: HTMLAudioElement, seconds: number): void {
     if (el !== this.elements.get(this.currentId ?? '')) return;
-    this.rampTo(el, 1, FADE_IN_SECONDS, false);
+    this.rampTo(el, 1, seconds, false);
   }
 
-  private armUnlock(el: HTMLAudioElement): void {
+  private armUnlock(el: HTMLAudioElement, seconds: number): void {
     if (el !== this.elements.get(this.currentId ?? '')) return;
     this.blocked = el;
+    this.blockedFade = seconds;
     if (this.unlockArmed) return;
     this.unlockArmed = true;
 
@@ -316,13 +411,16 @@ export class MusicManager {
       for (const type of UNLOCK_EVENTS) window.removeEventListener(type, resume);
       this.unlockArmed = false;
       const target = this.blocked;
+      const seconds = this.blockedFade;
       this.blocked = null;
       // Only if it is still the track we want. Between the block and the click
       // the player may already have started a run, and reviving the menu bed
       // underneath the gameplay track would leave two songs playing. `start`
       // rather than `play` — this attempt gets the fade-in the blocked one
       // never got to run, and re-arms if the gesture is refused too.
-      if (target && target === this.elements.get(this.currentId ?? '')) this.start(target);
+      if (target && target === this.elements.get(this.currentId ?? '')) {
+        this.start(target, seconds);
+      }
     };
 
     for (const type of UNLOCK_EVENTS) {
