@@ -67,13 +67,22 @@ never checked against the magnet's. Fixed across `XPOrb.ts` / `EntityManager.ts`
   12–22 shell dropped an orb the player was usually already leaving behind, and it never
   latched at all. Default radius is now **18** (+50%, the user's requested bump), covering
   most of the base envelope; the +6/+10 magnet upgrades still stack on top.
-- **The orb cull was a fixed 40 and the weapon's reach is not.** A base-range kill behind a
-  receding surfer was deleted about half a second after it dropped — and +Range picks push the
-  weapon past 40 entirely, at which point a max-range kill spawned its orb *outside* the cull
-  sphere and it was deleted the tick it appeared. `orbCullDistance(weaponRange)` =
-  `max(70, range + 30)` makes the sphere track what the weapon can actually reach.
-- **Magnetised orbs could be culled mid-chase.** Latched loot is earned and now exempt from
-  the distance cull — which cannot leak, because the lead guarantees it lands.
+- **The orb distance cull is gone entirely — user rule: dropped XP is never deleted.** The
+  cull was the third and fourth loss path (a base-range kill behind a receding surfer was
+  deleted about half a second after it dropped, and +Range picks pushed max-range kills
+  *outside* the fixed 40-unit sphere, so their orbs were deleted the tick they spawned). The
+  first fix made the sphere track the weapon's range; the user then made the stronger call
+  and the cull was removed wholesale. An uncollected orb now hovers exactly where it fell for
+  the rest of the run — collected on a later pass, reconciled by a rewind, wiped only by the
+  run ending. `EntityManager.cullDistantOrbs` and `orbCullDistance` no longer exist, and the
+  absence is asserted by the probe so the cull cannot quietly come back.
+
+**Cost of persistence, on record:** orbs accumulate for the whole run — every uncollected
+kill is +1 mesh (shared geometry/material but its own draw call), +1 distance test per 128 Hz
+tick, and +1 `OrbSample` in every 32 Hz rewind frame. The magnet lead plus the 18 radius means
+most kills still collect, so growth is only the off-line tail. A kill-heavy half-hour run
+stranding thousands of orbs is the case to watch; InstancedMesh batching (already on the
+deferred list for editor pieces) is the known lever if draw calls ever bite.
 
 The "XP magnet at all speeds (100% collection)" line under *Verified good* below was measured
 before the v2 speeds and is superseded by this section.
@@ -95,12 +104,14 @@ user's brief — scalable with speed, never competitive with killing.
   it granted, `restart` resets it, and the HUD shows the live rate as a suffix on the speed
   readout (`34.0 u/s +0.9%/s`) that only appears while it actually pays.
 
-Verified: `.probe-xp-before.ts` fails 4/4 on the pre-fix code (kept for the record);
-`.probe-xp.ts` runs 18 green — pull convergence at 62 and 90 u/s, sub-44 parity (max drift
-0.0e+0 over a full chase), cull floor + range tracking, the magnetised exemption, flow
-build/drain/floor/cap/capture-restore, and the kills-dominate budget through the real
-`LevelSystem`. Browser pass through `__surf`: the live loop at 40 u/s holds flow at 1, pays
-1.2%/s into the bar, shows the readout suffix, and restart clears all of it.
+Verified: `.probe-xp-before.ts` failed 4/4 on the pre-fix code (it predates the cull's
+removal and does not run against the current tree); `.probe-xp.ts` runs green — pull
+convergence at 62 and 90 u/s, sub-44 parity (max drift 0.0e+0 over a full chase), the cull
+API's absence, a stranded orb hovering untouched at 300u through a 550u recede then paying
+out on the return pass, flow build/drain/floor/cap/capture-restore, and the kills-dominate
+budget through the real `LevelSystem`. Browser pass through `__surf`: the live loop at
+40 u/s holds flow at 1, pays 1.2%/s into the bar, shows the readout suffix, and restart
+clears all of it.
 
 ## ReWind — the ultimate (new)
 

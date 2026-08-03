@@ -296,7 +296,8 @@ are ordered for a reason:
 7. Auto-weapon fires at the nearest target; then the knife swing resolves — before the kill
    pass, so a drone finished by the knife still drops XP this tick.
 8. Cull dead enemies (dropping XP orbs), then distant ones (**awarding nothing** — leaving play
-   is not a kill). Orbs magnet toward the player and are collected.
+   is not a kill). Orbs magnet toward the player and are collected. Uncollected orbs are never
+   despawned: dropped XP hovers where it fell until it is picked up or the run ends.
 9. **Player death is resolved first**, so a simultaneous kill is a loss.
 10. Last: flow XP pays out for sustained speed (`FlowXP`), the ultimate meter
     charges, and `Rewind` records the tick. The recorder reads the *settled*
