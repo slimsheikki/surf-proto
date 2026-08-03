@@ -9,6 +9,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { MusicManager } from '../audio/MusicManager';
 import { FixedStepLoop } from '../engine/Clock';
 import { disposeObject } from '../engine/Dispose';
 import { InputSystem, isTextEntryTarget } from '../engine/Input';
@@ -23,7 +24,7 @@ import { ViewModel } from '../player/ViewModel';
 import { GameMode, MainMenu } from '../ui/MainMenu';
 import { MovementPanel } from '../ui/MovementPanel';
 import { SettingsPanel } from '../ui/SettingsPanel';
-import { getSettings, loadSettings, onSettingsChanged } from '../game/Settings';
+import { getSettings, loadSettings, onSettingsChanged, setMusicMuted } from '../game/Settings';
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
 import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
 import { buildSurfCourse } from '../world/SurfCourse';
@@ -73,10 +74,21 @@ export class App {
    */
   private readonly movementPanel = new MovementPanel();
   /**
-   * Field of view and sensitivity, on `Escape`, and the run's pause screen —
-   * see `SettingsPanel` for why those have to be the same thing.
+   * Background music. Owned here rather than by `Game` because it outlives a
+   * run: the menu and the editor have a bed too, and the manager is what knows
+   * which track played last so the next run can avoid repeating it.
    */
-  private readonly settingsPanel = new SettingsPanel(() => this.closeSettings());
+  private readonly music = new MusicManager();
+  /**
+   * Field of view, sensitivity, and music volume, on `Escape` — and the run's
+   * pause screen, see `SettingsPanel` for why those have to be the same thing.
+   */
+  private readonly settingsPanel = new SettingsPanel(() => this.closeSettings(), {
+    isMuted: () => this.music.isMuted,
+    // Through the manager, then persisted from what it settled on — one owner
+    // of the live state, one place it is written down.
+    toggleMute: () => setMusicMuted(this.music.toggleMute()),
+  });
   /**
    * Whether the player has taken pointer lock at least once this run.
    *
@@ -141,9 +153,13 @@ export class App {
     document.getElementById('movement-tag')!.textContent = MOVEMENT_VERSION_LABEL;
     // Camera FOV follows the setting, including the one restored from storage
     // by `loadSettings` below — which is why the listener is registered first.
-    onSettingsChanged(({ fov }) => {
+    onSettingsChanged(({ fov, musicVolume, musicMuted }) => {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
+      // Pushed rather than pulled, so the stored volume reaches the manager on
+      // the `loadSettings` call below without the audio having to start first.
+      this.music.setVolume(musicVolume);
+      this.music.setMuted(musicMuted);
     });
     loadSettings();
     this.camera.fov = getSettings().fov;
@@ -234,6 +250,11 @@ export class App {
     this.hudEl.classList.add('hidden');
     this.game?.setHudVisible(false);
     this.scene.fog = null;
+    // Crossfades whatever the run was playing out underneath it. At boot this
+    // is the one start that can be refused by autoplay policy — the manager
+    // re-arms on the first click or keypress, which is the same gesture that
+    // picks a mode, so the menu is silent for at most a beat.
+    this.music.playMenuMusic();
     this.mainMenu.show((mode) => this.enterMode(mode));
   }
 
@@ -252,6 +273,10 @@ export class App {
     this.hudEl.classList.add('hidden');
     this.game?.setHudVisible(false);
     this.scene.fog = null;
+    // The editor keeps the menu bed rather than falling silent: arriving from a
+    // scored menu into nothing reads as the audio having broken. Coming back
+    // from a playtest this is a no-op if the same track is already up.
+    this.music.playMenuMusic();
 
     if (!this.editor) {
       this.editor = new Editor(this.canvas, this.camera, this.initialMap(), {
@@ -311,7 +336,15 @@ export class App {
     this.scene.fog = this.playFog;
 
     if (!this.game) {
-      this.game = new Game(this.scene, this.camera, course, this.viewModel);
+      this.game = new Game(this.scene, this.camera, course, this.viewModel, {
+        // Every fresh run draws a new track, and a restart off the game-over
+        // screen is a fresh run — `Game` restarts itself from there without
+        // coming back through here, so the hook is the only place that sees it.
+        onRunStart: () => this.music.playGameplayMusic(),
+      });
+      // The constructor does not go through `restart`, so the first run of the
+      // session is started here; every later one arrives via `setCourse` below.
+      this.music.playGameplayMusic();
       // Dev-only handle on the live run, for driving the game from a headless
       // browser: the late game is gated behind ten levels and a 2200 HP boss,
       // which no scripted input can reach in reasonable time, so without this

@@ -146,6 +146,12 @@ clearing the collider registry (§4) and disposing GPU resources (§8).
    stale ones. The world is rebuilt from scratch, colliders and all, when the editor hands a
    map over to be played.
 
+Music crosses all three modes, so `MusicManager` is owned by `App` rather than `Game`: menu
+and editor share one fixed bed, and every run draws a random track that is not the one that
+just played. A run started from the game-over screen never comes back through `App`, so
+`Game` takes an `onRunStart` hook to announce it. See `src/audio/MusicManager.ts` for the
+autoplay-policy handling, which is the only genuinely awkward part.
+
 ---
 
 ## 4. Movement and collision — the interesting part
@@ -408,6 +414,7 @@ only be tested by playing it.
 | `src/progression/` | XP orbs, levelling, the upgrade pool | `Upgrades.ts` |
 | `src/ui/` | DOM overlay classes | `Hud.ts` |
 | `src/editor/` | Free mode: fly camera, palette, map storage, share codes | `Editor.ts` |
+| `src/audio/` | Background music: track pool, random per-run pick, fades, volume | `MusicManager.ts` |
 
 Roughly 8,900 lines of TypeScript across 45 files. The comments are unusually dense and mostly
 explain *why* rather than *what* — several of them record a mistake that cost a session, so

@@ -1334,6 +1334,17 @@ html, body {
   background: rgba(255, 255, 255, 0.19);
 }
 
+/* Mute reads as engaged while it is holding the music off — otherwise the only
+   feedback is the button's own label, which is easy to misread as a state. */
+.settings-actions button.active {
+  background: rgba(255, 122, 122, 0.2);
+  border-color: rgba(255, 122, 122, 0.55);
+}
+
+.settings-actions button.active:hover {
+  background: rgba(255, 122, 122, 0.32);
+}
+
 .settings-actions button.primary {
   background: rgba(92, 255, 176, 0.18);
   border-color: rgba(92, 255, 176, 0.5);

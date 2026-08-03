@@ -1,8 +1,10 @@
+import { DEFAULT_MUSIC_VOLUME } from '../audio/MusicManager';
 import { MovementConfig, setMovementPreference } from '../player/MovementConfig';
 
 /**
- * Player-facing settings — the two that decide how the game *feels* to aim and
- * look with, kept apart from the movement tuning panel on `O`.
+ * Player-facing settings — the ones that decide how the game *feels* to aim and
+ * look with, plus how loud it is, kept apart from the movement tuning panel on
+ * `O`.
  *
  * That panel is a workbench for the CS convars and it changes what the movement
  * *is*. These two change nothing about the simulation; they are the settings a
@@ -26,17 +28,26 @@ export const MAX_FOV = 120;
 export const MIN_SENSITIVITY = 0.5;
 export const MAX_SENSITIVITY = 15;
 
+/** Music is stored as a 0..1 gain — the panel is what shows it as a percentage. */
+export const MIN_MUSIC_VOLUME = 0;
+export const MAX_MUSIC_VOLUME = 1;
+
 /** Authored default, captured at module load before anything can write to it. */
 const DEFAULT_SENSITIVITY = MovementConfig.SENSITIVITY;
 
 export interface SettingsState {
   fov: number;
   sensitivity: number;
+  /** 0..1, applied to `MusicManager` by whoever owns it (`App`). */
+  musicVolume: number;
+  musicMuted: boolean;
 }
 
 const state: SettingsState = {
   fov: DEFAULT_FOV,
   sensitivity: MovementConfig.SENSITIVITY,
+  musicVolume: DEFAULT_MUSIC_VOLUME,
+  musicMuted: false,
 };
 
 const listeners: ((s: SettingsState) => void)[] = [];
@@ -68,9 +79,21 @@ export function setSensitivity(sensitivity: number): void {
   commit();
 }
 
+export function setMusicVolume(volume: number): void {
+  state.musicVolume = clamp(volume, MIN_MUSIC_VOLUME, MAX_MUSIC_VOLUME);
+  commit();
+}
+
+export function setMusicMuted(muted: boolean): void {
+  state.musicMuted = muted;
+  commit();
+}
+
 export function resetSettings(): void {
   state.fov = DEFAULT_FOV;
   state.sensitivity = DEFAULT_SENSITIVITY;
+  state.musicVolume = DEFAULT_MUSIC_VOLUME;
+  state.musicMuted = false;
   setMovementPreference('SENSITIVITY', DEFAULT_SENSITIVITY);
   commit();
 }
@@ -98,6 +121,10 @@ export function loadSettings(): void {
       if (typeof parsed.sensitivity === 'number') {
         state.sensitivity = clamp(parsed.sensitivity, MIN_SENSITIVITY, MAX_SENSITIVITY);
       }
+      if (typeof parsed.musicVolume === 'number') {
+        state.musicVolume = clamp(parsed.musicVolume, MIN_MUSIC_VOLUME, MAX_MUSIC_VOLUME);
+      }
+      if (typeof parsed.musicMuted === 'boolean') state.musicMuted = parsed.musicMuted;
     }
   } catch {
     // Unreadable or corrupt storage: the defaults above are already correct.

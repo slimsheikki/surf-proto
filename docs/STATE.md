@@ -105,12 +105,40 @@ Verified in the live game loop: an approach shrine at radius 630 / +159 was
 collected, vanished, and came back exactly 30.00 s later at radius 93 / +16 — off
 the one-way start and onto the ring.
 
+## Music (new)
+
+`src/audio/MusicManager.ts`, owned by `App` (it outlives a run). Five liquid
+DnB tracks in `public/audio/music/`, `HTMLAudioElement` with `loop = true` —
+no Web Audio anywhere in the project, and none needed for a stereo bed.
+
+- Menu and editor: the fixed `ultra-speed` track. Every run: a random one that
+  is **not** the track that just played, drawn in `pickTrack`.
+- 2 s fade in, 1 s fade out, crossfaded when one track replaces another. Fades
+  are per element and ramp on `requestAnimationFrame`, so they keep moving while
+  the sim is paused behind "click to start".
+- Volume is `gain × master`, default master 0.35, persisted with the other
+  settings. Mute is `el.muted`, so a fade underneath it keeps its position.
+- **Autoplay:** `play()` *rejects* rather than throwing when the page has no
+  interaction yet, so `start()` catches it and re-arms on the next
+  pointerdown/keydown — and the fade-in is hung off the promise resolving, not
+  started beside the call, or a blocked track burns its ramp in silence and
+  snaps on at full volume. (That bug was live; the probe caught it.)
+- A restart off the game-over screen never passes back through `App`, so `Game`
+  takes an `onRunStart` hook and that is what draws the next track. Without it
+  the whole session after the first run keeps one song.
+
+Verified headless (`docs/`-external probe, both autoplay policies): blocked
+start recovers on the mode click, ramp reaches 0.35 in 2 s, 13 consecutive runs
+with no back-to-back repeat, slider writes `musicVolume` to storage, mute and
+Reset behave.
+
 ## Settings and HUD layout (new)
 
-`Escape` opens `SettingsPanel` (FOV, sensitivity; slider and number field over
-each value, persisted to `localStorage`). It doubles as the pause screen, and
-that is forced rather than chosen — see the pointer-lock gotcha in `CLAUDE.md`.
-Sensitivity was removed from the `O` tuning panel so there is one owner.
+`Escape` opens `SettingsPanel` (FOV, sensitivity, music volume; slider and
+number field over each value, persisted to `localStorage`, plus a Mute music
+button beside Reset). It doubles as the pause screen, and that is forced rather
+than chosen — see the pointer-lock gotcha in `CLAUDE.md`. Sensitivity was
+removed from the `O` tuning panel so there is one owner.
 
 The HUD is bottom-centre and 25% wider (260 → 325). XP leads the column at a
 further 25% (406) and 16px tall; level/clock/speed/trophies share one row. The
