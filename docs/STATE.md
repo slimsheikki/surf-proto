@@ -347,56 +347,55 @@ differing in length and nothing else. Medium is `RAMP_LENGTH`, so it socket-chai
 the rest of the kit. The length is in the **label**, because it cannot be in the tile:
 `Thumbnails` frames every definition to its own bounds, so all three render identically.
 
-**The cross-section is a truncated U: two mirrored circular arcs meeting in a crease on the
-centre path, sweeping θ = 50° → 80°.** It is not a full semicircle, and that is the whole
-design:
+**The cross-section is a half-round pipe** — the concrete drainage kind, laid on its back:
+two mirrored arcs meeting at the bottom of the centre path, sweeping θ = 0° → 84°, mouth
+`RAMP_FACE_WIDTH` (18), depth 8.1. depth/mouth is 0.450 against a true semicircle's 0.500.
 
-- A true U carries its arc through the bottom, where the surface is horizontal. `normal.y`
-  there is 1.0 against the 0.7 cutoff, so the player lands in the trough, **stands up and
-  stops surfing**. Starting at 50° puts the shallowest *facet* at 52.5°, 6.9° clear of the
-  45.573° cutoff. Pitch only ever makes it steeper (`ny = cos(pitch)·cos(θ)`), verified out
-  to the ±50° pitch clamp.
-- Truncating is also what makes it the *narrow deep* shape rather than a wide one. At a
-  fixed mouth the truncated section is **deeper** than a true U — 15.0 against 5.9 at
-  width 14 — because a real half-pipe's flat bottom is exactly what makes it wide and
-  shallow. `depth/width = tan((θmin+θmax)/2)/2 = 1.072`, a family constant: `width` scales
-  the section, it cannot deepen it.
-- **80° is a collision limit, not a taste one.** A prism's solid thickness is
-  `depth · cos θ`, so a wall nearing vertical thins toward nothing and a fast player would
-  pass through it. At 80° the thinnest facet keeps 0.671 units against a 0.4 player radius;
-  85° gives 0.43 and 90° exactly 0.
-- An earlier 50° → 70° build was geometrically correct and **looked like a V with a flare** —
-  20° of turn spread across a wall is not something the eye reads. 30° is.
+**The trough is walkable, and that is a deliberate human call, not an oversight.** A
+semicircle's bottom is horizontal — `normal.y` 1.0 against the 0.7 cutoff — so a player
+arriving slowly grounds out and can walk `1.429·R` of floor, **12.9 units, 72% of the mouth**.
+Everything outside that band is steeper than the cutoff and surfs normally; a rider carrying
+speed pendulums across without touching down. It is the slow arrival that stands up.
 
-`rollDeg` defaults to 0 and the builder forces it to 0: past ±6.9° of bank the downhill
-wall's innermost facet crosses the cutoff and one side of the trough becomes standable. The
-arc *is* the bank. `B` (flip bank) is therefore a no-op on a half-pipe and the status line
-reads "bank flat", which is honest. Roll never moves path positions, so sockets and chaining
-are unaffected — verified.
+The first build truncated the arc at 50° precisely to make that impossible, and it was
+unimpeachable against the invariant — but it read as a **V**, which is not the shape the piece
+exists to be, and it was rejected on sight against a photo of a real half-round pipe. Rounding
+it back out is the shape winning that argument knowingly. **`HALFPIPE_THETA_MIN_DEG` is the
+one-line revert**: at 50° nothing on the piece is standable and it looks like a V again.
+
+- **84°, not 90°, is a collision limit.** A prism's solid thickness is `depth · cos θ`, so a
+  wall nearing vertical thins toward nothing and a fast player passes through it. 84° keeps
+  the thinnest facet at 0.51 against a 0.4 player radius; 88° gives 0.32, 90° exactly 0.
+- **12 facets per wall = 7° apart**, under the `acos(0.99) = 8.11°` at which the movement clip
+  loop stops treating two planes as one surface — so seams do not catch. The cost is texture
+  density: chords are 1.10 against a 2.84 grid cell, so the pipe wears a grid ~0.39× the size
+  of the one on a ramp beside it. Cosmetic, and unavoidable for a small-radius arc cut fine
+  enough to read as round.
+- `rollDeg` defaults to 0 and the builder forces it: tipping a pipe rolls one wall toward flat
+  and the other past vertical where its collider thins to nothing. Pitch is fine and does the
+  useful thing — it tilts the run without touching the section, and only ever *steepens*
+  facets (`ny = cos(pitch)·cos(θ)`), verified 28 → 24 → 0 walkable facets at pitch 0 / 26 / 50.
 
 **One shared-code change: `FaceStrip.verticalDrop`.** Every other family is built from strips
 of equal tilt, so each picks the same `thickness / ny` under-side drop and they land flush. A
-curved section is deliberately unequal — across a half-pipe wall that expression runs 0.82 to
-2.31 — which would staircase the under-side and the end caps at every seam and leave the
-interior wall quads mismatched and z-fighting in the open. One drop for the whole section
-keeps them flush and makes those quads exactly coincident, buried between two solids.
-Purely additive with a `??` fallback; the default course still emits **3412** prisms, byte
-for byte what it did before.
+curved section is deliberately unequal, which would staircase the under-side and the end caps
+at every seam and leave the interior wall quads mismatched and z-fighting in the open. One
+drop for the whole section keeps them flush and makes those quads exactly coincident, buried
+between two solids. Purely additive with a `??` fallback; the default course still emits
+**3412** prisms, byte for byte what it did before (checked by stashing the patch, not assumed).
 
-24 prisms per piece, all three sizes (a straight piece is one segment whatever its length).
-Context: the V channel is 4, a curved A-frame 92, the default course 3412.
+48 prisms per piece, all three sizes — a straight piece is one segment whatever its length.
+Context: the V channel is 4, a curved A-frame 92, the whole default course 3412.
 
-Straight only. No swept or pitched-curve variants ship, and they should not without work:
-each strip would sit at a different turn radius, so the UV `along` drifts and the grid's
-cross-lines fan out down the piece, and the segment count jumps 1 → 23, taking colliders to
-460 per piece.
+Straight only. A swept variant would put each strip at a different turn radius, drifting the
+UV `along` axis so the grid's cross-lines fan out down the piece, and would take the segment
+count 1 → 23, i.e. ~1100 prisms per piece.
 
-Verified by `.probe-halfpipe.ts` (27 assertions: exact cross-section against the closed form,
-`depth/width == tan(65°)/2`, zero walkable facets at pitch 0 / 26 / 50, 24 prisms with none
-rejected as degenerate, every slab over the player radius, sockets spanning the stored
-length, roll provably inert, and the default-course collider count unchanged) plus a headless
-ride: the player dropped into the trough **never grounds** across 3 s of settling and 12
-samples, tested with jump released so auto-bhop cannot mask a walkable floor.
+Verified by `.probe-halfpipe.ts` (27 assertions: every vertex on the analytic arc, depth/mouth,
+the walls meeting on the path, the walkable band measured at 12.9, the rim past 80°, 48 prisms
+none degenerate, every slab over the player radius, sockets spanning the stored length, roll
+provably inert, default-course collider count unchanged) plus a headless drop into the trough
+confirming the pipe catches the player rather than dropping them through the shell.
 
 ## MegaFlow Demo V1 is the default course (new)
 

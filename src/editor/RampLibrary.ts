@@ -90,58 +90,63 @@ const SLIDE_ROLL_DEG = 62;
 const SLIDE_LENGTH = 40;
 
 /**
- * Half-pipe cross-section: two mirrored circular arcs meeting in a crease on
- * the centre path.
+ * Half-pipe cross-section: two mirrored circular arcs meeting at the bottom of
+ * the centre path — a **half-round pipe**, the concrete drainage kind, laid on
+ * its back and ridden inside.
  *
- * **Truncated on purpose, and this is the whole design.** A true U carries its
- * arc through the bottom, where the surface is horizontal — `normal.y = 1`,
- * far above the 0.7 standable cutoff — so the player lands in the trough,
- * stands up, and stops surfing. Starting each arc at 50° instead puts the
- * shallowest *facet* at 52.5°, which is 6.9° clear of the 45.573° cutoff, the
- * same margin `PYRAMID_SLOPE_DEG` keeps. Nothing on a half-pipe is standable.
+ * **The trough is walkable, and that is a deliberate, human-made call.** A
+ * semicircle's bottom is horizontal: `normal.y` there is 1.0 against the 0.7
+ * standable cutoff, so a player who arrives slowly grounds out and can walk
+ * `2R·sin(45.573°) = 1.429·R` of floor — **12.9 units at the shipped width**.
+ * Everything past that band is steeper than the cutoff and surfs normally, so
+ * a rider carrying speed pendulums across it without ever touching down; it is
+ * the slow arrival that stands up.
  *
- * Truncating also makes it the shape that was actually asked for. At a fixed
- * mouth width the truncated section is *deeper* than a true U — 15.0 against
- * 5.9 at width 14 — because the flat bottom of a real half-pipe is exactly
- * what makes it wide and shallow. depth/width is `tan((θmin+θmax)/2)/2`, a
- * family constant of 1.072; it does not vary with `width`, which only scales.
- *
- * These are constants rather than per-piece parameters because they *are* the
- * walkability guarantee. `rollDeg` is forced to 0 in the builder for the same
- * reason: past ±6.9° of bank the downhill wall's innermost facet crosses the
- * cutoff and one side of the trough becomes standable.
+ * An earlier build truncated the arc at 50° to make that impossible. It was
+ * unimpeachable against the invariant and it read as a **V**, which is not the
+ * shape this piece exists to be. Rounding it back out is the shape winning the
+ * argument, knowingly. If the standable floor ever proves to be the problem in
+ * play, raising this one constant off 0 walks the bottom back out of reach —
+ * at 50° nothing on the piece is standable, and it looks like a V again.
  */
-const HALFPIPE_THETA_MIN_DEG = 50;
+const HALFPIPE_THETA_MIN_DEG = 0;
 /**
- * The rim. 80° is as far round as the shape can go, and the limit is
- * collision, not looks: a prism's solid thickness is `depth · cos θ`, so a wall
- * approaching vertical thins toward nothing and a fast player would pass
- * straight through it. At 80° the thinnest facet still carries 0.67 units of
- * solid against a 0.4 player radius; at 85° it is 0.43 and at 90° exactly zero.
+ * The rim, and the limit here is collision rather than looks. A prism's solid
+ * thickness is `depth · cos θ`, so a wall approaching vertical thins toward
+ * nothing and a fast player would pass straight through it. 84° keeps the
+ * thinnest facet at 0.51 units against a 0.4 player radius; 88° drops it to
+ * 0.32 and 90° — a truly vertical rim — is exactly zero.
  *
- * The 50→80 sweep is also what makes the section read as a *curve* rather than
- * a V. An earlier 50→70 build was geometrically correct and looked like a
- * straight-walled channel with a flare — 20° of turn spread over a wall is not
- * something the eye picks up.
+ * Stopping 6° short costs almost nothing to look at: depth/mouth lands at
+ * 0.450 against a true semicircle's 0.500.
  */
-const HALFPIPE_THETA_MAX_DEG = 80;
+const HALFPIPE_THETA_MAX_DEG = 84;
 /**
- * Facets per wall. Six is what makes each strip's chord one texture cell:
- * equal steps in θ give equal chords, and 2.791 against a 2.844 cell is 1.9%
- * off, inside what `gridCellFor` already absorbs. Five miss by 18%, seven by
- * 16%, and either would put a different grid density on every strip.
+ * Facets per wall. Twelve puts each facet 7° apart, which is what keeps the
+ * seams from catching: the movement clip loop treats two planes within
+ * `acos(0.99) = 8.11°` as one surface and bails with the already-clipped
+ * velocity, instead of resolving every seam as a two-plane wedge event.
+ *
+ * The cost is texture density. These chords are 1.10 units against a 2.84 grid
+ * cell, so `gridCellFor` fits one cell per facet and the pipe wears a grid
+ * about 0.39× the size of the one on a straight ramp beside it. Unavoidable
+ * for a small-radius arc cut fine enough to read as round, and cosmetic.
  */
-const HALFPIPE_STRIPS_PER_WALL = 6;
+const HALFPIPE_STRIPS_PER_WALL = 12;
 /**
  * Vertical shell drop, one value for the whole section — see
  * `FaceStrip.verticalDrop`. With `COLLIDER_UNDER_DEPTH` on top it keeps every
- * prism's solid thickness between 1.89 at the crease and 0.67 at the rim,
+ * prism's solid thickness between 3.09 under the trough and 0.51 at the rim,
  * never under the 0.4 player radius, and reads like the rest of the kit
  * (`FACE_THICKNESS` is 1.4).
  */
 const HALFPIPE_SHELL_DROP = 1.6;
-/** Mouth opening across. Narrow: the V channel is 22.5 across, this is 14. */
-const HALFPIPE_WIDTH = 14;
+/**
+ * Mouth opening across, which fixes the radius at `width / (2·sin θmax)`. The
+ * kit's standard face width, so a pipe reads as the same gauge of piece as the
+ * ramps it chains with. Depth follows at 0.450 × this.
+ */
+const HALFPIPE_WIDTH = RAMP_FACE_WIDTH;
 
 /**
  * The library itself: data, not code. The palette, the spline generator and
@@ -243,7 +248,7 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     family: 'halfpipe',
     variant: 'inverted',
     label: 'Halfpipe · small',
-    hint: '30 long · narrow U trough',
+    hint: '30 long · half-round pipe',
     defaults: { length: 30, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
   {
@@ -251,7 +256,7 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     family: 'halfpipe',
     variant: 'inverted',
     label: 'Halfpipe · medium',
-    hint: `${RAMP_LENGTH} long · narrow U trough`,
+    hint: `${RAMP_LENGTH} long · half-round pipe`,
     defaults: { length: RAMP_LENGTH, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
   {
@@ -259,7 +264,7 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     family: 'halfpipe',
     variant: 'inverted',
     label: 'Halfpipe · large',
-    hint: '80 long · narrow U trough',
+    hint: '80 long · half-round pipe',
     defaults: { length: 80, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
   {
@@ -732,7 +737,13 @@ function pyramidFaceParams(piece: FreePiece): { params: RampCurveParams; collide
   });
 }
 
-/** Arc radius that puts the mouth's across-extent at exactly `width`. */
+/**
+ * Arc radius that puts the mouth's across-extent at exactly `width`.
+ *
+ * Written against both ends of the arc rather than just the rim so it stays
+ * correct if `HALFPIPE_THETA_MIN_DEG` is ever lifted off the bottom — see the
+ * note there. At θmin = 0 the `sin` term is 0 and this is `width / 2·sin θmax`.
+ */
 function halfpipeRadius(width: number): number {
   return (
     width /
@@ -748,9 +759,11 @@ function halfpipeRadius(width: number): number {
  * positions — it only rotates `right`/`normal` about `forward` — so forcing it
  * to zero leaves the sockets, `piecePath` and any chain snapped to them
  * byte-identical, and buys a basis where `right.y` is exactly 0 and the arc
- * maths stays closed-form. The arc *is* the bank; a stored one would tip the
- * whole trough until a wall went walkable, which is the failure this shape
- * exists to prevent. `pyramidFaceParams` ignores `rollDeg` for the same reason.
+ * maths stays closed-form. The arc *is* the bank: tipping a pipe rolls one
+ * wall down toward flat and the other up past vertical, where its collider
+ * thins to nothing. Pitch is fine and does the useful thing — it tilts the
+ * whole run of the pipe without touching the section. `pyramidFaceParams`
+ * ignores `rollDeg` for the same reason.
  *
  * Both walls' innermost ring sits exactly on the path point, so the crease
  * closes by construction rather than by tolerance — the same property the V

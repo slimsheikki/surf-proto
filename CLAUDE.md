@@ -167,13 +167,14 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
-**A ramp's shape has to clear the walkable cutoff, not just look right.** The half-pipe
-(`RampLibrary.ts`) is a *truncated* U — two arcs sweeping 50°→80° that meet in a crease —
-because a true U's horizontal bottom reads `normal.y = 1` against the 0.7 cutoff and lets the
-player stand up in the trough. Its rim stops at 80° for the opposite reason: a prism's solid
-thickness is `depth · cos θ`, so a wall nearing vertical thins to nothing and a fast player
-goes through it. Both limits are family constants, and `rollDeg` is forced to 0 in the
-builder — past ±6.9° of bank one wall crosses the cutoff.
+**The half-pipe's walkable trough is a decision, not a bug.** It is a half-round pipe (arc
+0°→84°, `RampLibrary.ts`), and a semicircle's bottom is horizontal, so 12.9 units of it read
+`normal.y ≥ 0.7` and the player can stand there. A truncated version that started the arc at
+50° made that impossible and looked like a **V**, which is why it was rejected — the shape won.
+`HALFPIPE_THETA_MIN_DEG` is the one-line revert if it ever proves to be the problem in play.
+The rim stops at 84° for an unrelated reason: prism solidity is `depth · cos θ`, so a wall
+nearing vertical thins to nothing and a fast player goes through it. `rollDeg` is forced to 0
+in the builder — tipping a pipe flattens one wall and thins the other's collider.
 
 The front menu's map tiles render **real geometry** for their aerial thumbnails
 (`ui/MapThumbnails.ts`), which means they call `buildFreeWorld(map, **false**)` —
