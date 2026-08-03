@@ -59,26 +59,6 @@ const MAGNET_SPEED_PER_UNIT = 4;
  */
 const MAGNET_SPEED_LEAD = 1.25;
 
-/**
- * How far an uncollected orb may fall behind before `Game` despawns it.
- *
- * Owned here beside the magnet numbers because the three only make sense
- * together — the cull must sit far enough outside both the latch radius and
- * the *kill* radius that nothing plausibly collectable is deleted. The old
- * fixed 40 failed that twice over: a base-range (22) kill behind a 38 u/s
- * player was deleted about half a second after it dropped, and a few +Range
- * picks put the weapon's reach past 40 entirely, so a max-range kill spawned
- * its orb already outside the sphere and it was culled the tick it appeared.
- * The floor gives the base envelope ~1.2 s of grace at surf speed; the margin
- * term makes the sphere track whatever the upgraded weapon can actually reach.
- */
-const ORB_CULL_FLOOR = 70;
-const ORB_CULL_RANGE_MARGIN = 30;
-
-export function orbCullDistance(weaponRange: number): number {
-  return Math.max(ORB_CULL_FLOOR, weaponRange + ORB_CULL_RANGE_MARGIN);
-}
-
 const toPlayer = new Vector3();
 
 let rewindIdCounter = 0;

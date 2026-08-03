@@ -80,26 +80,12 @@ export class EntityManager {
     return removed;
   }
 
-  /**
-   * Same for orbs dropped mid-surf that the player rocketed past and will never
-   * come back for. Magnetised orbs are exempt: a latched orb is earned loot in
-   * flight, and the pull always outruns the player (`MAGNET_SPEED_LEAD`), so it
-   * provably lands — deleting one mid-chase is exactly the "kill paid no XP"
-   * bug this cull once caused.
-   */
-  cullDistantOrbs(playerPosition: Vector3, maxDistance: number): number {
-    const maxDistSq = maxDistance * maxDistance;
-    let removed = 0;
-    for (let i = this.orbs.length - 1; i >= 0; i--) {
-      const orb = this.orbs[i];
-      if (orb.magnetised) continue;
-      if (orb.position.distanceToSquared(playerPosition) > maxDistSq) {
-        this.removeOrbAt(i);
-        removed += 1;
-      }
-    }
-    return removed;
-  }
+  // Orbs deliberately have no distance cull. Dropped XP is earned, and there is
+  // no distance at which it stops being plausibly collectable — courses loop and
+  // the player comes back. An uncollected orb hovers where it fell until the
+  // magnet reaches it, a rewind reconciles it, or the run itself ends
+  // (`clear`). That is a design rule, not an oversight — the cull this replaced
+  // deleted live loot three different ways. See docs/STATE.md.
 
   /**
    * Drops every enemy the predicate rejects. The rewind uses this to delete

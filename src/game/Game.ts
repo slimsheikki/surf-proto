@@ -24,7 +24,7 @@ import {
   rollGambleRarity,
   UpgradeContext,
 } from '../progression/Upgrades';
-import { orbCullDistance, resetXpMagnet, XPOrb } from '../progression/XPOrb';
+import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BankMenu } from '../ui/BankMenu';
 import { BossBar } from '../ui/BossBar';
@@ -101,9 +101,8 @@ const OUT_OF_BOUNDS_MARGIN = 30;
  * player outruns drones permanently at surf speed, so anything this far away is
  * dead weight — but the radius is well beyond the base weapon's reach and
  * beyond the furthest spawn distance, so nothing plausibly still in play is
- * culled. Orbs use `orbCullDistance` instead: their sphere has to track the
- * *upgraded* weapon range, or a max-range kill drops loot straight into the
- * cull (which is exactly the bug it used to have — see XPOrb.ts).
+ * culled. Enemies only: XP orbs are never distance-culled — dropped loot
+ * hovers where it fell until collected (see EntityManager for the rule).
  */
 const ENEMY_CULL_DISTANCE = 55;
 
@@ -534,7 +533,6 @@ export class Game {
     this.entityManager.cullCollectedOrbs((orb) => {
       this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
     });
-    this.entityManager.cullDistantOrbs(playerPosition, orbCullDistance(this.weapon.range));
     this.entityManager.cullSpentBlasts();
 
     // Player death is resolved first: a simultaneous kill is a loss, and the
