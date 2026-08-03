@@ -340,6 +340,85 @@ longer a floating panel of its own — it is embedded under a collapsible
 content builder with no positioning, visibility or pointer-lock handling of its
 own. `O` still works and opens Settings with that section already expanded.
 
+## Half-pipe pieces (new)
+
+Four palette entries. Three straight — `halfpipe-short` / `-medium` / `-long`, lengths
+**30 / 50 / 80** — differing in length and nothing else; medium is `RAMP_LENGTH`, so it
+socket-chains against the rest of the kit. The length is in the **label**, because it cannot
+be in the tile: `Thumbnails` frames every definition to its own bounds, so all three render
+identically.
+
+The fourth is **`halfpipe-descent`**: the same section on a curved path. Pitch runs 45° (a
+steep drop) to −8° (tilted back up), interpolated linearly along 60 units, so the profile is a
+steep entry that keeps easing, passes through level, and finishes as a slight ramp — it hands
+a rider air off the end instead of pointing them at the floor. It drops **18.4 units** over
+its run. 45° rather than the editor's 50° clamp so there is somewhere left to nudge it.
+
+**The cross-section is a half-round pipe** — the concrete drainage kind, laid on its back:
+two mirrored arcs meeting at the bottom of the centre path, sweeping θ = 0° → 84°, mouth
+`RAMP_FACE_WIDTH` (18), depth 8.1. depth/mouth is 0.450 against a true semicircle's 0.500.
+
+**The trough is walkable, and that is a deliberate human call, not an oversight.** A
+semicircle's bottom is horizontal — `normal.y` 1.0 against the 0.7 cutoff — so a player
+arriving slowly grounds out and can walk `1.429·R` of floor, **12.9 units, 72% of the mouth**.
+Everything outside that band is steeper than the cutoff and surfs normally; a rider carrying
+speed pendulums across without touching down. It is the slow arrival that stands up.
+
+The first build truncated the arc at 50° precisely to make that impossible, and it was
+unimpeachable against the invariant — but it read as a **V**, which is not the shape the piece
+exists to be, and it was rejected on sight against a photo of a real half-round pipe. Rounding
+it back out is the shape winning that argument knowingly. **`HALFPIPE_THETA_MIN_DEG` is the
+one-line revert**: at 50° nothing on the piece is standable and it looks like a V again.
+
+- **84°, not 90°, is a collision limit.** A prism's solid thickness is `depth · cos θ`, so a
+  wall nearing vertical thins toward nothing and a fast player passes through it. 84° keeps
+  the thinnest facet at 0.51 against a 0.4 player radius; 88° gives 0.32, 90° exactly 0.
+- **12 facets per wall = 7° apart**, under the `acos(0.99) = 8.11°` at which the movement clip
+  loop stops treating two planes as one surface — so seams do not catch. The cost is texture
+  density: chords are 1.10 against a 2.84 grid cell, so the pipe wears a grid ~0.39× the size
+  of the one on a ramp beside it. Cosmetic, and unavoidable for a small-radius arc cut fine
+  enough to read as round.
+- `rollDeg` defaults to 0 and the builder forces it: tipping a pipe rolls one wall toward flat
+  and the other past vertical where its collider thins to nothing. Pitch is fine and does the
+  useful thing — it tilts the run without touching the section, and only ever *steepens*
+  facets (`ny = cos(pitch)·cos(θ)`), verified 28 → 24 → 0 walkable facets at pitch 0 / 26 / 50.
+
+**One shared-code change: `FaceStrip.verticalDrop`.** Every other family is built from strips
+of equal tilt, so each picks the same `thickness / ny` under-side drop and they land flush. A
+curved section is deliberately unequal, which would staircase the under-side and the end caps
+at every seam and leave the interior wall quads mismatched and z-fighting in the open. One
+drop for the whole section keeps them flush and makes those quads exactly coincident, buried
+between two solids. Purely additive with a `??` fallback; the default course still emits
+**3412** prisms, byte for byte what it did before (checked by stashing the patch, not assumed).
+
+**48 prisms** for a straight pipe of any length (a straight path is one segment whatever its
+length); **432** for the descent. Context: the V channel is 4, a curved A-frame 92, the whole
+default course 3412 — so a descent is the most expensive piece in the kit by a distance, and
+the collider broadphase is a **linear scan with no spatial index**. Worth knowing before a map
+is paved with them.
+
+That 432 is already capped. `HALFPIPE_ANGLE_STEP_DEG` subdivides a curved pipe's length every
+6° of pitch instead of the kit's 2°, because every other family carries one or two strips
+where a pipe carries 24 — at 2° a single descent would emit **1296 prisms**, 38% again on top
+of the entire default course. 6° is free both ways: the along-length sagitta is 0.09 units
+against a 0.4 player radius, and it is under the same `acos(0.99) = 8.11°` the cross-section
+is cut to, so consecutive segments still read as one surface to the clip loop.
+
+**The step lives in `centreParams`, not at the call site**, and that is load-bearing:
+`piecePath` and the mesh/collider walk both go through it, and handing them different steps
+discretises a curved piece two different ways — its midpoint lands elsewhere and the geometry
+sits off the position the editor is showing. Caught while writing it, not in play.
+
+No *horizontally* swept variant ships. That one would put each strip at a different turn
+radius, drifting the UV `along` axis so the grid's cross-lines fan down the piece, and would
+take the segment count to ~23.
+
+Verified by `.probe-halfpipe.ts` (27 assertions: every vertex on the analytic arc, depth/mouth,
+the walls meeting on the path, the walkable band measured at 12.9, the rim past 80°, 48 prisms
+none degenerate, every slab over the player radius, sockets spanning the stored length, roll
+provably inert, default-course collider count unchanged) plus a headless drop into the trough
+confirming the pipe catches the player rather than dropping them through the shell.
+
 ## MegaFlow Demo V1 is the default course (new)
 
 The generated approach-and-ring course is no longer reachable from the menu. The single
@@ -583,8 +662,9 @@ following the two specification docs (modular kit + editor rework) and the vendo
 CS2 guide's taxonomy:
 
 - **`RampDefinition[]` is data.** Families: straight, trapezoid, reverse-trapezoid,
-  pyramid, slide, vertical-curved, horizontal-curved, platform. The palette, the piece
-  builder and the spline generator all read the list; adding a family is adding an entry.
+  pyramid, halfpipe, slide, vertical-curved, horizontal-curved, platform. The palette, the
+  piece builder and the spline generator all read the list; adding a family is adding an
+  entry. 18 definitions, 17 of them ramps.
 - **Variants:** half = one banked face; full = A-frame (two faces meeting at a ridge);
   inverted = V channel. The composite emitter offsets each face from the centre path
   **per segment frame** along that frame's own rolled basis, so the ridge/valley
@@ -610,7 +690,7 @@ CS2 guide's taxonomy:
   straight-edged, the pyramid is exact — planar faces, straight hips, one apex point),
   and under-sides drop vertically so faces sharing an edge meet exactly. Collision
   stays stepped oriented boxes from the same frame walk. An adversarial audit of all
-  14 definitions found the visuals defect-free and all real issues collision-side;
+  the 14 definitions that existed then found the visuals defect-free and all real issues collision-side;
   fixed since: collider boxes take *inscribed* (minimum-boundary) widths so collision
   never reaches past a visible tapered edge (was up to 1.4 over), taper steps halved
   to 1 unit, and the seam-overlap pad extends toward interior seams only, never past
@@ -664,7 +744,7 @@ CS2 guide's taxonomy:
   a face exactly, so a ray leaves one and enters the next at the same point — no cap
   between them, no gap. This is also what real surf maps do; the CS2 guide compiles
   curved ramps as *Multiple Convex Hulls* for exactly this reason.
-  **Result across all 14 definitions: sink 0.000, lip 0.000, holes 0.00%, no stalls at
+  **Result across the 14 definitions audited: sink 0.000, lip 0.000, holes 0.00%, no stalls at
   any of seven lateral positions.** What you see is what you ride.
   Standard course is untouched (still 28 boxes, 0 wedges — it builds through
   `buildRampCurve`). Cost: a heavy 30-curved-piece map is 1470 volumes at ~14.5 µs/ray,
@@ -687,7 +767,7 @@ CS2 guide's taxonomy:
   the next end-cap. A-frame ridges now *overlap* past the peak instead of mitering short
   of it: the ridge is convex, so the overshoot hides below the opposite face, and the
   slit that used to stop a player tracking the ridge is gone.
-  **Verified by simulating the real `PlayerController` down all 14 definitions at five
+  **Verified by simulating the real `PlayerController` down the 14 definitions then in the kit, at five
   lateral positions each: no sudden stops anywhere.** The probe must judge stalls by
   *absolute* one-tick speed loss — a relative test flags a player gently decelerating
   as they climb a 55° pyramid face, which is physics, not a defect.

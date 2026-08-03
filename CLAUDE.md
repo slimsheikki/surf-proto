@@ -167,6 +167,15 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
+**The half-pipe's walkable trough is a decision, not a bug.** It is a half-round pipe (arc
+0°→84°, `RampLibrary.ts`), and a semicircle's bottom is horizontal, so 12.9 units of it read
+`normal.y ≥ 0.7` and the player can stand there. A truncated version that started the arc at
+50° made that impossible and looked like a **V**, which is why it was rejected — the shape won.
+`HALFPIPE_THETA_MIN_DEG` is the one-line revert if it ever proves to be the problem in play.
+The rim stops at 84° for an unrelated reason: prism solidity is `depth · cos θ`, so a wall
+nearing vertical thins to nothing and a fast player goes through it. `rollDeg` is forced to 0
+in the builder — tipping a pipe flattens one wall and thins the other's collider.
+
 The front menu's map tiles render **real geometry** for their aerial thumbnails
 (`ui/MapThumbnails.ts`), which means they call `buildFreeWorld(map, **false**)` —
 the colliders flag is not optional, or every map in storage joins the collision
