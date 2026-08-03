@@ -149,7 +149,7 @@ world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
 re-rendered per visit, because the editor can change one between two trips.
 
 **`Escape` mid-run opens the pause menu** (`ui/PauseMenu.ts`) — CONTINUE /
-RESTART / QUIT — not the settings screen. Same stacked list and same number keys
+RESTART / QUIT / SETTINGS — not the settings screen. Same stacked list and same number keys
 as the front menu, deliberately: a player who has read one has learned the other.
 The pause itself was already there (losing pointer lock pauses the sim); this
 gives it a menu.
@@ -166,9 +166,16 @@ gives it a menu.
   still goes back to the *editor*, because that is the useful exit while
   iterating on a map; Quit is the one that leaves.
 
-Settings mid-run is on `O`, which also works from the pause menu. Closing it
-returns wherever it was opened from — the pause menu, or straight into the run
-(`App.settingsFromPause`); the two entry points want different exits.
+- **SETTINGS** opens the settings screen plain. `O` is the shortcut that opens
+  it with Advanced already expanded, and it works from gameplay and from the
+  pause menu.
+
+Closing settings returns wherever it was opened from — the pause menu, or
+straight into the run (`App.settingsFromPause`); the two entry points want
+different exits. `SettingsPanel.show` takes `'resume' | 'back'`, which names
+where the close button *goes* rather than where it was opened from: those are
+not the same thing, and conflating them briefly put "Resume" on a button that
+went back to the pause menu.
 
 **Settings** is reachable from the front menu as well; the
 only difference is the close button's wording. The movement convar bench is no

@@ -18,6 +18,7 @@ export interface PauseMenuHandlers {
   onContinue: () => void;
   onRestart: () => void;
   onQuit: () => void;
+  onSettings: () => void;
 }
 
 interface Item {
@@ -29,6 +30,7 @@ const ITEMS: Item[] = [
   { label: 'Continue', run: (h) => h.onContinue() },
   { label: 'Restart', run: (h) => h.onRestart() },
   { label: 'Quit', run: (h) => h.onQuit() },
+  { label: 'Settings', run: (h) => h.onSettings() },
 ];
 
 export class PauseMenu {
@@ -71,7 +73,10 @@ export class PauseMenu {
 
     const hint = document.createElement('p');
     hint.className = 'overlay-hint';
-    hint.innerHTML = 'Press <kbd>ESC</kbd> to continue &mdash; <kbd>O</kbd> for settings';
+    // `O` still earns its mention: the menu item opens Settings plain, while the
+    // key jumps straight to the convar bench with Advanced already expanded.
+    hint.innerHTML =
+      'Press <kbd>ESC</kbd> to continue &mdash; <kbd>O</kbd> jumps to advanced tuning';
     page.appendChild(hint);
 
     this.root.appendChild(page);

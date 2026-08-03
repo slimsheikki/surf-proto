@@ -226,14 +226,16 @@ export class SettingsPanel {
   }
 
   /**
-   * `context` only changes the wording. The same screen is the run's pause menu
-   * and the front menu's settings page, and "Resume" on a screen you reached
-   * from the main menu would be a lie about where the button goes.
+   * `exit` names where closing this screen *goes*, not where it was opened
+   * from — which are not the same thing and were briefly conflated. Opened from
+   * the pause menu it hands back to the pause menu, so "Resume" there would be a
+   * lie about what the button does; opened with `O` mid-flight it really does
+   * resume. Nothing but the wording changes.
    */
-  show(context: 'run' | 'menu' = 'run', expandAdvanced = false): void {
-    this.closeButton.textContent = context === 'run' ? 'Resume' : 'Back';
+  show(exit: 'resume' | 'back' = 'resume', expandAdvanced = false): void {
+    this.closeButton.textContent = exit === 'resume' ? 'Resume' : 'Back';
     this.hint.innerHTML =
-      context === 'run'
+      exit === 'resume'
         ? 'Press <kbd>ESC</kbd> to resume'
         : 'Press <kbd>ESC</kbd> to go back';
     if (expandAdvanced) this.setAdvanced(true);
