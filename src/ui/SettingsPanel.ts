@@ -8,6 +8,7 @@ import {
   setFov,
   setSensitivity,
 } from '../game/Settings';
+import { MovementPanel } from './MovementPanel';
 
 /**
  * The in-run settings screen, on `Escape`. It doubles as the pause screen,
@@ -26,6 +27,12 @@ import {
  * Each row is a slider *and* a number field over the same value, because the
  * two answer different questions: a slider is for finding a feel by sweeping,
  * a number field is for typing in the sensitivity you already know you use.
+ *
+ * **Advanced Settings** folds the CS convar bench (`MovementPanel`) in
+ * underneath, collapsed by default. It used to be a floating panel of its own on
+ * `O`, and two independent screens that both released the pointer lock and both
+ * paused the sim was two of everything to keep in agreement. `O` now opens this
+ * screen with that section already expanded.
  */
 
 interface Row {
@@ -42,7 +49,13 @@ interface Row {
 export class SettingsPanel {
   private readonly root: HTMLDivElement;
   private readonly refreshers: (() => void)[] = [];
+  private readonly movementPanel = new MovementPanel();
+  private readonly advanced: HTMLDivElement;
+  private readonly advancedToggle: HTMLButtonElement;
+  private readonly closeButton: HTMLButtonElement;
+  private readonly hint: HTMLParagraphElement;
   private open = false;
+  private advancedOpen = false;
 
   constructor(private readonly onClose: () => void) {
     this.root = document.createElement('div');
@@ -91,24 +104,49 @@ export class SettingsPanel {
       this.refresh();
     });
 
-    const resume = document.createElement('button');
-    resume.type = 'button';
-    resume.className = 'primary';
-    resume.textContent = 'Resume';
-    resume.addEventListener('click', () => this.onClose());
+    this.closeButton = document.createElement('button');
+    this.closeButton.type = 'button';
+    this.closeButton.className = 'primary';
+    this.closeButton.textContent = 'Resume';
+    this.closeButton.addEventListener('click', () => this.onClose());
 
-    actions.append(reset, resume);
+    actions.append(reset, this.closeButton);
+
+    // Collapsed by default and out of the tab order of a first-time player's
+    // attention: these are convars, and someone who wants them is looking for
+    // them. Not a <details> element — the arrow and the open state have to be
+    // driven from `O` as well as from a click, and a class is one mechanism
+    // rather than two.
+    this.advancedToggle = document.createElement('button');
+    this.advancedToggle.type = 'button';
+    this.advancedToggle.className = 'settings-advanced-toggle';
+    this.advancedToggle.addEventListener('click', () => this.setAdvanced(!this.advancedOpen));
+    card.appendChild(this.advancedToggle);
+
+    this.advanced = document.createElement('div');
+    this.advanced.className = 'settings-advanced hidden';
+    this.advanced.appendChild(this.movementPanel.element);
+    card.appendChild(this.advanced);
+
+    // Appended after the advanced block so Reset and Resume stay the last
+    // controls on the screen whether or not the section is expanded.
     card.appendChild(actions);
 
-    const hint = document.createElement('p');
-    hint.className = 'overlay-hint';
-    // `O` is mentioned here and nowhere else in-game; a player who wants the
-    // convars will find them, and one who does not is never shown them.
-    hint.innerHTML = 'Press <kbd>ESC</kbd> to resume &mdash; <kbd>O</kbd> for movement tuning';
-    card.appendChild(hint);
+    this.hint = document.createElement('p');
+    this.hint.className = 'overlay-hint';
+    card.appendChild(this.hint);
 
+    this.setAdvanced(false);
     this.root.appendChild(card);
     document.body.appendChild(this.root);
+  }
+
+  private setAdvanced(open: boolean): void {
+    this.advancedOpen = open;
+    this.advanced.classList.toggle('hidden', !open);
+    this.advancedToggle.classList.toggle('is-open', open);
+    this.advancedToggle.textContent = open ? '▾  Advanced Settings' : '▸  Advanced Settings';
+    if (open) this.movementPanel.refresh();
   }
 
   private buildRow(row: Row): HTMLElement {
@@ -187,7 +225,18 @@ export class SettingsPanel {
     return this.open;
   }
 
-  show(): void {
+  /**
+   * `context` only changes the wording. The same screen is the run's pause menu
+   * and the front menu's settings page, and "Resume" on a screen you reached
+   * from the main menu would be a lie about where the button goes.
+   */
+  show(context: 'run' | 'menu' = 'run', expandAdvanced = false): void {
+    this.closeButton.textContent = context === 'run' ? 'Resume' : 'Back';
+    this.hint.innerHTML =
+      context === 'run'
+        ? 'Press <kbd>ESC</kbd> to resume'
+        : 'Press <kbd>ESC</kbd> to go back';
+    if (expandAdvanced) this.setAdvanced(true);
     if (this.open) return;
     this.open = true;
     this.refresh();

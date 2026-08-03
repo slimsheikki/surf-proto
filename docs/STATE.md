@@ -120,6 +120,41 @@ of the crosshair (`UltimateArc`), filling bottom-to-top, growing flames and a
 ring — the ring is what keeps it visible against both the bright sky and the
 dark ramps.
 
+## Front menu (new)
+
+Classic stacked **PLAY / EDITOR / SETTINGS**, replacing the two side-by-side
+description cards. PLAY opens a second page *inside the same overlay* — so the
+orbiting backdrop never cuts — listing the standard course plus every map in
+storage, each with an aerial thumbnail. Picking a saved map plays it directly,
+without a trip through the editor (`App.startMapRun`, which still hands the map
+to the editor because `M` out of a free run goes *back* there).
+
+`ui/MapThumbnails.ts` renders the real geometry rather than an authored picture,
+so a tile can never drift from the map it stands for. Three things in it are
+load-bearing:
+
+- **`buildFreeWorld(map, false)`.** The collider registry is a module-level
+  singleton with no per-object removal, so a thumbnail pass that registered
+  would silently add every map in storage to the collision world.
+- **Opaque light backdrop and an under-light.** Course geometry is dark grey and
+  the tiles are dark cards; the first render came out as three near-black
+  rectangles. From above, every banked face also turns its *underside* to the
+  camera, so without a fill from below half the course renders black.
+- **The standard course is focused on the ring, not fitted.** Its bounding
+  sphere is set by the approach descent 600 units out, which shrinks the ring —
+  the thing that identifies the course — to a dot.
+
+The standard tile is photographed once at boot, which is the only moment that
+world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
+re-rendered per visit, because the editor can change one between two trips.
+
+**Settings** is reachable from the menu as well as from `Escape` in a run; the
+only difference is the close button's wording. The movement convar bench is no
+longer a floating panel of its own — it is embedded under a collapsible
+**Advanced Settings** section on that screen, and `MovementPanel` is now a
+content builder with no positioning, visibility or pointer-lock handling of its
+own. `O` still works and opens Settings with that section already expanded.
+
 ## Known bugs
 
 None blocking. The approach entry is fixed — see below.
