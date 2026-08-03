@@ -13,6 +13,7 @@ import { CameraRig } from '../player/CameraRig';
 import { Dash } from '../player/Dash';
 import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
+import { PlayerModel } from '../player/PlayerModel';
 import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
@@ -127,6 +128,13 @@ export interface GameHooks {
 export class Game {
   readonly playerController: PlayerController;
   readonly cameraRig: CameraRig;
+  /**
+   * The player's body in the world scene. Third-person only — in first person
+   * the camera sits inside its head — and driven purely from controller state,
+   * so it needs nothing in `Rewind`'s `Frame`: rewinding the player's transform
+   * rewinds the body with it.
+   */
+  readonly playerModel = new PlayerModel();
   readonly playerHealth = new Health(BASE_MAX_HP);
   readonly weapon = new Weapon();
   readonly knife = new Knife();
@@ -169,6 +177,8 @@ export class Game {
   private readonly ultFx = new UltimateEffect();
 
   private paused = false;
+  /** See `setRunVisible`. Starts false: `beginRun` is what turns the run on. */
+  private runVisible = false;
   private readonly hud = new Hud();
   private readonly bossBar = new BossBar();
   private readonly upgradeMenu = new UpgradeMenu();
@@ -228,6 +238,7 @@ export class Game {
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
+    scene.add(this.playerModel.root);
     this.rebuildShrines();
     // Built last: it captures references to every subsystem above, and the
     // shrines are handed over as a getter because `setCourse` replaces them.
@@ -314,12 +325,19 @@ export class Game {
       looking ? input.yawDelta : 0,
       looking ? input.pitchDelta : 0,
     );
+    // Same reasoning as the viewmodel above, and the same look deltas: the body
+    // keeps animating through a level-up pause, and gets no bank from a mouse
+    // it is not being driven by while the run plays backwards.
+    this.playerModel.update(dt, this.playerController, looking ? input.yawDelta : 0);
     this.slashCone.tick(dt);
     this.banner.tick(dt);
     this.dashFx.tick(dt);
     this.ultFx.tick(dt);
 
     this.cameraRig.update(this.playerController);
+    // After the rig, so the toggle takes effect on the very frame the camera
+    // pulls back rather than one behind it.
+    this.playerModel.setVisible(this.runVisible && this.cameraRig.mode === 'third');
     this.updateHud();
   }
 
@@ -343,6 +361,7 @@ export class Game {
     if (input.dashPressed && this.dash.tryConsume()) {
       this.playerController.dashImpulse();
       this.viewModel.triggerDash();
+      this.playerModel.triggerDash();
       this.dashFx.trigger();
     }
 
@@ -422,6 +441,7 @@ export class Game {
     const swing = this.knife.tick(dt, this.playerController, this.weaponTargets, input.attackPressed);
     if (swing) {
       this.viewModel.triggerSlash();
+      this.playerModel.triggerSlash();
       // Shown on whiffs too — the point of the flash is to teach the reach,
       // which is exactly what the player who just missed needs to see.
       this.slashCone.trigger(playerPosition, this.playerController.yaw);
@@ -666,6 +686,24 @@ export class Game {
     this.hud.setVisible(visible);
   }
 
+  /**
+   * Whether a run is the thing on screen at all — false in the menu and the
+   * editor. `Game` is constructed once and re-pointed with `setCourse`, and its
+   * world-space objects live in the shared scene, so without this the player's
+   * body is left standing on the course through the menu's orbit shot.
+   *
+   * Deliberately not folded into `setHudVisible`: that one follows pointer
+   * lock, and a body that vanished every time the pause menu opened would be a
+   * worse bug than the one this fixes.
+   */
+  setRunVisible(visible: boolean): void {
+    this.runVisible = visible;
+    // Applied straight away rather than waiting for `tick`, which does not run
+    // outside play mode — the frame that leaves a run is the frame that must
+    // not still be drawing a body.
+    if (!visible) this.playerModel.setVisible(false);
+  }
+
   get isMenuOpen(): boolean {
     return this.state === 'gameOver';
   }
@@ -699,6 +737,7 @@ export class Game {
     this.knife.reset();
     this.slashCone.hide();
     this.viewModel.reset();
+    this.playerModel.reset();
     this.dash.reset();
     this.ultimate.reset();
     this.rewind.clear();
