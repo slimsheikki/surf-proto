@@ -160,9 +160,46 @@ across the whole segment instead of switching instantly.
 
 **An absolute `src` in `index.html` does not get the base path.** Vite rewrites
 `url()` inside CSS but leaves HTML `src` alone, so the logo's path is built from
-`import.meta.env.BASE_URL` in `MainMenu.ts` — the hard-coded form works on
-localhost and 404s on Pages. `MainMenu` also swaps in a text wordmark on the
-image's `error` event, so a missing file never shows a broken-image icon.
+`import.meta.env.BASE_URL` in **`ui/Logo.ts`** — the hard-coded form works on
+localhost and 404s on Pages. The same helper swaps in a text wordmark on the
+image's `error` event, so a missing file never shows a broken-image icon, and it
+attaches that listener *before* setting `src` (a cached failure is synchronous).
+Two screens call it now: the front menu and the start screen.
+
+## Start screen (new)
+
+The screen a run opens on, `#start-overlay`. It was the turn's dumping ground —
+nine paragraphs down the middle of the viewport, one more every time the game
+grew a feature. Now three bands:
+
+- **The turning wordmark** at the top, the same `.menu-logo` treatment the front
+  menu uses (`.start-logo` only shrinks the caps), so the two screens agree.
+- **"Click to start", pinned to the centre.** Taken out of the flex flow —
+  `position: absolute; inset: 0` + `place-items: center` — because with the
+  other two bands sized by their content, `space-between` puts it at whatever
+  point falls between them, which is neither the centre nor stable as the guide
+  changes. The float animation is on the inner `<span>` so its `transform` never
+  fights the centring.
+- **The controls as a 4 × 2 card grid along the bottom**, icon + title + one
+  line each. Anything needing more than that line belongs in the game.
+
+**The guide sits above the XP bar, and the bottom padding is what puts it
+there.** This overlay shows with `#hud` already visible behind it; 132px is the
+HUD's own stack (~96px) plus its 18px offset plus air. If the HUD grows a row,
+that number grows with it. A `max-height: 780px` query trims the cards, because
+on a laptop the band that has to give is the guide — the prompt is pinned to the
+centre and the HUD clearance is fixed, so a short viewport eats the gap between
+them.
+
+The icons are inline stroke SVG on `currentColor`, not emoji: one weight and one
+colour with the type beside them, and no per-platform surprises. The cards
+deliberately take **no `backdrop-filter`** — the `.overlay` scrim already blurs
+the world once, and eight more passes buy nothing over a flat violet fill.
+
+**The crosshair and the ultimate arc now follow pointer lock** (`setHudVisible`
+in the `pointerlockchange` handler, and `false` in `beginRun`). They are aiming
+aids for a run that has not started, and dead centre is exactly where the prompt
+is.
 
 ## Music (new)
 

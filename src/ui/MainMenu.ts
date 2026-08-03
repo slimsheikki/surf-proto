@@ -1,5 +1,6 @@
 import { FreeMap } from '../editor/MapData';
 import { listMapNames, loadMap } from '../editor/MapStorage';
+import { mountLogo } from './Logo';
 import { renderMapThumbnails } from './MapThumbnails';
 
 /**
@@ -52,19 +53,9 @@ export class MainMenu {
   private getStandardThumbnail: () => string | null = () => null;
 
   constructor() {
-    // If the wordmark art is missing or fails to decode, fall back to the name
-    // set in the display face. A broken-image icon where the game's title goes
-    // is the worst thing the front door can show, and `error` is the only
-    // signal a failed <img> gives — there is no synchronous way to ask.
-    this.logo.addEventListener('error', () => {
-      this.logo.classList.add('hidden');
-      this.logoFallback.classList.remove('hidden');
-    });
-    // After the listener, never before: setting `src` can fail synchronously
-    // from cache, and a handler attached afterwards would miss the event and
-    // leave an empty heading. BASE_URL carries the deploy prefix — see the note
-    // on the element in index.html.
-    this.logo.src = `${import.meta.env.BASE_URL}images/megaflow-logo.png`;
+    // Art path and the missing-file fallback both live in `Logo.ts` now that the
+    // start screen shows the same turning wordmark.
+    mountLogo(this.logo, this.logoFallback);
 
     for (const item of this.rootItems) {
       item.addEventListener('click', () => this.runRootAction(item.dataset.action));
