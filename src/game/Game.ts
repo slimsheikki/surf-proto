@@ -24,13 +24,14 @@ import {
   rollGambleRarity,
   UpgradeContext,
 } from '../progression/Upgrades';
-import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
+import { orbCullDistance, resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BankMenu } from '../ui/BankMenu';
 import { BossBar } from '../ui/BossBar';
 import { COUNTDOWN_SECONDS, Countdown } from '../ui/Countdown';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
+import { FlowXP } from './FlowXP';
 import { Shrine } from './Shrine';
 import { pickShrineRespawnPoint } from './ShrineRespawn';
 import { Rewind } from './Rewind';
@@ -96,13 +97,15 @@ const BASE_MAX_HP = 100;
 const OUT_OF_BOUNDS_MARGIN = 30;
 
 /**
- * Distance at which entities are considered out of play and despawned. The
+ * Distance at which enemies are considered out of play and despawned. The
  * player outruns drones permanently at surf speed, so anything this far away is
- * dead weight — but both radii are well beyond the weapon's reach and beyond
- * the furthest spawn distance, so nothing plausibly still in play is culled.
+ * dead weight — but the radius is well beyond the base weapon's reach and
+ * beyond the furthest spawn distance, so nothing plausibly still in play is
+ * culled. Orbs use `orbCullDistance` instead: their sphere has to track the
+ * *upgraded* weapon range, or a max-range kill drops loot straight into the
+ * cull (which is exactly the bug it used to have — see XPOrb.ts).
  */
 const ENEMY_CULL_DISTANCE = 55;
-const ORB_CULL_DISTANCE = 40;
 
 /**
  * The slice of the built course the game loop needs. Declared here rather than
@@ -165,6 +168,8 @@ export class Game {
   readonly dash = new Dash();
   /** The ReWind ultimate's charge meter. Fed by speed, air time and kills. */
   readonly ultimate = new Ultimate();
+  /** Passive XP for sustained speed. See `FlowXP` for the budget maths. */
+  readonly flowXp = new FlowXP();
   /** Run-scoped perk hooks (heal-on-kill, XP multiplier). See `RunPerks`. */
   readonly perks = createRunPerks();
 
@@ -283,6 +288,7 @@ export class Game {
       playerHealth: this.playerHealth,
       levelSystem: this.levelSystem,
       dash: this.dash,
+      flowXp: this.flowXp,
       weapon: this.weapon,
       knife: this.knife,
       perks: this.perks,
@@ -519,12 +525,16 @@ export class Game {
     // distance culling itself awards nothing — leaving play is not a kill.
     this.entityManager.cullDistantEnemies(playerPosition, ENEMY_CULL_DISTANCE);
 
-    for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition);
+    // Full 3D speed, not the horizontal `speed` getter: the pull's lead has to
+    // beat the player's actual closing rate, and on a descent much of that is
+    // vertical.
+    const playerSpeed3d = playerVelocity.length();
+    for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition, playerSpeed3d);
 
     this.entityManager.cullCollectedOrbs((orb) => {
       this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
     });
-    this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
+    this.entityManager.cullDistantOrbs(playerPosition, orbCullDistance(this.weapon.range));
     this.entityManager.cullSpentBlasts();
 
     // Player death is resolved first: a simultaneous kill is a loss, and the
@@ -537,6 +547,17 @@ export class Game {
     if (this.boss && !this.boss.isAlive) {
       this.fellBoss();
       return;
+    }
+
+    // Flow: sustained speed pays a trickle of XP — a percentage of the current
+    // level requirement per second, so it stays worth the same fraction of a
+    // bar at any level without ever competing with kills (the budget maths
+    // live in FlowXP). Scholar's multiplier applies, same as every XP source.
+    const flowPct = this.flowXp.tick(dt, this.playerController.speed);
+    if (flowPct > 0) {
+      this.levelSystem.addXp(
+        (flowPct / 100) * this.levelSystem.xpToNextLevel * this.perks.xpMultiplier * dt,
+      );
     }
 
     // Last in the tick, and in this order. The meter is charged from the state
@@ -924,6 +945,7 @@ export class Game {
     this.playerModel.reset();
     this.dash.reset();
     this.ultimate.reset();
+    this.flowXp.reset();
     this.rewind.clear();
     this.ultFx.reset();
     this.bossEpoch = 0;
@@ -973,6 +995,8 @@ export class Game {
 
     this.hud.update({
       speed: this.playerController.speed,
+      // Post-multiplier: the readout shows what is actually filling the bar.
+      flowXpPctPerSecond: this.flowXp.ratePctPerSecond * this.perks.xpMultiplier,
       hpFraction: this.playerHealth.hp / this.playerHealth.maxHp,
       xpFraction: this.levelSystem.progress,
       level: this.levelSystem.level,
