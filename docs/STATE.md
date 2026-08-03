@@ -50,6 +50,37 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
 
+## Enemies persist forever (new)
+
+The 55-unit enemy despawn is gone — same Vampire-Survivors rule the orbs got: a drone the
+player outruns falls behind, drops past the fog wall, and keeps solving its intercept
+forever. It re-engages when the course loops back through it. Enemies leave the world by
+dying, by a Monolith's arrival (`clearEnemies` — a duel rule, not a distance rule), by
+rewind reconciliation, or by the run ending. `EntityManager.cullDistantEnemies` no longer
+exists and the probe asserts the absence.
+
+Two radii remain, neither of which deletes anything:
+
+- **`ENEMY_ENGAGE_RADIUS` (55)** bounds the spawn director's concurrency count
+  (`EntityManager.countEnemiesWithin`), because with persistence a cap on the *global*
+  count would let far stragglers starve spawning near the player — the better you surf,
+  the emptier the game would get, which is backwards. 55 is the old cull distance, kept
+  because nothing escapes it in the early game, which leaves the tuned early game
+  bit-identical. `SpawnContext.liveEnemyCount` was renamed `nearbyEnemyCount` to make the
+  semantics unmissable. `Difficulty.ts` untouched.
+- **`ENEMY_RENDER_DISTANCE` (240)** hides enemy meshes past the ~220-unit fog wall — the
+  user's own framing: they may not *render*, but they are always there. Simulation
+  continues; only the draw call stops.
+
+**Cost on record**, same honest note as persistent orbs: the live-enemy count now grows
+over a run. Each straggler is a hidden mesh (no draw call past 240), a cheap steering
+solve at 128 Hz, and an `EnemySample` in every 32 Hz rewind frame (frame arrays grow to
+the run's high-water mark). InstancedMesh batching is the known lever if it ever bites.
+
+Verified: `.probe-enemies.ts` — cull API absent, `countEnemiesWithin` counts 2 of 4
+(near vs far), and a drone left 300u behind persists and closes 60u on a stationary
+player over 5 s.
+
 ## Knife cut; Sound Blast and Solar Wave in its place (new)
 
 The combat knife is gone — weapon, upgrades, viewmodel blade, slash animation, all of it.

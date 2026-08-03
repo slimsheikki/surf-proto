@@ -19,8 +19,14 @@ export interface SpawnContext {
   /** Unit vector along the player's 3D direction of travel (falls back to look direction when still). */
   travelDirection: Vector3;
   playerSpeed: number;
-  /** Live enemies currently in the world, used to enforce the concurrency cap. */
-  liveEnemyCount: number;
+  /**
+   * Enemies inside the local fight (`EntityManager.countEnemiesWithin`), used
+   * to enforce the concurrency cap. Deliberately NOT the total live count:
+   * enemies persist forever now, so counting far stragglers would starve
+   * spawning near a player who outruns the swarm — the better you surf, the
+   * emptier the game would get, which is backwards.
+   */
+  nearbyEnemyCount: number;
   /**
    * The player's current level. Together with the run clock this is the whole
    * input to `Difficulty`, and it is the term that keeps growing after the time
@@ -37,8 +43,9 @@ export interface SpawnContext {
  *
  * Spawn distance scales with the player's speed so a 35 u/s surfer still gets
  * roughly the same fraction of a second of approach time as a 10 u/s one, and
- * both batch size and total live population are capped so entity count can
- * never grow without bound over a long run.
+ * both batch size and the *local* population are capped — the cap counts only
+ * enemies near the fight, because enemies persist forever once spawned and a
+ * cap on the global count would starve the fight as stragglers accumulate.
  */
 export interface SpawnSnapshot {
   survivalTime: number;
@@ -67,7 +74,7 @@ export class SpawnDirector {
     if (this.timeSinceLastSpawn < difficulty.spawnInterval) return;
     this.timeSinceLastSpawn = 0;
 
-    const capacity = difficulty.liveCap - ctx.liveEnemyCount;
+    const capacity = difficulty.liveCap - ctx.nearbyEnemyCount;
     if (capacity <= 0) return;
 
     const batchSize = Math.min(difficulty.batchSize, capacity);
