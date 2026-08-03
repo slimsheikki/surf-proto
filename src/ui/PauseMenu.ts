@@ -12,7 +12,14 @@
  * and the pause that losing the lock already caused finally has a menu on it.
  * `Escape` pressed *here* is delivered normally, because the lock is gone by
  * then, and it means CONTINUE.
+ *
+ * It carries the turning wordmark in the same place the start screen puts it —
+ * pinned to the top of the viewport, not laid out inside this menu's column —
+ * because these are the two screens a player flips between mid-run and a logo
+ * that jumped between them would read as two different screens.
  */
+
+import { createLogoHeading } from './Logo';
 
 export interface PauseMenuHandlers {
   onContinue: () => void;
@@ -41,6 +48,9 @@ export class PauseMenu {
     this.root = document.createElement('div');
     this.root.id = 'pause-menu';
     this.root.className = 'overlay hidden';
+    // Outside `.menu-page` on purpose: it is positioned against the viewport,
+    // and inside the column it would push CONTINUE off centre.
+    this.root.appendChild(createLogoHeading());
 
     const page = document.createElement('div');
     page.className = 'menu-page';

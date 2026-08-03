@@ -416,27 +416,47 @@ h2,
  * plus a little air; if the HUD grows another row, this grows with it.
  */
 #start-overlay {
-  justify-content: space-between;
+  /* The guide is the only child left in the flow — the wordmark and the prompt
+     are both positioned against the viewport — so this parks it at the bottom,
+     and the padding below is what holds it clear of the HUD. */
+  justify-content: flex-end;
   gap: 0;
-  padding: clamp(12px, 3vh, 32px) clamp(16px, 3vw, 40px) 132px;
+  padding: 0 clamp(16px, 3vw, 40px) 132px;
   /* The entire scrim is the click target that takes pointer lock, so it says so. */
   cursor: pointer;
 }
 
-/* Smaller than the front menu's hero treatment — here the wordmark is a header
-   over a screen that has a call to action and a guide to fit under it. Both
-   caps move together, and `.menu-logo`'s reserved min-height with them. */
-.menu-logo.start-logo,
-.menu-logo.start-logo img {
+/*
+ * The wordmark as a screen *header*, shared by the start screen and the pause
+ * screen — the two overlays a player flips between mid-run.
+ *
+ * Pinned to the top of the viewport rather than laid out by whichever column it
+ * sits in, and that is the reason it is positioned at all: the two screens have
+ * completely different bodies under it (a prompt and a card grid; a stacked
+ * menu), so anything flow-based would land the logo somewhere different on each
+ * and pausing would make it jump. Off the flow it also cannot shove a centred
+ * menu off its centre.
+ *
+ * Smaller than the front menu's hero treatment — here it is a header over a
+ * screen with a body to fit under it. All three caps move together.
+ */
+.menu-logo.screen-logo,
+.menu-logo.screen-logo img {
   max-height: min(200px, 24vh);
 }
 
-.menu-logo.start-logo {
+.menu-logo.screen-logo {
+  position: absolute;
+  top: clamp(12px, 3vh, 32px);
+  left: 50%;
+  /* Only ever an offset: the turn itself is on the <img>, so this cannot
+     interfere with it. */
+  transform: translateX(-50%);
   min-height: min(200px, 24vh);
   margin: 0;
 }
 
-.menu-logo.start-logo img {
+.menu-logo.screen-logo img {
   max-width: min(420px, 62vw);
 }
 
@@ -578,18 +598,24 @@ h2,
   font-size: 11px;
 }
 
-/* The band that has to give on a laptop screen is the guide: the prompt is
-   pinned to the centre and the HUD clearance below is fixed, so a shorter
+/* The other band that has to give on a laptop screen is the guide: the prompt
+   is pinned to the centre and the HUD clearance below is fixed, so a shorter
    viewport eats the gap between them. Trimming the cards here keeps that gap
    open rather than letting the top row creep up under "Click to start". */
+/*
+ * On a laptop the wordmark is what gives. It is pinned to the top of both
+ * screens while their bodies stay centred, so a short viewport closes the gap
+ * between them from both sides — and the pause menu's column cannot simply move
+ * down to compensate, because the HUD is waiting for it at the bottom.
+ */
 @media (max-height: 780px) {
-  .menu-logo.start-logo,
-  .menu-logo.start-logo img {
-    max-height: min(160px, 21vh);
+  .menu-logo.screen-logo,
+  .menu-logo.screen-logo img {
+    max-height: min(140px, 18vh);
   }
 
-  .menu-logo.start-logo {
-    min-height: min(160px, 21vh);
+  .menu-logo.screen-logo {
+    min-height: min(140px, 18vh);
   }
 
   #start-guide {

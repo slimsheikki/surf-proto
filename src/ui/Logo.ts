@@ -20,3 +20,28 @@ export function mountLogo(img: HTMLImageElement, fallback: HTMLElement): void {
   });
   img.src = `${import.meta.env.BASE_URL}images/megaflow-logo.png`;
 }
+
+/**
+ * The same wordmark as a ready-made heading, for the screens that build their
+ * markup in code rather than in `index.html`.
+ *
+ * `.screen-logo` is what pins it to the top of the viewport, and that is the
+ * whole point of sharing it: the start screen and the pause screen are the two
+ * things a player flips between mid-run, and the logo must not jump between
+ * them.
+ */
+export function createLogoHeading(): HTMLElement {
+  const heading = document.createElement('h1');
+  heading.className = 'menu-logo screen-logo';
+
+  const img = document.createElement('img');
+  img.alt = 'MEGAFLOW';
+
+  const fallback = document.createElement('span');
+  fallback.className = 'hidden';
+  fallback.textContent = 'MEGAFLOW';
+
+  heading.append(img, fallback);
+  mountLogo(img, fallback);
+  return heading;
+}
