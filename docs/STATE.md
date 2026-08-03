@@ -912,6 +912,56 @@ re-reading against this**: the slash cone's normal blending and the emissive cli
 were written against a pale blue sky, and violet/purple UI now sits on gold rather than on
 near-white. Lights are untouched (white ambient + white sun) and probably want a warm pass.
 
+## Ramp texture (new)
+
+Every ramp in both builders now wears `public/images/textures/texture_01.png` — a seamless
+prototype grid — on **every face**: top surface, both edge walls, the under-side and both end
+caps. `src/world/RampTexture.ts` is the shared owner; nothing else should set `map` on a ramp
+material.
+
+The asset, measured rather than eyeballed: 1024², a `#333335` field, faint `#474749` rules every
+128 px, and a hard white rule down both centre lines *and* around all four borders — so two
+neighbouring copies each contribute a pixel and the tile boundary reads as the same white rule as
+the middle. **One repeat is a 2 × 2 block of white-bordered cells**, each split 4 × 4 by the faint
+rules. That white-bordered cell is the unit everything is sized in: `GRID_CELL_HAMMER = 128`, the
+major division on Source's own `dev_measure*` textures, which puts a standard `RAMP_FACE_WIDTH`
+face at six cells across and a cell at a bit under two player heights.
+
+Three decisions worth knowing before touching that file:
+
+- **UVs are measured on the face, not projected from world space.** A world-space projection is
+  the cheap answer and it is wrong here: a surf face is a wall banked 51.34°, so every projection
+  plane is oblique to the one surface the player looks at for the whole ride, and the grid arrives
+  stretched by 1/cos of the bank. `RampLibrary.stripUv` accumulates real distance along the
+  centreline and real distance across the face instead, so cells stay square on any bank, pitch,
+  sweep or taper — and tiling is exact at every seam because adjacent quads share the vertex *and*
+  the number. `RampCurve` does the box equivalent in `applyBoxGridUv`, keyed off vertex normals so
+  it does not depend on `BoxGeometry`'s vertex order.
+- **Only the width is fitted to whole cells; the length reuses that cell size.** Fitting both
+  would land the trailing edge on a rule too, at the cost of up to ~8% non-square cells. The high
+  and low edges are what frame the view for the entire ride, so a half-cell sliver along either is
+  the misalignment that reads as sloppy; a piece's far end is across an air gap where nothing
+  lines up anyway. Widths 18, 12 and 8 all fit within 6% of the target, which is invisible between
+  two pieces separated by a gap.
+- **The palette became a hue, not a value.** The map multiplies the material colour and the field
+  is very dark, so at a colour of 1 the ramps are silhouettes against the gold sky. `rampTint`
+  normalises each greybox colour to its own brightest channel — keeping the per-segment tint and
+  the warm/cool split between pitched and level pieces — and scales by a gain derived from
+  `FIELD_TARGET_SRGB`. **That one constant is the brightness knob**; it cannot shift a tint.
+  Restoring the *old* greybox value would need a gain near 7.7, which clips the white and faint
+  rules together and flattens the grid into glare.
+
+`useRampTexture` defers both the map and the lifted tint until the image has actually decoded. A
+`Texture` with no image does not render as "no map" — the renderer binds an empty 1×1, so a piece
+built in the first few ms of boot would come out flat black or flat white at the tint's ~4.7×
+exposure, and the menu's map tiles render **once** into a data URL and never get a second chance.
+Until it lands a material keeps its plain palette colour and looks exactly like the old greybox.
+
+Pads and platforms are deliberately untextured — they are the one flat surface you can stand on,
+and reading differently from the ramps is useful. Verified by screenshot: ring faces square-on
+(six cells across, both edges on rules), the rider's eye view, and every palette family including
+the pyramid's four faces converging on the apex, both trapezoid tapers, and both curve sweeps.
+
 ## Next up
 
 1. Fix the approach entry (bug 1), then re-run the flow probe.

@@ -9,6 +9,7 @@ import {
 } from 'three';
 import { degToRad, lerp } from '../engine/MathUtils';
 import { registerCollider } from './Colliders';
+import { applyBoxGridUv, gridCellFor, useRampTexture } from './RampTexture';
 
 export type RampCurveMode = 'straight' | 'vertical' | 'horizontal';
 
@@ -285,9 +286,19 @@ export function buildRampCurve(
     roughness: params.roughness ?? 0.75,
     metalness: params.metalness ?? 0.05,
   });
+  useRampTexture(material, color);
   const wallMaterial = new MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 });
+  useRampTexture(wallMaterial, 0x2a3542);
 
   const path = computeRampFrames(params, mode);
+
+  // One cell size for the whole piece, fitted to the face's width — see
+  // `gridCellFor`. Fitting per segment instead would make a curve's grid step
+  // scale at every seam, and a taper's at every one of its many.
+  const cell = gridCellFor(Math.max(params.width, params.endWidth ?? params.width));
+  // How far along travel each segment starts, so the grid runs unbroken down a
+  // segment chain rather than restarting at every box.
+  let along = 0;
 
   for (const frame of path.frames) {
     const { forward, right, normal } = frame;
@@ -301,6 +312,10 @@ export function buildRampCurve(
     if (withColliders) registerCollider({ position: boxCenter, quaternion, halfExtents });
 
     const geometry = new BoxGeometry(frame.width, thickness, boxLength);
+    // The box is centred on the segment's midpoint, so local Z = 0 is
+    // `frame.length / 2` past where the segment starts; adding that back puts
+    // the grid's origin on the *piece's* leading edge.
+    applyBoxGridUv(geometry, frame.width, thickness, boxLength, cell, along + frame.length / 2);
     const mesh = new Mesh(geometry, material);
     mesh.position.copy(boxCenter);
     mesh.quaternion.copy(quaternion);
@@ -330,12 +345,22 @@ export function buildRampCurve(
           GUIDE_WALL_HEIGHT,
           boxLength,
         );
+        applyBoxGridUv(
+          wallGeometry,
+          GUIDE_WALL_THICKNESS,
+          GUIDE_WALL_HEIGHT,
+          boxLength,
+          cell,
+          along + frame.length / 2,
+        );
         const wallMesh = new Mesh(wallGeometry, wallMaterial);
         wallMesh.position.copy(wallCenter);
         wallMesh.quaternion.copy(quaternion);
         group.add(wallMesh);
       }
     }
+
+    along += frame.length;
   }
 
   return { group, endPosition: path.end, endYawDeg: path.endYawDeg, endPitchDeg: path.endPitchDeg };

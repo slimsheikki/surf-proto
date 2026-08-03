@@ -251,6 +251,17 @@ while travel runs *along* its length. You slide down the face and air-strafe bac
 an arc. **A pitched ramp is a downhill chute — the wrong archetype**, and that mistake survived
 several sessions because it looks fine in screenshots.
 
+**Ramp surfaces are textured, not flat-shaded.** `src/world/RampTexture.ts` owns the prototype
+grid (`public/images/textures/texture_01.png`) that every ramp face, edge and cap wears, and the
+UV maths that tiles it at a fixed world scale — one white-bordered cell per 128 Hammer units,
+fitted so a face's width holds a whole number of cells. Both ramp builders route through it:
+`RampCurve` rewrites its `BoxGeometry` UVs with `applyBoxGridUv`, and the editor's lofted skins
+(`RampLibrary.stripUv`) measure along and across the face itself, which is the only way a wall
+banked 51° gets square cells. One shared `Texture` for the whole app, and materials take the map
+only once the image has decoded — see the comments there for why that matters to the menu tiles.
+Pads and platforms are deliberately left plain: they are the one flat thing you can stand on, and
+looking different is useful.
+
 `src/world/SurfCourse.ts` assembles the standard course: a floating island orbited by a ring of
 **ten banked ramps** at radius 90, plus an approach staircase that feeds the ring. The ring
 closes on itself with **no net descent**, which is what makes the run endless. A `CourseStage`
@@ -421,7 +432,7 @@ only be tested by playing it.
 | `src/app/` | Composition root, renderer, mode switching, frame loop | `App.ts` |
 | `src/engine/` | Reusable primitives: fixed clock, input, raycasting, math, disposal | `Raycast.ts` |
 | `src/player/` | Controller, tuning constants, camera, first/third-person models, dash | `PlayerController.ts` |
-| `src/world/` | Ramp geometry generation, the standard course, collider registry | `RampCurve.ts` |
+| `src/world/` | Ramp geometry generation, ramp texturing, the standard course, collider registry | `RampCurve.ts` |
 | `src/game/` | Run orchestration and tick order, entity lists | `Game.ts` |
 | `src/enemies/` | Drones, seeders, the Monolith, spawn director, difficulty scaling | `Enemy.ts` |
 | `src/combat/` | Auto-weapon, knife, projectiles, blasts, health | `Weapon.ts` |
