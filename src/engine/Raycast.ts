@@ -93,7 +93,12 @@ function rayIntersectBox(origin: Vector3, direction: Vector3, box: ColliderBox):
  * inside reports MISS: a sample buried in solid geometry describes no
  * free-space motion (see `isInsideAnyCollider`).
  */
-function rayIntersectConvex(origin: Vector3, direction: Vector3, convex: ColliderConvex): number {
+function rayIntersectConvex(
+  origin: Vector3,
+  direction: Vector3,
+  convex: ColliderConvex,
+  skipCaps: boolean,
+): number {
   // Broadphase: reject when the ray's line passes outside the bounding sphere.
   const toCentre = convexTmp.copy(convex.bound).sub(origin);
   const along = toCentre.dot(direction);
@@ -126,12 +131,24 @@ function rayIntersectConvex(origin: Vector3, direction: Vector3, convex: Collide
   }
 
   if (entryPlane === -1) return MISS; // origin started inside; ignore
+  // Entering through a piece's **end cap** means the ray reached this wedge from
+  // behind or below its leading edge — see `ColliderConvex.capPlane`. Declining
+  // it loses nothing: a ray that would land on the ride surface enters through
+  // the *top* plane, which is the one that raises tMin last in that case, so it
+  // is still reported. What is dropped is only the head-on strike that deletes a
+  // surfer's forward velocity.
+  if (skipCaps && entryPlane === convex.capPlane) return MISS;
   boxHitNormal.copy(convex.planes[entryPlane].normal);
   return tMin;
 }
 
 /** Nearest collider hit along a ray, within maxDistance. */
-export function raycast(origin: Vector3, direction: Vector3, maxDistance: number): RayHit | null {
+export function raycast(
+  origin: Vector3,
+  direction: Vector3,
+  maxDistance: number,
+  skipCaps = false,
+): RayHit | null {
   const dir = rayDir.copy(direction).normalize();
   let bestDistance = Infinity;
   let bestCollider: ColliderBox | ColliderConvex | null = null;
@@ -145,7 +162,7 @@ export function raycast(origin: Vector3, direction: Vector3, maxDistance: number
   }
 
   for (const convex of getConvexColliders()) {
-    const distance = rayIntersectConvex(origin, dir, convex);
+    const distance = rayIntersectConvex(origin, dir, convex, skipCaps);
     if (distance === MISS || distance > maxDistance || distance >= bestDistance) continue;
     bestDistance = distance;
     bestCollider = convex;
@@ -250,7 +267,12 @@ export function groundProbe(
  * surface, which for a 0.4 radius would visibly hold them off the ramps, so the
  * inflation is simply removed rather than made meaningful.
  */
-export function sweep(position: Vector3, displacement: Vector3, radius: number): RayHit | null {
+export function sweep(
+  position: Vector3,
+  displacement: Vector3,
+  radius: number,
+  skipCaps = false,
+): RayHit | null {
   const distance = displacement.length();
   if (distance < EPS) return null;
   const direction = sweepDir.copy(displacement).divideScalar(distance);
@@ -262,7 +284,7 @@ export function sweep(position: Vector3, displacement: Vector3, radius: number):
     // `isInsideAnyCollider`. Without this, riding a banked multi-segment ramp
     // stops the player dead at the first seam.
     if (isInsideAnyCollider(rayOrigin)) continue;
-    const hit = raycast(rayOrigin, direction, distance);
+    const hit = raycast(rayOrigin, direction, distance, skipCaps);
     if (hit && (!best || hit.distance < best.distance)) best = hit;
   }
   return best;

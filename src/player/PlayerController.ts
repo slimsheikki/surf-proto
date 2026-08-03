@@ -93,6 +93,35 @@ const DASH_IMPULSE_SPEED = 8; // u/s, added instantly
  */
 const WALKABLE_NORMAL_EPS = 1e-4;
 
+/**
+ * Every place a move can destroy the player's velocity, named.
+ *
+ * This bug class — a player stopped dead on geometry that looks fine — has been
+ * chased three times now, and each time the hard part was not the fix but
+ * proving *which* of these fired. They cannot be told apart from outside: every
+ * one of them but `duplicate-plane-bail` leaves the same zeroed velocity behind,
+ * and that one leaves no trace at all.
+ */
+export type MoveDiagnosticSite =
+  | 'max-clip-planes'
+  | 'duplicate-plane-bail'
+  | 'no-satisfying-clip'
+  | 'degenerate-crease'
+  | 'reverse-stop'
+  | 'no-progress'
+  | 'ground-speed-clamp';
+
+let moveDiagnostics: ((site: MoveDiagnosticSite) => void) | null = null;
+
+/**
+ * Installs a sink for the above, for a probe. Null by default and null in the
+ * game — the call sites are `?.()`, so this costs six undefined-checks a tick
+ * and allocates nothing.
+ */
+export function setMoveDiagnostics(sink: ((site: MoveDiagnosticSite) => void) | null): void {
+  moveDiagnostics = sink;
+}
+
 // --------------------------------------------------------------- landing redirect
 //
 // Everything in this block is off by default (`SURF_LANDING_REDIRECT`) and is
@@ -265,7 +294,7 @@ export class PlayerController {
     let numPlanes = 0;
     let timeLeft = dt;
     let allFraction = 0;
-    let bailedOnDuplicate = false;
+    let bailedOnDuplicatePlane = false;
 
     for (let bump = 0; bump < MAX_BUMPS; bump++) {
       if (this.velocity.lengthSq() === 0) break;
@@ -274,7 +303,25 @@ export class PlayerController {
       const dist = displacement.length();
       if (dist < 1e-9) break;
 
-      const hit = sweep(this.position, displacement, MovementConfig.PLAYER_RADIUS);
+      // The last argument is why a surfer no longer stops dead at a ramp join.
+      //
+      // `registerPrism` closes every wedge with vertical planes, and the ones at
+      // a strip's first and last ring face straight back along travel. Clipping
+      // against one deletes the player's entire forward component — the dead stop
+      // that has now been chased through box end-caps, through segment seams, and
+      // through the joins between pieces. Pieces are padded to overlap so a cap
+      // usually sits buried inside its neighbour, but a player arriving even
+      // slightly below a leading edge still meets it head-on, and no shaping of
+      // the geometry can help: `registerPrism` builds the plane exactly vertical
+      // whatever the edge it came from looks like.
+      //
+      // Real surf maps make the same call — the CS2 guide's ramp method leaves
+      // the leading clip a thin shell rather than a solid end, so an undershoot
+      // passes under the ramp instead of splatting on the front of it.
+      //
+      // Airborne only: a grounded player walking into the end of a ramp should
+      // meet a wall, and still does. Surfers are airborne by construction.
+      const hit = sweep(this.position, displacement, MovementConfig.PLAYER_RADIUS, !this.grounded);
       const fraction = !hit || hit.distance >= dist ? 1 : Math.max(hit.distance - SKIN_WIDTH, 0) / dist;
       allFraction += fraction;
 
@@ -289,6 +336,7 @@ export class PlayerController {
       timeLeft -= timeLeft * fraction;
 
       if (numPlanes >= MAX_CLIP_PLANES) {
+        moveDiagnostics?.('max-clip-planes');
         this.velocity.set(0, 0, 0);
         break;
       }
@@ -301,7 +349,8 @@ export class PlayerController {
       }
       if (duplicate) {
         // Same surface reported twice — see DUPLICATE_PLANE_DOT.
-        bailedOnDuplicate = true;
+        moveDiagnostics?.('duplicate-plane-bail');
+        bailedOnDuplicatePlane = true;
         break;
       }
       this.clipPlanes[numPlanes].copy(hit.normal);
@@ -347,11 +396,13 @@ export class PlayerController {
       if (i === numPlanes) {
         // No single plane works — go along the crease of the two.
         if (numPlanes !== 2) {
+          moveDiagnostics?.('no-satisfying-clip');
           this.velocity.set(0, 0, 0);
           break;
         }
         dir.crossVectors(this.clipPlanes[0], this.clipPlanes[1]);
         if (dir.lengthSq() < 1e-12) {
+          moveDiagnostics?.('degenerate-crease');
           this.velocity.set(0, 0, 0);
           break;
         }
@@ -360,15 +411,19 @@ export class PlayerController {
       }
 
       if (this.velocity.dot(primalVelocity) <= 0) {
+        moveDiagnostics?.('reverse-stop');
         this.velocity.set(0, 0, 0);
         break;
       }
     }
 
     // Source: no progress in any bump means genuinely wedged, so stop. Excluded
-    // when the loop bailed on a duplicate plane, which is a limitation of the
-    // ray-ring sweep rather than the player being stuck.
-    if (allFraction === 0 && !bailedOnDuplicate) this.velocity.set(0, 0, 0);
+    // when the loop bailed on a surface reported twice, which is a limitation of
+    // the ray-ring sweep rather than the player being stuck.
+    if (allFraction === 0 && !bailedOnDuplicatePlane) {
+      moveDiagnostics?.('no-progress');
+      this.velocity.set(0, 0, 0);
+    }
   }
 
   /**
@@ -477,6 +532,7 @@ export class PlayerController {
       this.velocity.y = 0;
       const spd = this.velocity.length();
       if (spd > MovementConfig.MAX_GROUND_SPEED) {
+        moveDiagnostics?.('ground-speed-clamp');
         this.velocity.multiplyScalar(MovementConfig.MAX_GROUND_SPEED / spd);
       }
       this.applyMomentumBoost(dt, wishDir);

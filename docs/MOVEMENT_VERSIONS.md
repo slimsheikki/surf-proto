@@ -22,6 +22,141 @@ Open questions I could not settle from here are listed at the bottom.
 
 ---
 
+## v2 — Clean Seams
+
+One bug, chased to the bottom: **a surfing player stopped dead at the join between two ramp
+pieces.** Nothing about the movement maths changed; what changed is that a piece's leading
+edge is no longer a wall.
+
+Judge this build on one thing: ride the long banked run and see whether you ever get
+snagged. Everything else should feel identical to v1.
+
+### What was actually stopping you
+
+Not the visible corner of the ramp. `Colliders.registerPrism` closes every collision wedge
+with side planes built as `edge × (0,-1,0)` — **exactly vertical, whatever shape the edge it
+came from has**. At a strip's first and last ring those planes face straight back along
+travel, so they are a wall across the whole width of the piece. Clipping against one deletes
+the player's entire forward component.
+
+Two things put you in front of one:
+
+1. **A crack at every curved join.** `RampLibrary.faceRings` builds ring `i` at the segment
+   *boundary* `frames[i].start` but with that segment's *midpoint* basis, so a piece's two
+   end rings each sit half an angle step (0.978° at the stock 45°/23 segments) off their
+   nominal heading. Two pieces snapped socket-on-socket therefore meet with a full step of
+   yaw discontinuity in the width axis, opening a triangular notch — nil at the ridge, **0.19
+   at the low edge**, right where a surfer rides. Measured on the shipped course:
+   **22 of 31 face-joins left an exposed cap.** The same sampling choice is why every "45°"
+   curve reports an exit heading of 44.02°, which is why the map's chained yaws read
+   22.5 → 66.52 → 110.54.
+2. **Authored gaps.** Most joins on the course are hand-placed with several units of air.
+   Arrive below the next piece's leading edge and you hit that wall head-on.
+
+This is the third time this bug class has been found, in three different clothes: box
+end-caps between segments, then a level piece butted against a pitched one (*"30 u/s in,
+6.4 u/s out"*), now piece joins. Welded wedges fixed it **within** a piece. Nothing had ever
+fixed it **between** pieces — and nothing had ever driven a probe down the hand-placed
+61-piece course to notice.
+
+### The fix, in two halves
+
+**Geometry — `RampLibrary.emitStripColliders` now pads both ends of a strip.**
+`computeRampFrames` has always computed exactly the right number for this (`overlapPad`,
+sized to the daylight half a step of rotation opens across the face) and the old box builder
+has always used it; the prism path simply never picked it up when collision moved to welded
+wedges. Collision only — the visible skin is untouched, so nothing lengthens on screen.
+Floored at 0.05 for single-segment pieces, whose own pad is zero and which still crack by a
+few thousandths from float noise at map-scale coordinates — *worse* than a wide crack,
+because a hit inside `SKIN_WIDTH` yields exactly zero progress.
+
+**Engine — `Raycast` declines a cap plane for an airborne player.** `registerPrism` takes a
+`capEdge`, `emitStripColliders` tags the two terminal prisms, and `rayIntersectConvex` reports
+a miss when the ray's *entry* plane is that cap. This loses nothing: a ray that would land on
+the ride surface enters through the **top** plane, which is what raises `tMin` last in that
+case, so it is still reported. What is dropped is only the head-on strike. Real surf maps make
+the same call — the CS2 guide's ramp method leaves the leading clip a thin shell rather than a
+solid end, so an undershoot passes *under* the ramp instead of splatting on the front of it.
+
+Airborne only. A grounded player walking into the end of a ramp still meets a wall.
+
+### The wrong version of the engine half, on record
+
+The first attempt bailed out of the bump loop on a cap hit, keeping velocity — the same shape
+as the existing duplicate-plane rule. It reads fine and it is badly wrong: the player is
+**pinned in place with velocity intact**, which a speed-based stall test cannot see.
+Measured 0.0% of `|v|·dt` realised over a 45-second run, 5755 near-zero-progress ticks out of
+5760. If you ever reach for that shape again, measure displacement, not speed.
+
+### Measured, on the shipped course
+
+Probe: the real `PlayerController` at 1/128 s over the real `buildFreeWorld` colliders, seeded
+on all 52 ramp pieces × 7 lateral positions × 4 entry speeds. Stalls judged by **absolute**
+one-tick speed loss ≥ 4 u/s — gravity alone is 0.139 u/s per tick and the steepest legitimate
+deceleration on this map is ~0.114, so 4 is ~30× anything physical.
+
+```
+                                    v1        v2
+butt joints with an exposed cap    22/31     2/31
+stalls (of 2632 seeds)               471      180
+
+  by piece type:
+    horizontal-curved-full           176        0
+    vertical-curved-full              98        0
+    horizontal-curved-half-l          40        0
+    horizontal-curved-half-r          14        0
+    straight-full                     21        0
+    straight-inverted                108      164
+    pyramid-full                      14       16
+
+  blocking surface:
+    ramp face                        213      174
+    CAP (end plane)                  209        6
+      ... inside SKIN_WIDTH           70        2
+    lateral side wall                 49        0
+
+displacement realised                  -   100.0%
+prism count                         3412     3412
+```
+
+**No stall remains on any surface you are meant to surf.** The 2 residual exposed caps are
+both a genuine 1.4-unit authoring gap at one join (two pitched straights), not a geometry
+defect — a map problem.
+
+### Two things this did not fix, deliberately
+
+- **The bottom of a V channel is still a wedge.** All 164 remaining `straight-inverted`
+  stalls are a player who slid to the valley floor and stuck in the crease — they fire at a
+  speed-*independent* tick (t=60 at every entry speed, ~3.7 units into a 50-unit piece), so
+  they are the floor, not the join, and only the two lateral positions nearest the valley line
+  produce them. Pre-existing, and Source's reverse-stop would do the same in an acute corner —
+  real surf channels are ridden on the walls. Note the count went **up**, 108 → 164, because
+  pieces that used to stop you at the cap now let you carry speed into the valley. Fixing it
+  means rounding the valley, which is a level-design decision, not a collision one.
+- **`MAX_GROUND_SPEED` still clamps actual velocity, not just `wishspeed`**
+  (`PlayerController.tick`). Source's `WalkMove` clamps `wishvel`/`wishspeed`; the only
+  post-`Accelerate` magnitude test is `if (spd < 1.0f)`, a *minimum*. So one grounded tick at
+  30 u/s truncates you to 7 and `stayOnGround` holds it. On this course no ramp face is
+  walkable (every bank is 51.34°, `normal.y` 0.625; pyramids are 55°, 0.574) so it can only
+  fire on the 8 checkpoint pads and the spawn pad — but two of those are 2×2 clusters
+  directly on the route. It is a feel change and belongs in its own build.
+
+Also unchanged and still the named next candidate: the real 32×32×72 swept hull. It would not
+have fixed this — a hull crossing the crack still meets the cap plane — and it moves where the
+player contacts every banked face, so it deserves its own before/after rather than riding
+along with a bug fix.
+
+### Diagnostics
+
+`setMoveDiagnostics(sink)` in `PlayerController` names every site that can destroy velocity
+(`max-clip-planes`, `no-satisfying-clip`, `degenerate-crease`, `reverse-stop`, `no-progress`,
+`duplicate-plane-bail`, `ground-speed-clamp`). They cannot be told apart from outside — all of
+them leave the same zeroed velocity — and working out which one fired was the hard part of
+this bug all three times. Null by default; the call sites are `?.()`, so it costs a handful of
+undefined-checks a tick and allocates nothing.
+
+---
+
 ## v1 — Source Parity
 
 The controller was a good sketch of `PM_AirAccelerate` and `PM_ClipVelocity` with the rest of
