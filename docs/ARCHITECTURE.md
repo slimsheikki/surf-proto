@@ -262,7 +262,12 @@ only once the image has decoded — see the comments there for why that matters 
 Pads and platforms are deliberately left plain: they are the one flat thing you can stand on, and
 looking different is useful.
 
-`src/world/SurfCourse.ts` assembles the standard course: a floating island orbited by a ring of
+The course everybody starts on is **MegaFlow Demo V1** (`src/world/DefaultCourse.ts` +
+`default-course.map.json`), authored in the free-mode editor and shipped as data — an ordinary
+free map that happens not to come out of the player's storage. The generated course below is no
+longer reachable from the menu, but its module stays: `MapData.ts` reads its ramp constants.
+
+`src/world/SurfCourse.ts` assembles the generated course: a floating island orbited by a ring of
 **ten banked ramps** at radius 90, plus an approach staircase that feeds the ring. The ring
 closes on itself with **no net descent**, which is what makes the run endless. A `CourseStage`
 is a rest platform (centre, half-width, half-depth); `Game` uses the stage list for respawns
@@ -435,7 +440,7 @@ only be tested by playing it.
 | `src/app/` | Composition root, renderer, mode switching, frame loop | `App.ts` |
 | `src/engine/` | Reusable primitives: fixed clock, input, raycasting, math, disposal | `Raycast.ts` |
 | `src/player/` | Controller, tuning constants, camera, first/third-person models, dash | `PlayerController.ts` |
-| `src/world/` | Ramp geometry generation, ramp texturing, the standard course, collider registry | `RampCurve.ts` |
+| `src/world/` | Ramp geometry generation, ramp texturing, the built-in course, collider registry | `RampCurve.ts` |
 | `src/game/` | Run orchestration and tick order, entity lists | `Game.ts` |
 | `src/enemies/` | Drones, seeders, the Monolith, spawn director, difficulty scaling | `Enemy.ts` |
 | `src/combat/` | Auto-weapon, knife, projectiles, blasts, health | `Weapon.ts` |

@@ -37,6 +37,9 @@ const THUMB_HEIGHT = 216;
  */
 const VIEW_DIRECTION = new Vector3(0.22, 1, 0.34).normalize();
 
+/** three.js's default camera up, which `lookAt` uses to build the view basis. */
+const WORLD_UP = new Vector3(0, 1, 0);
+
 /** Pulls the frame back off the tight fit so a course is not cropped at the edges. */
 const FRAMING_MARGIN = 1.16;
 
@@ -55,6 +58,93 @@ const BACKDROP = new Color(0xc3d2e2);
 export interface ThumbnailFocus {
   center: Vector3;
   radius: number;
+  /**
+   * The thing being framed, when a sphere is the wrong shape for it.
+   *
+   * A radius can only be fitted to one field of view, and the vertical is the
+   * smaller — so a sphere fit sizes the shot to the *height* of the tile and
+   * leaves whatever the 16:9 width would have allowed unused. Given a box,
+   * `renderObject` solves its corners against both half-angles instead and
+   * takes whichever binds.
+   *
+   * Worth having, but not a fix for a course that simply is not the tile's
+   * shape: a roughly square plan still fills the height and leaves the sides
+   * empty, because that is what a square looks like in a 16:9 frame.
+   */
+  bounds?: Box3;
+}
+
+/**
+ * What to point the camera at for a map: the pieces, not the built world.
+ *
+ * `buildFreeWorld` also hangs a 24-unit boss pillar below the boss marker,
+ * which on a course that finishes above it is the lowest thing in the scene by
+ * some margin — so it stretches the bounds downward while contributing nothing
+ * anyone reads off a tile. Height is usually the binding axis here, so that is
+ * the extent least worth spending.
+ *
+ * `reach` covers the longest piece's half-length, because a piece's stored
+ * position is the midpoint of its centre path and its ends run out past it. It
+ * is applied to all three axes rather than just the horizontal ones: a pitched
+ * piece climbs or drops along that same length.
+ */
+export function mapFocus(map: FreeMap): ThumbnailFocus {
+  const min = new Vector3(Infinity, Infinity, Infinity);
+  const max = new Vector3(-Infinity, -Infinity, -Infinity);
+  const point = new Vector3();
+  let reach = 0;
+
+  for (const piece of map.pieces) {
+    min.min(point.set(piece.x, piece.y, piece.z));
+    max.max(point);
+    reach = Math.max(reach, piece.length / 2, piece.width / 2);
+  }
+  min.min(point.set(map.spawn.x, map.spawn.y, map.spawn.z));
+  max.max(point);
+
+  // Grown by `reach` so the box covers the geometry, not just the path midpoints.
+  min.subScalar(reach);
+  max.addScalar(reach);
+  const center = min.clone().add(max).multiplyScalar(0.5);
+  return {
+    center,
+    radius: Math.max(1, min.distanceTo(max) / 2),
+    bounds: new Box3(min, max),
+  };
+}
+
+/**
+ * Distance at which every corner of `bounds` sits inside the frustum.
+ *
+ * Replicates three.js's `lookAt` basis — z away from the target, x from
+ * `cross(worldUp, z)` — then solves each corner against both half-angles and
+ * takes the tightest distance that satisfies all of them. Falls back to the
+ * sphere fit when the caller gave no box.
+ */
+function fitDistance(camera: PerspectiveCamera, focus: ThumbnailFocus): number {
+  const tanV = Math.tan(degToRad(camera.fov / 2));
+  const tanH = tanV * camera.aspect;
+  if (!focus.bounds) return focus.radius / Math.sin(degToRad(camera.fov / 2));
+
+  const z = VIEW_DIRECTION;
+  const x = new Vector3().crossVectors(WORLD_UP, z).normalize();
+  const y = new Vector3().crossVectors(z, x);
+
+  const { min, max } = focus.bounds;
+  const corner = new Vector3();
+  let distance = 0;
+  for (let i = 0; i < 8; i++) {
+    corner
+      .set(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z)
+      .sub(focus.center);
+    const depth = corner.dot(z);
+    distance = Math.max(
+      distance,
+      depth + Math.abs(corner.dot(x)) / tanH,
+      depth + Math.abs(corner.dot(y)) / tanV,
+    );
+  }
+  return distance;
 }
 
 /**
@@ -84,18 +174,14 @@ function renderObject(
   fill.position.set(-0.7, -0.9, -0.5);
   object.add(ambient, sun, fill);
 
-  let center: Vector3;
-  let radius: number;
-  if (focus) {
-    center = focus.center;
-    radius = focus.radius;
-  } else {
+  let fit = focus;
+  if (!fit) {
     const sphere = new Box3().setFromObject(object).getBoundingSphere(new Sphere());
-    center = sphere.center;
-    radius = sphere.radius > 1e-3 ? sphere.radius : 1;
+    fit = { center: sphere.center, radius: sphere.radius > 1e-3 ? sphere.radius : 1 };
   }
 
-  const distance = (radius / Math.sin(degToRad(camera.fov / 2))) * FRAMING_MARGIN;
+  const center = fit.center;
+  const distance = fitDistance(camera, fit) * FRAMING_MARGIN;
   camera.position.copy(center).addScaledVector(VIEW_DIRECTION, distance);
   camera.lookAt(center);
 
@@ -165,7 +251,7 @@ export function renderMapThumbnails(maps: readonly FreeMap[]): Map<string, strin
     for (const map of maps) {
       const world = buildFreeWorld(map, false);
       try {
-        thumbnails.set(map.name, renderObject(renderer, world.group));
+        thumbnails.set(map.name, renderObject(renderer, world.group, mapFocus(map)));
       } finally {
         disposeObject(world.group);
       }
