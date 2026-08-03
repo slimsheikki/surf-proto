@@ -58,15 +58,25 @@ export class FlowXP {
    */
   ratePctPerSecond = 0;
 
-  /** Advances the meter and returns this tick's payout rate, in %/s of `xpToNext`. */
-  tick(dt: number, speed: number): number {
+  /**
+   * Advances the meter and returns this tick's payout rate, in %/s of
+   * `xpToNext`.
+   *
+   * The two optional multipliers are Aurora Wake's: `rateMultiplier` scales
+   * the payout and is applied AFTER the cap — at 60+ u/s the perk still pays,
+   * rather than being dead exactly where flow is strongest — and
+   * `drainTimeMultiplier` stretches how long the glow survives below the
+   * floor. Defaults keep every existing call site (and probe) bit-identical.
+   */
+  tick(dt: number, speed: number, rateMultiplier = 1, drainTimeMultiplier = 1): number {
     if (speed >= FLOW_MIN_SPEED) {
       this.flow = Math.min(1, this.flow + dt / FLOW_BUILD_SECONDS);
     } else {
-      this.flow = Math.max(0, this.flow - dt / FLOW_DRAIN_SECONDS);
+      this.flow = Math.max(0, this.flow - dt / (FLOW_DRAIN_SECONDS * drainTimeMultiplier));
     }
     const excess = Math.max(0, speed - FLOW_MIN_SPEED);
-    this.ratePctPerSecond = Math.min(FLOW_XP_PCT_CAP, excess * FLOW_XP_PCT_PER_UNIT) * this.flow;
+    this.ratePctPerSecond =
+      Math.min(FLOW_XP_PCT_CAP, excess * FLOW_XP_PCT_PER_UNIT) * this.flow * rateMultiplier;
     return this.ratePctPerSecond;
   }
 

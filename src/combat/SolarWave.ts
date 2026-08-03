@@ -48,6 +48,8 @@ const TRAIL_LIFT = 0.55;
 const TRAIL_COLOR = 0xffc257;
 const POINT_RADIUS = 0.5;
 const POINT_BASE_OPACITY = 0.55;
+/** How long one wake touch slows for (Standing Wave). Refreshed every tick in the wake. */
+const WAKE_SLOW_SECONDS = 0.3;
 
 interface TrailPoint {
   readonly position: Vector3;
@@ -92,6 +94,11 @@ export class SolarWave {
    * Advances ages, drops a new point if the player has moved far enough at
    * speed, and burns enemies standing in the wake. `dps <= 0` (perk not owned)
    * still ages out any leftover points but drops and burns nothing.
+   *
+   * `slowFactor` is Standing Wave's resonance: anything burning also moves at
+   * that fraction of its speed while it stays in the wake (1 = perk not
+   * owned). Applied through the optional `WeaponTarget.applySlow`, so the
+   * probe's bare targets and the boss both need nothing.
    */
   tick(
     dt: number,
@@ -99,6 +106,7 @@ export class SolarWave {
     playerSpeed: number,
     dps: number,
     targets: readonly WeaponTarget[],
+    slowFactor = 1,
   ): void {
     for (const point of this.points) {
       if (!point.active) continue;
@@ -133,6 +141,9 @@ export class SolarWave {
         if (!point.active) continue;
         if (target.position.distanceToSquared(point.position) > burnRadiusSq) continue;
         target.health.takeDamage(dps * dt);
+        // Short and re-applied every tick in the wake, so the slow expires
+        // almost immediately after the chaser gets clear of it.
+        if (slowFactor < 1) target.applySlow?.(WAKE_SLOW_SECONDS, slowFactor);
         // One burn per enemy per tick — overlapping points must not multiply
         // the advertised DPS.
         break;

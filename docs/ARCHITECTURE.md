@@ -292,9 +292,11 @@ are ordered for a reason:
 5. Each enemy steers and may deal contact damage. Seeders plant blasts *immediately* after
    their own tick, so a blast lands on the position that tick used.
 6. Blasts tick — after the seeders that plant them, before the death check.
-7. Auto-weapon fires at the nearest target; then the solar wake burns anything sitting in it —
-   before the kill pass, so a chaser it finishes still drops XP this tick. (A dash earlier in
-   the tick may also have fired the sound blast.)
+7. Auto-weapon fires at the nearest target; then the solar wake burns (and Standing Wave
+   drags) anything sitting in it, and a pending Echo Chamber repeat resolves — all before
+   the kill pass, so anything they finish still drops XP this tick. (A dash earlier in the
+   tick may have fired the sound blast; Chorus blasts fire right after the kill pass, at
+   the victims' positions.)
 8. Cull dead enemies (dropping XP orbs). Nothing is distance-culled — enemies persist and
    pursue forever (hidden past the fog wall, still simulated), and uncollected orbs hover
    where they fell until picked up; the spawn director's cap counts only enemies near the

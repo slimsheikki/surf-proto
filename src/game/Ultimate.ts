@@ -67,19 +67,26 @@ export class Ultimate {
   charge = 0;
 
   /**
-   * Level scale captured on the most recent `tick`, so `registerKill` — which
-   * fires later in the same tick, from the entity cull — is paid at the same
-   * rate as the surfing that tick.
+   * Level scale captured on the most recent `tick`. `registerKill` fires from
+   * the entity cull, which now runs *earlier* in the tick than this update —
+   * so a kill is paid at the previous tick's scale, 1/128 s stale, which is
+   * invisible against a scale that moves once per level.
    */
   private levelScale = 1;
 
-  tick(dt: number, speed: number, airborne: boolean, level: number): void {
+  /**
+   * `gainMultiplier` is Solar Capacitor's: it scales this tick's speed and
+   * air-time earnings only — deliberately not `registerKill`, which fires
+   * before the multiplier for this tick is even computed. The perk banks the
+   * sunshine (a held line), not the slaughter.
+   */
+  tick(dt: number, speed: number, airborne: boolean, level: number, gainMultiplier = 1): void {
     this.levelScale = 1 + LEVEL_GROWTH * Math.max(0, level - 1);
     if (this.charge >= 1) return;
 
     let gain = Math.max(0, speed - SPEED_FLOOR) * CHARGE_PER_SPEED_UNIT;
     if (airborne) gain += CHARGE_PER_AIR_SECOND;
-    this.add(gain * dt);
+    this.add(gain * dt * gainMultiplier);
   }
 
   registerKill(): void {
