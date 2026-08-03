@@ -38,6 +38,18 @@ import { clearColliders } from '../world/Colliders';
  */
 const SKY_COLOR = SKY_HORIZON_COLOR;
 
+/**
+ * How long a resume keeps asking for the pointer lock back, and how often.
+ *
+ * Chrome refuses a re-lock for about a second after the *user* escaped out of
+ * one — and "Escape to pause, Escape to resume" is always well inside that
+ * window. The refusal is temporary, so the resume waits it out rather than
+ * treating it as a failure; 3 s is several times the observed cooldown, and the
+ * poll is short enough that the run picks up the instant the browser relents.
+ */
+const RELOCK_WINDOW_MS = 3000;
+const RELOCK_RETRY_MS = 120;
+
 /** Menu backdrop orbit: slow enough to read as a held shot rather than a spin. */
 const MENU_ORBIT_RADIUS = 165;
 const MENU_ORBIT_HEIGHT = 95;
@@ -115,6 +127,13 @@ export class App {
    * answer is the settings/pause screen.
    */
   private hasStartedRun = false;
+  /**
+   * When a resume in progress gives up, as `performance.now()` milliseconds.
+   * Zero when no resume is pending — see `resumeRun`.
+   */
+  private relockUntilMs = 0;
+  /** The pending retry, so a screen change can cancel it. */
+  private relockTimer: number | null = null;
   /**
    * Distance fog, applied only while a run is in progress.
    *
@@ -428,17 +447,74 @@ export class App {
     // and the player doesn't slide off a ramp behind the start overlay.
     this.game.setPaused(true);
     this.hasStartedRun = false;
+    this.cancelResume();
     this.settingsPanel.hide();
     this.pauseMenu.hide();
     this.startOverlay.classList.remove('hidden');
   }
 
+  /**
+   * Back into the run: takes the pointer lock, and keeps asking for it while
+   * the browser refuses.
+   *
+   * Every way back into a run goes through here rather than calling
+   * `requestPointerLock` directly, because they all share one problem. Chrome
+   * will not re-lock for about a second after the user escaped out of a lock,
+   * and *every* one of these paths begins with exactly that: Escape opened the
+   * screen the player is now dismissing. A single attempt lands inside the
+   * cooldown and fails, and the old handler read that failure as "the player is
+   * stuck on a paused world, put the panel back" — so pressing Escape to leave
+   * the pause menu appeared to reopen it. It is a wait, not a failure.
+   */
+  private resumeRun(): void {
+    this.relockUntilMs = performance.now() + RELOCK_WINDOW_MS;
+    this.attemptLock();
+  }
+
+  private attemptLock(): void {
+    this.relockTimer = null;
+    // A retry outlives the moment it was scheduled in, so it re-checks that the
+    // run is still what is on screen. Without this a resume left over from a
+    // dismissed pause menu could snatch the lock back out from under the
+    // settings panel the player opened instead.
+    if (
+      this.mode !== 'play' ||
+      this.settingsPanel.isOpen ||
+      this.pauseMenu.isOpen ||
+      this.game?.isMenuOpen
+    ) {
+      this.cancelResume();
+      return;
+    }
+    this.input.requestPointerLock();
+  }
+
+  private cancelResume(): void {
+    this.relockUntilMs = 0;
+    if (this.relockTimer !== null) {
+      window.clearTimeout(this.relockTimer);
+      this.relockTimer = null;
+    }
+  }
+
+  /**
+   * The resume ran out of patience. Whatever is wrong is no longer a cooldown,
+   * so the player gets a screen with a way back in rather than a frozen world
+   * and no prompt — which one depends on whether the run has started.
+   */
+  private abandonResume(): void {
+    this.cancelResume();
+    if (this.hasStartedRun) this.openPauseMenu();
+    else this.startOverlay.classList.remove('hidden');
+  }
+
   private openPauseMenu(): void {
+    this.cancelResume();
     this.pauseMenu.show({
-      onContinue: () => this.input.requestPointerLock(),
+      onContinue: () => this.resumeRun(),
       onRestart: () => {
         this.game?.restartRun();
-        this.input.requestPointerLock();
+        this.resumeRun();
       },
       // Always the front menu, even for a free-mode run. `M` is the one that
       // goes back to the editor, because that is the useful exit while you are
@@ -463,13 +539,14 @@ export class App {
       this.openPauseMenu();
       return;
     }
-    if (this.mode === 'play') this.input.requestPointerLock();
+    if (this.mode === 'play') this.resumeRun();
   }
 
   /** `M` during a run: back to wherever the run came from. */
   private leaveRun(): void {
     if (this.mode !== 'play') return;
     this.hasStartedRun = false;
+    this.cancelResume();
     this.settingsPanel.hide();
     this.pauseMenu.hide();
     this.game?.setPaused(true);
@@ -482,25 +559,30 @@ export class App {
 
   private installListeners(): void {
     const requestStart = () => {
-      if (this.mode === 'play' && !this.input.isLocked()) this.input.requestPointerLock();
+      if (this.mode === 'play' && !this.input.isLocked()) this.resumeRun();
     };
     this.canvas.addEventListener('click', requestStart);
     this.startOverlay.addEventListener('click', requestStart);
 
-    // Chrome refuses a re-lock for about a second after the user escaped out of
-    // one. Without this the player would close settings, silently fail to
-    // re-lock, and be left staring at a paused world with no prompt on it —
-    // the panel is the way back in, so it has to come back.
+    // A refused lock is the cooldown far more often than it is a real failure,
+    // so it costs the resume a retry rather than the player their run. Only
+    // once the window has run out does the panel come back — being left staring
+    // at a paused world with no prompt on it is the thing that must not happen.
     document.addEventListener('pointerlockerror', () => {
       if (this.mode !== 'play' || this.input.isLocked()) return;
       if (this.game?.isMenuOpen || this.settingsPanel.isOpen) return;
-      this.openPauseMenu();
+      if (performance.now() < this.relockUntilMs) {
+        this.relockTimer = window.setTimeout(() => this.attemptLock(), RELOCK_RETRY_MS);
+        return;
+      }
+      this.abandonResume();
     });
 
     document.addEventListener('pointerlockchange', () => {
       if (this.mode !== 'play') return;
       const locked = this.input.isLocked();
       if (locked) {
+        this.cancelResume();
         this.hasStartedRun = true;
         this.settingsPanel.hide();
         this.pauseMenu.hide();
@@ -560,6 +642,15 @@ export class App {
       if (event.code === 'Escape' && this.pauseMenu.isOpen) {
         event.preventDefault();
         this.pauseMenu.continue();
+        return;
+      }
+      // Escape again during the wait for the lock: the player has changed their
+      // mind about resuming, and with no panel up there is nothing else for the
+      // key to mean. Gives the menu straight back instead of making them sit
+      // out the cooldown they are trying to cancel.
+      if (event.code === 'Escape' && this.relockUntilMs > 0) {
+        event.preventDefault();
+        this.abandonResume();
         return;
       }
       if (event.code === 'KeyM' && this.mode === 'play') {

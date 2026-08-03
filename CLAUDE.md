@@ -86,10 +86,16 @@ movement.
   the keydown, so a key handler cannot open anything with it. `pointerlockchange` always
   fires, so that is what opens the pause menu; `Escape` only ever *closes* a screen (and
   once the lock is gone the page gets the key normally, which is why closing works).
-  Chrome also refuses a re-lock for ~1 s afterwards, so `pointerlockerror` has to put the
-  panel back or the player is left on a paused world with no prompt.
+  Chrome also refuses a re-lock for ~1 s afterwards, and **that refusal is a wait, not a
+  failure** — Escape-to-pause then Escape-to-resume is always inside the window, so treating
+  `pointerlockerror` as "put the panel back" made the pause menu reopen itself the instant it
+  was dismissed. Every way back into a run goes through `App.resumeRun`, which retries until
+  the browser relents and only surfaces a screen once the window is spent (or the player is
+  left on a paused world with no prompt, which is the other half of this trap).
 - Playwright's synthetic `Escape` does **not** trigger the native pointer-lock exit. Test
-  that path with `document.exitPointerLock()`.
+  that path with `document.exitPointerLock()` — but note a scripted exit does **not** arm the
+  re-lock cooldown either, so nothing about that path reproduces headlessly unless you stand
+  the cooldown up yourself by stubbing `requestPointerLock` to fire `pointerlockerror`.
 - `audio.play()` **rejects a promise** when autoplay policy blocks it — it does not throw, so
   an un-awaited call leaves the game silently mute forever. And the fade-in has to hang off
   that promise *resolving*: started beside the call it burns its two seconds while the audio
