@@ -10,6 +10,7 @@ import {
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { registerPrism } from '../world/Colliders';
 import { computeRampFrames, RampCurveMode, RampCurveParams } from '../world/RampCurve';
+import { gridCellFor, useRampTexture, uvPerUnit } from '../world/RampTexture';
 import {
   APPROACH_DESCENT_PITCH_DEG,
   FACE_ANGLE_DEG,
@@ -343,7 +344,7 @@ export interface RampBuildOptions {
 }
 
 function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
-  return new MeshStandardMaterial({
+  const material = new MeshStandardMaterial({
     color: options.color,
     roughness: options.roughness ?? FACE_ROUGHNESS,
     metalness: options.metalness ?? FACE_METALNESS,
@@ -351,6 +352,8 @@ function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
     // costs a little overdraw and buys immunity to any strip's winding.
     side: DoubleSide,
   });
+  useRampTexture(material, options.color);
+  return material;
 }
 
 /**
@@ -455,6 +458,50 @@ function emitStripColliders(strip: FaceStrip): void {
  */
 const COLLIDER_UNDER_DEPTH = 1.5;
 
+type UV = readonly [number, number];
+
+/**
+ * Texture coordinates for one face strip, in the strip's own surface metric
+ * rather than in world space.
+ *
+ * This is the whole reason the ramps can carry a grid at all. A world-space
+ * projection is the cheap answer, but a surf face is a wall banked 51 deg, so
+ * every projection plane is oblique to it and the grid arrives on the one
+ * surface the player spends the entire ride looking at stretched by 1/cos of
+ * the bank. Measuring along the face instead — real distance down the path,
+ * real distance across it — puts square cells on every piece whatever its
+ * bank, pitch, sweep or taper, and makes tiling exact at every seam because
+ * adjacent quads share both the vertex and the number.
+ *
+ * - `across[i]` is the *half* width at ring `i`: the high edge is at `-across`
+ *   and the low edge at `+across`, so the grid is centred on the path and a
+ *   taper closes symmetrically onto its apex instead of sliding sideways.
+ * - `along[i]` accumulates centreline distance. Centreline, not per-edge,
+ *   because a curve's outer edge is longer than its inner one: accumulating
+ *   separately would keep texel density perfect but fan the cross-lines out of
+ *   parallel, and on a grid the fanning is the thing you notice.
+ * - `drop[i]` is the vertical distance to the under-side, for the side walls
+ *   and end caps to continue into.
+ *
+ * All three are already in UV units, at the piece's fitted cell size.
+ */
+function stripUv(strip: FaceStrip): { across: number[]; along: number[]; drop: number[] } {
+  const widths = strip.rings.map((ring) => ring.high.distanceTo(ring.low));
+  const k = uvPerUnit(gridCellFor(Math.max(...widths)));
+
+  const across = widths.map((width) => (width / 2) * k);
+  const drop = strip.rings.map((ring) => (strip.thickness / ring.ny) * k);
+
+  const centre = (i: number) =>
+    strip.rings[i].high.clone().add(strip.rings[i].low).multiplyScalar(0.5);
+  const along = [0];
+  for (let i = 1; i < strip.rings.length; i++) {
+    along.push(along[i - 1] + centre(i).distanceTo(centre(i - 1)) * k);
+  }
+
+  return { across, along, drop };
+}
+
 /**
  * Lofts face strips into one watertight `BufferGeometry`: top surface, an
  * under-side offset **vertically** below it, and side/end walls. The vertical
@@ -467,9 +514,17 @@ const COLLIDER_UNDER_DEPTH = 1.5;
  */
 function skinGeometry(strips: FaceStrip[]): BufferGeometry {
   const positions: number[] = [];
-  const quad = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) => {
+  const uvs: number[] = [];
+  const quad = (
+    a: Vector3, ua: UV,
+    b: Vector3, ub: UV,
+    c: Vector3, uc: UV,
+    d: Vector3, ud: UV,
+  ) => {
     positions.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
     positions.push(a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
+    uvs.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
+    uvs.push(ua[0], ua[1], uc[0], uc[1], ud[0], ud[1]);
   };
 
   for (const strip of strips) {
@@ -477,27 +532,42 @@ function skinGeometry(strips: FaceStrip[]): BufferGeometry {
       high: ring.high.clone().setY(ring.high.y - strip.thickness / ring.ny),
       low: ring.low.clone().setY(ring.low.y - strip.thickness / ring.ny),
     }));
+    const { across, along, drop } = stripUv(strip);
 
     for (let i = 0; i + 1 < strip.rings.length; i++) {
       const a = strip.rings[i];
       const b = strip.rings[i + 1];
       const ab = bottoms[i];
       const bb = bottoms[i + 1];
-      quad(a.high, b.high, b.low, a.low); // top surface
-      quad(ab.low, bb.low, bb.high, ab.high); // under-side
-      quad(a.high, ab.high, bb.high, b.high); // high-edge wall
-      quad(a.low, b.low, bb.low, ab.low); // low-edge wall
+      // top surface
+      quad(a.high, [-across[i], along[i]], b.high, [-across[i + 1], along[i + 1]],
+           b.low, [across[i + 1], along[i + 1]], a.low, [across[i], along[i]]);
+      // under-side — the same across/along as the surface directly above it
+      quad(ab.low, [across[i], along[i]], bb.low, [across[i + 1], along[i + 1]],
+           bb.high, [-across[i + 1], along[i + 1]], ab.high, [-across[i], along[i]]);
+      // high-edge wall, running on down past the surface's own high edge
+      quad(a.high, [-across[i], along[i]], ab.high, [-across[i] - drop[i], along[i]],
+           bb.high, [-across[i + 1] - drop[i + 1], along[i + 1]], b.high, [-across[i + 1], along[i + 1]]);
+      // low-edge wall, likewise past the low edge
+      quad(a.low, [across[i], along[i]], b.low, [across[i + 1], along[i + 1]],
+           bb.low, [across[i + 1] + drop[i + 1], along[i + 1]], ab.low, [across[i] + drop[i], along[i]]);
     }
     const first = strip.rings[0];
     const firstB = bottoms[0];
-    const last = strip.rings[strip.rings.length - 1];
-    const lastB = bottoms[bottoms.length - 1];
-    quad(first.high, first.low, firstB.low, firstB.high); // entry cap
-    quad(last.high, lastB.high, lastB.low, last.low); // exit cap
+    const n = strip.rings.length - 1;
+    const last = strip.rings[n];
+    const lastB = bottoms[n];
+    // entry cap — continues *backwards* along travel off the leading edge
+    quad(first.high, [-across[0], along[0]], first.low, [across[0], along[0]],
+         firstB.low, [across[0], along[0] - drop[0]], firstB.high, [-across[0], along[0] - drop[0]]);
+    // exit cap — forwards off the trailing edge
+    quad(last.high, [-across[n], along[n]], lastB.high, [-across[n], along[n] + drop[n]],
+         lastB.low, [across[n], along[n] + drop[n]], last.low, [across[n], along[n]]);
   }
 
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
   geometry.computeVertexNormals();
   return geometry;
 }
