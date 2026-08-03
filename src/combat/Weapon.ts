@@ -17,6 +17,13 @@ export interface WeaponTarget {
   readonly position: Vector3;
   distanceToPlayer(playerPosition: Vector3): number;
   flashHit(): void;
+  /**
+   * Optional: Standing Wave's resonance slow. Drones and seeders implement it
+   * (`Enemy.applySlow`); the boss deliberately does not — an arena piece that
+   * can be parked at 30% speed stops being a fight — and optional-chaining at
+   * the call site means it needs nothing.
+   */
+  applySlow?(seconds: number, factor: number): void;
 }
 
 /**
@@ -78,16 +85,28 @@ export class Weapon {
   private target: WeaponTarget | null = null;
 
   /**
-   * Signature is unchanged. Effects are advanced from the `dt` already passed
-   * in, and the muzzle point is derived from `playerPosition` and the shot
-   * direction inside `TracerFx`, so making combat visible costs the call site
-   * nothing beyond parenting `weapon.effects` once.
+   * Effects are advanced from the `dt` already passed in, and the muzzle point
+   * is derived from `playerPosition` and the shot direction inside `TracerFx`,
+   * so making combat visible costs the call site nothing beyond parenting
+   * `weapon.effects` once.
    *
    * Effects tick first and unconditionally: bolts already in flight must keep
    * flying on ticks where there is no target or the weapon is on cooldown,
    * which is most ticks.
+   *
+   * `dopplerAps` is Doppler Drive's perk value, passed per tick rather than
+   * stored here — a mutable field on this class would have to join `Frame` and
+   * `reset()`, and the perk already rides both via `RunPerks`. It prices the
+   * cooldown set *after* each shot at the speed the shot was fired at (the
+   * cooldown itself is transient and not rewound, same as it ever was).
    */
-  tick(dt: number, playerPosition: Vector3, targets: readonly WeaponTarget[], playerSpeed = 0): void {
+  tick(
+    dt: number,
+    playerPosition: Vector3,
+    targets: readonly WeaponTarget[],
+    playerSpeed = 0,
+    dopplerAps = 0,
+  ): void {
     this.fx.tick(dt);
 
     if (this.cooldown > 0) this.cooldown -= dt;
@@ -107,7 +126,10 @@ export class Weapon {
       : 0;
     this.target.health.takeDamage(this.damage + speedBonus);
     this.target.flashHit();
-    this.cooldown = 1 / this.attacksPerSecond;
+    // Doppler: the same 10-to-40 u/s window Velocity Rounds prices, applied to
+    // rate instead of damage — pitch rises as the source closes.
+    const doppler = dopplerAps * Math.min(1, Math.max(0, playerSpeed - 10) / 30);
+    this.cooldown = 1 / (this.attacksPerSecond + doppler);
   }
 
   private isEngageable(

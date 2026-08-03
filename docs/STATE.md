@@ -50,6 +50,60 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
 
+## The solarpunk/sound batch — ten passive powerups (new)
+
+Planned in plan mode against the shipped perk pattern, validated by a read-only review
+agent (its corrections are baked in below), rarity split chosen by the user: **4 common +
+5 rare visible, 1 legendary gamble-only**. Pool is now **24 visible / 11 gamble** — the
+draw-dilution consequence is noted at `drawUpgradeChoices`. Every perk field rides
+`RunPerks` + `PERK_DEFAULTS` + `Rewind.Frame` (all ten verified by probe arithmetic).
+
+**Common:** Photosynthesis (+1.2 HP/s airborne only — deliberately not
+`Health.regenPerSecond`, which Regeneration owns); Heliotropism (orb notice radius grows
+with *horizontal* speed — `heliotropismBonus` in `XPOrb.ts`, +0.3/u/s over 20, cap +8 per
+stack, transient so it needs no Frame entry); Doppler Drive (+0.5 attacks/s at speed,
+passed per-tick into `Weapon.tick` rather than stored on Weapon so no new Frame/reset
+surface; prices the same 10–40 u/s window as Velocity Rounds); Subwoofer (blast radius +2
+— `soundBlastRadius` is now a perk with default `SOUND_BLAST_RADIUS`, threaded through
+`applySoundBlast` and both fx shells so damage and visual can never disagree; standalone
+it brings the blast at +15 damage, and the radius stack is never silently lost).
+
+**Rare:** Solar Capacitor (+35% ultimate gain per stack while flow is full — speed/air
+gains only; kills fire earlier in the tick than the rate update, and the stale comment in
+`Ultimate.ts` claiming otherwise was fixed); Aurora Wake (flow pays +25% per stack applied
+**after** the 2.2%/s cap, so it is not dead exactly where flow is strongest, and drains
+1.6x slower per stack); Mirror Array (14-damage retaliatory flash at radius 4 on contact
+damage, latched to one flash per tick — a deterrent, not a damage multiplier; boss beam
+and seeder blasts correctly do not trigger it); Echo Chamber (+10 blast damage, and the
+dash blast repeats at 60% damage, one radius louder, 0.35 s later, anchored **where it
+fired** — pending echo is transient Game state cleared on restart/rewind, the live-blast
+contract); Standing Wave (the wake drags chasers to 70% speed, deepening to a 55% strip
+cap; standalone it brings a 6 dps starter wake).
+
+**Legendary, gamble-only:** Chorus — every 8th kill sings a free blast at the victim's
+position (`max(soundBlastDamage, 25)`). The kill counter is Game state reset on restart
+and deliberately not in `Frame` (a rewind replaying kills can re-sing — same accepted
+class as the gamble reroll). Sites are buffered during the kill pass and sung after it
+returns, so one wave's accounting never splits across ticks.
+
+Plumbing worth knowing: **`remoteBlastFx`** is a second shell instance for blasts that do
+not happen at the dash (echo, Chorus, mirror) — one shared mesh cannot serve both, since
+an echo lands exactly one fade-time after a dash and would hijack its shell mid-draw.
+`Enemy` gained a transient slow (`applySlow`, strongest-factor-wins), decremented in
+`updateVisuals` because `Seeder` overrides `tick`; it scales the movement advance and
+never writes `moveSpeed`, which the rewind records but does not restore onto retained
+enemies — a direct write would bake the slow in permanently. Not rewound, same documented
+limit as aim error and contact cooldown.
+
+Verified: `.probe-powerups.ts` 27 green — pool shape and every apply()'s arithmetic
+(Subwoofer's both orders, Echo/Chorus dupe rules, Standing Wave's 0.3→0.55 ladder), blast
+radius parameter, Aurora past-cap payout and slower drain, capacitor ratio exactly 1.35,
+Doppler intervals at 10/40 u/s and unowned, heliotropism curve and a 25u latch at +8,
+wake slow measured at ratio 0.700 with expiry inside a beat. All three earlier probe
+suites still green. Browser pass through `__surf`: the full batch granted at once — heals
+while airborne, wake + slow live, dash → blast → echo chain on a real keypress, zero
+console errors, restart resets every perk including the radius.
+
 ## Seeder blasts telegraph ahead (new)
 
 Playtest: seeder AoE "hit almost every time". Root cause: the old plant point was a
@@ -142,8 +196,9 @@ In its place, two movement-triggered powerups, both passive in the "no new butto
 
 Both perk fields ride `Rewind`'s `Frame` (the pool invariant held). The two knife gamble
 entries were **replaced, not dropped** — `epic-resonance` (Sound Blast +45, heal-on-kill +4)
-and `legend-corona` (wake +35/s, blast +35) — so the pool stays 15 visible / 10 gamble and
-the odds table's expected values still describe reality.
+and `legend-corona` (wake +35/s, blast +35) — keeping the counts at 15 visible / 10 gamble
+at the time. (The solarpunk/sound batch has since grown the pool to 24 / 11 — see its own
+section.)
 
 Verified: `.probe-powerups.ts` 10 green (pool shape, blast radius/edge/dead-skip, wake
 length = lifetime·speed/spacing, exact 10.0 damage over a second in the wake with a
@@ -676,9 +731,11 @@ it) but the pick is dropped and the HUD pip goes red. That waste is the pressure
 blessings draw from; epic/legendary entries are **gamble-only** — that is what makes banking
 worth doing. All of them write fields `Frame` records, so the recorder needs no per-upgrade
 work; `.probe-bank.ts` asserted that property at introduction, and `.probe-powerups.ts`
-re-asserts the pool shape since. The knife cut later swapped four entries for Sound
-Blast/Solar Wave equivalents but preserved the counts — still **15 visible / 10 gamble** —
-so the draw distribution and the odds table's expected values are undisturbed.
+re-asserts the pool shape since. The knife cut swapped four entries count-neutrally; the
+solarpunk/sound batch then grew the pool to **24 visible / 11 gamble**. Two consequences,
+both deliberate: any *specific* stacking perk is re-offered less often (3-of-24 vs the
+original 3-of-15), and the gamble's legendary tier is one entry richer — the odds table's
+percentages are unchanged, only what a given rarity resolves *to* has widened.
 
 Odds by stake (`GAMBLE_ODDS`, permille): bust/rare/epic/legendary at 2 = 50/34/15/1, at 3 =
 32/34/28/6, at 4 = 20/28/34/18, at 5 = 12/20/33/35. Staking 2 is a bad bet, 4 is about

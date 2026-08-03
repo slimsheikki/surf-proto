@@ -13,17 +13,21 @@ import { WeaponTarget } from './Weapon';
  */
 
 /**
- * Reach of the shockwave. Well past CONTACT_RADIUS (1.3) so it clears the
- * swarm that was about to land a hit — the blast's job is turning a panic dash
- * *out* of a crowd into an attack *on* the crowd — while staying a third of
- * the auto-weapon's 22-unit envelope, so it never becomes the primary gun.
+ * Default reach of the shockwave — the value `RunPerks.soundBlastRadius`
+ * starts at; Subwoofer stacks grow the live number. Well past CONTACT_RADIUS
+ * (1.3) so it clears the swarm that was about to land a hit — the blast's job
+ * is turning a panic dash *out* of a crowd into an attack *on* the crowd —
+ * while staying a third of the auto-weapon's 22-unit envelope, so it never
+ * becomes the primary gun.
  */
 export const SOUND_BLAST_RADIUS = 7;
 
 /**
  * Damages everything in range and reports how many were hit. Pure — the
  * caller owns the entity list and the visual — so a headless probe can assert
- * the damage rule without a scene.
+ * the damage rule without a scene. Radius is a parameter because three
+ * different powers fire this (dash blast, echo, Chorus, the mirror flash) at
+ * different sizes.
  *
  * Targets are the drone/seeder list only, never the boss: `Boss` is an arena
  * piece whose `distanceToPlayer` already lies for the hitscan gun's benefit,
@@ -34,8 +38,9 @@ export function applySoundBlast(
   targets: readonly WeaponTarget[],
   center: Vector3,
   damage: number,
+  radius: number = SOUND_BLAST_RADIUS,
 ): number {
-  const radiusSq = SOUND_BLAST_RADIUS * SOUND_BLAST_RADIUS;
+  const radiusSq = radius * radius;
   let hit = 0;
   for (const target of targets) {
     if (target.health.isDead) continue;
@@ -68,6 +73,8 @@ export class SoundBlastFx {
   readonly mesh: Mesh;
   private readonly material: MeshBasicMaterial;
   private timer = 0;
+  /** Set per trigger, so the shell always dies exactly where that blast's damage reached. */
+  private targetRadius = SOUND_BLAST_RADIUS;
 
   constructor() {
     this.material = new MeshBasicMaterial({
@@ -82,8 +89,9 @@ export class SoundBlastFx {
     this.mesh.renderOrder = 10;
   }
 
-  trigger(center: Vector3): void {
+  trigger(center: Vector3, radius: number = SOUND_BLAST_RADIUS): void {
     this.timer = BLAST_FADE_SECONDS;
+    this.targetRadius = radius;
     this.mesh.position.copy(center);
     this.mesh.scale.setScalar(BLAST_START_RADIUS);
     this.material.opacity = BLAST_START_OPACITY;
@@ -101,7 +109,7 @@ export class SoundBlastFx {
     // Eases out toward the full radius as it fades, so the shell dies exactly
     // where the damage reached.
     const grown = 1 - remaining * remaining;
-    this.mesh.scale.setScalar(BLAST_START_RADIUS + (SOUND_BLAST_RADIUS - BLAST_START_RADIUS) * grown);
+    this.mesh.scale.setScalar(BLAST_START_RADIUS + (this.targetRadius - BLAST_START_RADIUS) * grown);
     this.material.opacity = BLAST_START_OPACITY * remaining;
   }
 

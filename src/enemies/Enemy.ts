@@ -94,6 +94,17 @@ export class Enemy {
   protected readonly material: MeshStandardMaterial;
   private contactCooldown = 0;
   private flashTimer = 0;
+  /**
+   * Standing Wave's resonance slow. Transient and deliberately NOT rewound —
+   * the same documented limit as heading, aim error and contact cooldown: it
+   * lives well under a second (the wake refreshes it every tick), and a rebuilt
+   * enemy picking it up fresh is invisible next to being in the right place.
+   * Never write `moveSpeed` for this: it is recorded per-enemy by the rewind
+   * but not restored onto retained enemies, so a direct write would bake the
+   * slow in permanently across a rewind.
+   */
+  private slowRemaining = 0;
+  private slowFactor = 1;
   private bobPhase = Math.random() * Math.PI * 2;
   private readonly baseEmissive: number;
   /** Current heading; steered toward the intercept solution at a bounded rate. */
@@ -213,15 +224,36 @@ export class Enemy {
           this.heading.lerp(desired, t).normalize();
         }
       }
-      this.position.addScaledVector(this.heading, this.moveSpeed * speedScale * dt);
+      // The slow scales the advance, not `moveSpeed` (see the field note) and
+      // not the interception solve — a slowed chaser still aims like itself,
+      // it just arrives late, which is exactly what a resonance drag should do.
+      const slow = this.slowRemaining > 0 ? this.slowFactor : 1;
+      this.position.addScaledVector(this.heading, this.moveSpeed * speedScale * slow * dt);
     }
   }
 
-  /** Bob, mesh sync, and the two damage/flash timers. Every subclass needs all of it. */
+  /**
+   * Applies Standing Wave's drag. Keeps the strongest factor and the longest
+   * remaining time, so overlapping wake touches can never *weaken* a slow.
+   */
+  applySlow(seconds: number, factor: number): void {
+    this.slowRemaining = Math.max(this.slowRemaining, seconds);
+    this.slowFactor = Math.min(this.slowFactor, factor);
+  }
+
+  /** Bob, mesh sync, and the timed states. Every subclass needs all of it. */
   protected updateVisuals(dt: number): void {
     this.bobPhase += dt * 3;
     this.mesh.position.copy(this.position);
     this.mesh.position.y += Math.sin(this.bobPhase) * 0.15;
+
+    // Decremented here rather than in `tick`, deliberately: `Seeder` overrides
+    // `tick` and every subclass funnels through this method, so the slow can
+    // never silently stop expiring on a subclass.
+    if (this.slowRemaining > 0) {
+      this.slowRemaining -= dt;
+      if (this.slowRemaining <= 0) this.slowFactor = 1;
+    }
 
     if (this.contactCooldown > 0) this.contactCooldown -= dt;
     if (this.flashTimer > 0) {

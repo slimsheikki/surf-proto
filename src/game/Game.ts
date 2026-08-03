@@ -25,7 +25,7 @@ import {
   rollGambleRarity,
   UpgradeContext,
 } from '../progression/Upgrades';
-import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
+import { heliotropismBonus, resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BankMenu } from '../ui/BankMenu';
 import { BossBar } from '../ui/BossBar';
@@ -72,6 +72,19 @@ const BOSS_BANNER_SECONDS = 4.5;
  * mistaken for a dead key.
  */
 const BANK_HOLD_SECONDS = 2.5;
+
+/**
+ * Mirror Array's retaliatory flash: much tighter than a dash blast (which is
+ * `perks.soundBlastRadius`), because it fires from a hit you *took* — it
+ * answers the swarm pressing against you, not the room.
+ */
+const MIRROR_RADIUS = 4;
+/** Echo Chamber: the repeat fires this long after the dash blast, at this fraction of it. */
+const ECHO_DELAY_SECONDS = 0.35;
+const ECHO_DAMAGE_FRACTION = 0.6;
+/** Chorus: every Nth kill sings, never for less than this. */
+const CHORUS_EVERY_KILLS = 8;
+const CHORUS_MIN_DAMAGE = 25;
 /**
  * Fall detection: one rule only — below the course's `killPlaneY`, the run
  * ends. The plane is the map's true floor, safely under every piece of
@@ -241,8 +254,33 @@ export class Game {
 
   /** One reused mesh; retriggered per dash-blast rather than reallocated. */
   private readonly soundBlastFx = new SoundBlastFx();
+  /**
+   * Second shell for blasts that do not happen at the dash: the echo, Chorus
+   * and the mirror flash. One shared mesh cannot serve both — an echo lands
+   * 0.35 s after a dash, exactly one fade-time, so the follow-up would hijack
+   * the dash shell mid-draw and teleport it.
+   */
+  private readonly remoteBlastFx = new SoundBlastFx();
   /** The burning wake. Owns its bounded point pool; see `SolarWave`. */
   readonly solarWave = new SolarWave();
+
+  /**
+   * Echo Chamber's pending repeat. Transient on purpose — cleared on restart
+   * and on rewind, never in `Frame` — the same contract as live blasts: it
+   * spans 0.35 s, nothing recorded is still pending, and the next dash re-arms
+   * it. Zero means none pending.
+   */
+  private pendingEchoSeconds = 0;
+  private readonly pendingEchoPos = new Vector3();
+  /**
+   * Chorus counts kills toward the next free blast. Game state, not upgrade
+   * state (the pool rule stands), reset on restart, deliberately not in
+   * `Frame`: a rewind that replays kills can re-sing, the same accepted
+   * nondeterminism as the gamble reroll.
+   */
+  private chorusKills = 0;
+  /** Reused per tick: sites buffered during the kill pass, sung after it returns. */
+  private readonly chorusSites: Vector3[] = [];
 
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
@@ -283,6 +321,7 @@ export class Game {
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     scene.add(this.soundBlastFx.mesh);
+    scene.add(this.remoteBlastFx.mesh);
     scene.add(this.solarWave.group);
     scene.add(this.playerModel.root);
     this.rebuildShrines();
@@ -376,6 +415,7 @@ export class Game {
     // it is not being driven by while the run plays backwards.
     this.playerModel.update(dt, this.playerController, looking ? input.yawDelta : 0);
     this.soundBlastFx.tick(dt);
+    this.remoteBlastFx.tick(dt);
     this.banner.tick(dt);
     this.dashFx.tick(dt);
     this.ultFx.tick(dt);
@@ -440,15 +480,33 @@ export class Game {
       // is centred on where the player pushed off, not where the impulse threw
       // them. Kills land in this tick's kill pass and drop XP while the dasher
       // is still inside magnet range. Drones and seeders only — the boss's
-      // engagement-radius distance is a hitscan convenience a 7-unit shockwave
-      // must not inherit.
+      // engagement-radius distance is a hitscan convenience a shockwave must
+      // not inherit.
       if (this.perks.soundBlastDamage > 0) {
-        applySoundBlast(this.entityManager.enemies, playerPosition, this.perks.soundBlastDamage);
-        this.soundBlastFx.trigger(playerPosition);
+        applySoundBlast(
+          this.entityManager.enemies,
+          playerPosition,
+          this.perks.soundBlastDamage,
+          this.perks.soundBlastRadius,
+        );
+        this.soundBlastFx.trigger(playerPosition, this.perks.soundBlastRadius);
+        // Echo Chamber: the repeat is anchored where THIS blast fired — an
+        // echo answers the room it rang in, it does not follow the dasher.
+        if (this.perks.echoChamber > 0) {
+          this.pendingEchoSeconds = ECHO_DELAY_SECONDS;
+          this.pendingEchoPos.copy(playerPosition);
+        }
       }
     }
 
     this.playerHealth.tick(dt);
+    // Photosynthesis: sunlight on the board — regen paid only while airborne,
+    // which on a surf map is the state the game wants the player in anyway.
+    // Kept off Health.regenPerSecond, which Regeneration owns and Frame
+    // records separately; this rides the perk field instead.
+    if (this.perks.airRegenPerSecond > 0 && !this.playerController.grounded) {
+      this.playerHealth.heal(this.perks.airRegenPerSecond * dt);
+    }
 
     // Shrines animate and test pickup on the fixed step like everything else.
     // Contact opens the blessing choice immediately: the pause freezes the
@@ -490,6 +548,9 @@ export class Game {
       (enemy) => this.entityManager.addEnemy(enemy),
     );
 
+    // Mirror Array latch: N same-tick contacts must answer with ONE flash, not
+    // N stacked ones — the perk is a deterrent, not a damage multiplier.
+    let contactLanded = false;
     for (const enemy of this.entityManager.enemies) {
       enemy.tick(dt, playerPosition, playerVelocity);
       const distToPlayer = enemy.distanceToPlayer(playerPosition);
@@ -505,7 +566,15 @@ export class Game {
       if (enemy.canDealContactDamage() && distToPlayer < CONTACT_RADIUS) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
+        contactLanded = true;
       }
+    }
+    // Mirror Array: polished panels bite back. Contact damage only — the boss
+    // beam and seeder blasts arrive through `damagePlayer` and correctly do
+    // not trigger it. Fired after the loop so it cannot re-enter the iteration.
+    if (contactLanded && this.perks.mirrorDamage > 0) {
+      applySoundBlast(this.entityManager.enemies, playerPosition, this.perks.mirrorDamage, MIRROR_RADIUS);
+      this.remoteBlastFx.trigger(playerPosition, MIRROR_RADIUS);
     }
 
     // Blasts tick after the seeders that plant them but before the death check,
@@ -521,30 +590,77 @@ export class Game {
     this.weaponTargets.length = 0;
     for (const enemy of this.entityManager.enemies) this.weaponTargets.push(enemy);
     if (this.boss) this.weaponTargets.push(this.boss);
-    this.weapon.tick(dt, playerPosition, this.weaponTargets, this.playerController.speed);
+    this.weapon.tick(
+      dt,
+      playerPosition,
+      this.weaponTargets,
+      this.playerController.speed,
+      this.perks.dopplerAps,
+    );
 
     // After the auto-weapon, before the kill pass, so a chaser burned down by
     // the wake this tick still drops its XP on this tick. Drones and seeders
-    // only, same reasoning as the sound blast above.
+    // only, same reasoning as the sound blast above. Standing Wave rides in as
+    // the slow factor (1 = not owned).
     this.solarWave.tick(
       dt,
       playerPosition,
       this.playerController.speed,
       this.perks.solarWaveDps,
       this.entityManager.enemies,
+      1 - this.perks.standingWaveSlow,
     );
 
+    // Echo Chamber resolves before the kill pass for the same reason: an echo
+    // kill pays its orb on this tick. The echo repeats where the dash blast
+    // rang, at a fraction of its damage, one radius louder.
+    if (this.pendingEchoSeconds > 0) {
+      this.pendingEchoSeconds -= dt;
+      if (this.pendingEchoSeconds <= 0) {
+        applySoundBlast(
+          this.entityManager.enemies,
+          this.pendingEchoPos,
+          this.perks.soundBlastDamage * ECHO_DAMAGE_FRACTION,
+          this.perks.soundBlastRadius + 1,
+        );
+        this.remoteBlastFx.trigger(this.pendingEchoPos, this.perks.soundBlastRadius + 1);
+      }
+    }
+
+    // Chorus sites are buffered during the cull and sung after it returns:
+    // blasting mid-cull would kill enemies the descending loop has already
+    // passed, splitting one wave's accounting across two ticks.
+    this.chorusSites.length = 0;
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
       if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
       this.ultimate.registerKill();
+      if (this.perks.chorus > 0) {
+        this.chorusKills += 1;
+        if (this.chorusKills >= CHORUS_EVERY_KILLS) {
+          this.chorusKills = 0;
+          this.chorusSites.push(enemy.position.clone());
+        }
+      }
     });
+    if (this.chorusSites.length > 0) {
+      // Works without Sound Blast owned (the floor), sings louder with it.
+      const damage = Math.max(this.perks.soundBlastDamage, CHORUS_MIN_DAMAGE);
+      for (const site of this.chorusSites) {
+        applySoundBlast(this.entityManager.enemies, site, damage, this.perks.soundBlastRadius);
+        this.remoteBlastFx.trigger(site, this.perks.soundBlastRadius);
+      }
+    }
 
     // Full 3D speed, not the horizontal `speed` getter: the pull's lead has to
     // beat the player's actual closing rate, and on a descent much of that is
-    // vertical.
+    // vertical. Heliotropism's reach, by contrast, is paid on horizontal speed
+    // like every other speed reward — a plummet earns no extra pull.
     const playerSpeed3d = playerVelocity.length();
-    for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition, playerSpeed3d);
+    const magnetBonus = heliotropismBonus(this.playerController.speed, this.perks.heliotropism);
+    for (const orb of this.entityManager.orbs) {
+      orb.tick(dt, playerPosition, playerSpeed3d, magnetBonus);
+    }
 
     this.entityManager.cullCollectedOrbs((orb) => {
       this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
@@ -566,8 +682,14 @@ export class Game {
     // Flow: sustained speed pays a trickle of XP — a percentage of the current
     // level requirement per second, so it stays worth the same fraction of a
     // bar at any level without ever competing with kills (the budget maths
-    // live in FlowXP). Scholar's multiplier applies, same as every XP source.
-    const flowPct = this.flowXp.tick(dt, this.playerController.speed);
+    // live in FlowXP). Scholar's multiplier applies, same as every XP source;
+    // Aurora Wake feeds the two flow-shaping multipliers.
+    const flowPct = this.flowXp.tick(
+      dt,
+      this.playerController.speed,
+      1 + 0.25 * this.perks.auroraWake,
+      1 + 0.6 * this.perks.auroraWake,
+    );
     if (flowPct > 0) {
       this.levelSystem.addXp(
         (flowPct / 100) * this.levelSystem.xpToNextLevel * this.perks.xpMultiplier * dt,
@@ -583,6 +705,9 @@ export class Game {
       this.playerController.speed,
       !this.playerController.grounded,
       this.levelSystem.level,
+      // Solar Capacitor: banked sunshine — the meter earns faster only while
+      // flow is genuinely full. `flowXp.tick` ran above, so `flow` is fresh.
+      1 + (this.flowXp.flow >= 1 ? this.perks.solarCapacitor : 0),
     );
     this.rewind.record(dt);
   }
@@ -602,8 +727,10 @@ export class Game {
     this.rewind.begin();
     // Same contract as live blasts (which `rewind.begin` clears): wake points
     // live ~1.6 s, nothing recorded is still burning, and the trail re-grows
-    // the moment play resumes.
+    // the moment play resumes. A pending echo is the same class — 0.35 s of
+    // life, re-armed by the next dash.
     this.solarWave.clear();
+    this.pendingEchoSeconds = 0;
     this.state = 'rewinding';
     this.ultFx.beginRewind();
     this.ultFx.setRewoundSeconds(0);
@@ -957,7 +1084,10 @@ export class Game {
     this.levelSystem.reset();
     this.weapon.reset();
     this.soundBlastFx.hide();
+    this.remoteBlastFx.hide();
     this.solarWave.clear();
+    this.pendingEchoSeconds = 0;
+    this.chorusKills = 0;
     this.viewModel.reset();
     this.playerModel.reset();
     this.dash.reset();

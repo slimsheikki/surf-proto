@@ -1,4 +1,5 @@
 import { Health } from '../combat/Health';
+import { SOUND_BLAST_RADIUS } from '../combat/SoundBlast';
 import { Weapon } from '../combat/Weapon';
 import { Dash } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
@@ -21,15 +22,45 @@ export interface RunPerks {
   xpMultiplier: number;
   /** Damage of the shockwave a dash emits. 0 = perk not owned. See `SoundBlast`. */
   soundBlastDamage: number;
+  /** Reach of every sound-based blast (dash, echo, Chorus). Subwoofer grows it. */
+  soundBlastRadius: number;
   /** Damage per second of the burning wake. 0 = perk not owned. See `SolarWave`. */
   solarWaveDps: number;
+  /** Photosynthesis: HP per second, paid only while airborne. */
+  airRegenPerSecond: number;
+  /** Heliotropism stacks: orb notice radius grows with speed. See `heliotropismBonus`. */
+  heliotropism: number;
+  /** Doppler Drive: extra attacks/s at full speed, scaled by the 10-40 u/s window. */
+  dopplerAps: number;
+  /** Solar Capacitor: extra ultimate gain multiplier while flow is full (+0.35/stack). */
+  solarCapacitor: number;
+  /** Aurora Wake stacks: flow pays +25% and drains slower per stack. */
+  auroraWake: number;
+  /** Mirror Array: retaliatory flash damage when contact damage lands. 0 = off. */
+  mirrorDamage: number;
+  /** Echo Chamber: 1 = a dash-blast repeats at 60% from where it fired, 0.35 s later. */
+  echoChamber: number;
+  /** Standing Wave: fraction of speed the wake strips from chasers (0 = off, cap 0.55). */
+  standingWaveSlow: number;
+  /** Chorus: 1 = every 8th kill sings a free blast at the victim's position. */
+  chorus: number;
 }
 
 const PERK_DEFAULTS: RunPerks = {
   healOnKill: 0,
   xpMultiplier: 1,
   soundBlastDamage: 0,
+  soundBlastRadius: SOUND_BLAST_RADIUS,
   solarWaveDps: 0,
+  airRegenPerSecond: 0,
+  heliotropism: 0,
+  dopplerAps: 0,
+  solarCapacitor: 0,
+  auroraWake: 0,
+  mirrorDamage: 0,
+  echoChamber: 0,
+  standingWaveSlow: 0,
+  chorus: 0,
 };
 
 export function createRunPerks(): RunPerks {
@@ -120,7 +151,7 @@ export const UPGRADE_POOL: Upgrade[] = [
   {
     id: 'sound-blast',
     name: 'Sound Blast',
-    description: 'Dashing blasts everything within 7 units for 20 (stacks)',
+    description: 'Dashing emits a shockwave for 20 damage (stacks)',
     rarity: 'rare',
     apply: (ctx) => {
       ctx.perks.soundBlastDamage += 20;
@@ -133,6 +164,101 @@ export const UPGRADE_POOL: Upgrade[] = [
     rarity: 'rare',
     apply: (ctx) => {
       ctx.perks.solarWaveDps += 10;
+    },
+  },
+
+  // ------------------------------------------- the solarpunk / sound batch
+  {
+    id: 'photosynthesis',
+    name: 'Photosynthesis',
+    description: 'Regenerate 1.2 HP/s while airborne (stacks)',
+    rarity: 'common',
+    apply: (ctx) => {
+      ctx.perks.airRegenPerSecond += 1.2;
+    },
+  },
+  {
+    id: 'heliotropism',
+    name: 'Heliotropism',
+    description: 'XP orbs notice you from further out the faster you go',
+    rarity: 'common',
+    apply: (ctx) => {
+      ctx.perks.heliotropism += 1;
+    },
+  },
+  {
+    id: 'doppler-drive',
+    name: 'Doppler Drive',
+    description: 'Attack rate rises with speed, up to +0.5/s (stacks)',
+    rarity: 'common',
+    apply: (ctx) => {
+      ctx.perks.dopplerAps += 0.5;
+    },
+  },
+  {
+    id: 'subwoofer',
+    name: 'Subwoofer',
+    description: 'Sound Blast radius +2; grants the blast at +15 damage if unowned',
+    rarity: 'common',
+    apply: (ctx) => {
+      // Radius unconditionally — a stack must never be silently lost — plus
+      // the Velocity Rounds rule: drawn before Sound Blast itself, it brings
+      // the blast with it so it is never a dead pick.
+      ctx.perks.soundBlastRadius += 2;
+      if (ctx.perks.soundBlastDamage === 0) ctx.perks.soundBlastDamage += 15;
+    },
+  },
+  {
+    id: 'solar-capacitor',
+    name: 'Solar Capacitor',
+    description: 'Ultimate charges +35% faster while flow is full (stacks)',
+    rarity: 'rare',
+    apply: (ctx) => {
+      ctx.perks.solarCapacitor += 0.35;
+    },
+  },
+  {
+    id: 'aurora-wake',
+    name: 'Aurora Wake',
+    description: 'Flow XP +25% and the glow fades slower off-line (stacks)',
+    rarity: 'rare',
+    apply: (ctx) => {
+      ctx.perks.auroraWake += 1;
+    },
+  },
+  {
+    id: 'mirror-array',
+    name: 'Mirror Array',
+    description: 'Enemies that touch you take a 14-damage flash (stacks)',
+    rarity: 'rare',
+    apply: (ctx) => {
+      ctx.perks.mirrorDamage += 14;
+    },
+  },
+  {
+    id: 'echo-chamber',
+    name: 'Echo Chamber',
+    description: 'Sound Blast +10 damage and repeats at 60% where it fired',
+    rarity: 'rare',
+    apply: (ctx) => {
+      ctx.perks.soundBlastDamage += 10;
+      ctx.perks.echoChamber = 1;
+    },
+  },
+  {
+    id: 'standing-wave',
+    name: 'Standing Wave',
+    description: 'Your solar wake also drags pursuers to 70% speed',
+    rarity: 'rare',
+    apply: (ctx) => {
+      // First pick strips 30%, repeats deepen by 10% toward a 55% cap. Brings
+      // a starter wake along if Solar Wave is unowned — same no-dead-pick rule
+      // as Subwoofer.
+      if (ctx.perks.solarWaveDps === 0) ctx.perks.solarWaveDps += 6;
+      ctx.perks.standingWaveSlow =
+        ctx.perks.standingWaveSlow === 0
+          ? 0.3
+          : Math.min(0.55, ctx.perks.standingWaveSlow + 0.1);
     },
   },
   {
@@ -339,6 +465,17 @@ export const UPGRADE_POOL: Upgrade[] = [
       ctx.perks.soundBlastDamage += 35;
     },
   },
+  {
+    id: 'legend-chorus',
+    name: 'Chorus',
+    description: 'Every 8th kill sings a free Sound Blast where it died',
+    rarity: 'legendary',
+    apply: (ctx) => {
+      // Dupes deepen the song instead of double-counting kills.
+      if (ctx.perks.chorus > 0) ctx.perks.soundBlastDamage += 25;
+      ctx.perks.chorus = 1;
+    },
+  },
 ];
 
 /** The tiers a pick menu may offer. Epic and legendary are gamble-only. */
@@ -347,10 +484,11 @@ const VISIBLE_RARITIES: readonly Rarity[] = ['common', 'rare'];
 /**
  * Three choices for one pick.
  *
- * Filtered to the visible tiers, which happen to be exactly the fifteen entries
- * this pool started with — so the distribution a pick menu and a shrine
- * blessing draw from is bit-for-bit what it always was. The gamble-only entries
- * added underneath change nothing about how the early game plays.
+ * Filtered to the visible tiers — 24 entries since the solarpunk/sound batch
+ * (the original fifteen, minus two knife picks, plus Sound Blast, Solar Wave
+ * and the nine visible solar/sound perks). Worth knowing when tuning: drawing
+ * 3 of 24 without replacement re-offers any *specific* stacking perk notably
+ * less often than the original 3-of-15 did.
  */
 export function drawUpgradeChoices(count: number): Upgrade[] {
   const pool = UPGRADE_POOL.filter((upgrade) => VISIBLE_RARITIES.includes(upgrade.rarity));

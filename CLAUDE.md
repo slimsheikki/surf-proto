@@ -156,9 +156,9 @@ and it is checked *after* the ReWind edge: ReWind is the panic button, powers ke
 
 The bank lives in `LevelSystem`, so it rides `LevelSnapshot` and **`Rewind` needed no new
 `Frame` field** — the same reason `xpToNext` lives there. Epic/legendary upgrades are
-**gamble-only**; `drawUpgradeChoices` filters to common+rare, which is exactly the original
-fifteen, so pick menus draw what they always did. Shrine blessings are unchanged and do not
-bank. See `docs/STATE.md`.
+**gamble-only**; `drawUpgradeChoices` filters to common+rare (24 entries since the
+solarpunk/sound batch; 11 gamble-only behind them). Shrine blessings are unchanged and do
+not bank. See `docs/STATE.md`.
 
 ## The ReWind ultimate
 

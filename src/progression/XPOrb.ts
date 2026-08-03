@@ -59,6 +59,28 @@ const MAGNET_SPEED_PER_UNIT = 4;
  */
 const MAGNET_SPEED_LEAD = 1.25;
 
+/** Heliotropism's tuning: extra notice radius per u/s over the speed floor, and its per-stack cap. */
+const HELIOTROPISM_MIN_SPEED = 20;
+const HELIOTROPISM_RADIUS_PER_UNIT = 0.3;
+const HELIOTROPISM_CAP_PER_STACK = 8;
+
+/**
+ * Heliotropism: the notice radius leans toward a fast rider like a sunflower
+ * toward light. Horizontal speed on purpose — the same measure flow and the
+ * ultimate reward — so a plummet earns no reach, converting it along a face
+ * does. Lives beside the magnet constants it modifies; `Game` computes it once
+ * per tick and hands it to every orb.
+ */
+export function heliotropismBonus(horizontalSpeed: number, stacks: number): number {
+  if (stacks <= 0) return 0;
+  return (
+    Math.min(
+      HELIOTROPISM_CAP_PER_STACK,
+      Math.max(0, horizontalSpeed - HELIOTROPISM_MIN_SPEED) * HELIOTROPISM_RADIUS_PER_UNIT,
+    ) * stacks
+  );
+}
+
 const toPlayer = new Vector3();
 
 let rewindIdCounter = 0;
@@ -96,14 +118,16 @@ export class XPOrb {
 
   /**
    * `playerSpeed` is the player's full 3D speed this tick; it feeds the pull's
-   * lead so the orb can never be outrun (see MAGNET_SPEED_LEAD). Defaulted so
-   * a stationary caller reads exactly as before.
+   * lead so the orb can never be outrun (see MAGNET_SPEED_LEAD). `radiusBonus`
+   * is Heliotropism's transient widening of the notice radius — a pure
+   * function of live speed, recomputed per tick, so it needs no place in the
+   * rewind. Both defaulted so a bare caller reads exactly as before.
    */
-  tick(dt: number, playerPosition: Vector3, playerSpeed = 0): void {
+  tick(dt: number, playerPosition: Vector3, playerSpeed = 0, radiusBonus = 0): void {
     toPlayer.copy(playerPosition).sub(this.position);
     let dist = toPlayer.length();
 
-    if (dist < XP_MAGNET.radius) this.magnetised = true;
+    if (dist < XP_MAGNET.radius + radiusBonus) this.magnetised = true;
 
     if (this.magnetised && dist > 1e-6) {
       const pullSpeed =
