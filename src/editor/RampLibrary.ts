@@ -9,7 +9,7 @@ import {
 } from 'three';
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { registerPrism } from '../world/Colliders';
-import { computeRampFrames, RampCurveMode, RampCurveParams } from '../world/RampCurve';
+import { computeRampFrames, RampCurveMode, RampCurveParams, RampFrame } from '../world/RampCurve';
 import { gridCellFor, useRampTexture, uvPerUnit } from '../world/RampTexture';
 import {
   APPROACH_DESCENT_PITCH_DEG,
@@ -56,6 +56,7 @@ export type RampFamily =
   | 'trapezoid'
   | 'reverse-trapezoid'
   | 'pyramid'
+  | 'halfpipe'
   | 'slide'
   | 'vertical-curved'
   | 'horizontal-curved'
@@ -87,6 +88,93 @@ export interface RampDefinition {
 const SLIDE_WIDTH = 8;
 const SLIDE_ROLL_DEG = 62;
 const SLIDE_LENGTH = 40;
+
+/**
+ * Half-pipe cross-section: two mirrored circular arcs meeting at the bottom of
+ * the centre path — a **half-round pipe**, the concrete drainage kind, laid on
+ * its back and ridden inside.
+ *
+ * **The trough is walkable, and that is a deliberate, human-made call.** A
+ * semicircle's bottom is horizontal: `normal.y` there is 1.0 against the 0.7
+ * standable cutoff, so a player who arrives slowly grounds out and can walk
+ * `2R·sin(45.573°) = 1.429·R` of floor — **12.9 units at the shipped width**.
+ * Everything past that band is steeper than the cutoff and surfs normally, so
+ * a rider carrying speed pendulums across it without ever touching down; it is
+ * the slow arrival that stands up.
+ *
+ * An earlier build truncated the arc at 50° to make that impossible. It was
+ * unimpeachable against the invariant and it read as a **V**, which is not the
+ * shape this piece exists to be. Rounding it back out is the shape winning the
+ * argument, knowingly. If the standable floor ever proves to be the problem in
+ * play, raising this one constant off 0 walks the bottom back out of reach —
+ * at 50° nothing on the piece is standable, and it looks like a V again.
+ */
+const HALFPIPE_THETA_MIN_DEG = 0;
+/**
+ * The rim, and the limit here is collision rather than looks. A prism's solid
+ * thickness is `depth · cos θ`, so a wall approaching vertical thins toward
+ * nothing and a fast player would pass straight through it. 84° keeps the
+ * thinnest facet at 0.51 units against a 0.4 player radius; 88° drops it to
+ * 0.32 and 90° — a truly vertical rim — is exactly zero.
+ *
+ * Stopping 6° short costs almost nothing to look at: depth/mouth lands at
+ * 0.450 against a true semicircle's 0.500.
+ */
+const HALFPIPE_THETA_MAX_DEG = 84;
+/**
+ * Facets per wall. Twelve puts each facet 7° apart, which is what keeps the
+ * seams from catching: the movement clip loop treats two planes within
+ * `acos(0.99) = 8.11°` as one surface and bails with the already-clipped
+ * velocity, instead of resolving every seam as a two-plane wedge event.
+ *
+ * The cost is texture density. These chords are 1.10 units against a 2.84 grid
+ * cell, so `gridCellFor` fits one cell per facet and the pipe wears a grid
+ * about 0.39× the size of the one on a straight ramp beside it. Unavoidable
+ * for a small-radius arc cut fine enough to read as round, and cosmetic.
+ */
+const HALFPIPE_STRIPS_PER_WALL = 12;
+/**
+ * Vertical shell drop, one value for the whole section — see
+ * `FaceStrip.verticalDrop`. With `COLLIDER_UNDER_DEPTH` on top it keeps every
+ * prism's solid thickness between 3.09 under the trough and 0.51 at the rim,
+ * never under the 0.4 player radius, and reads like the rest of the kit
+ * (`FACE_THICKNESS` is 1.4).
+ */
+const HALFPIPE_SHELL_DROP = 1.6;
+/**
+ * Degrees of pitch per segment *along* a curved pipe, against the kit's usual 2.
+ *
+ * Every other family carries one or two strips, so subdividing its length every
+ * 2° costs two prisms a step. A pipe carries 24, so the same step would put
+ * **1296 prisms on a single descending piece** — 38% again on top of the whole
+ * default course, and the collider broadphase is a linear scan. At 6° it is
+ * 432.
+ *
+ * Free to look at and free to ride. The along-length sagitta at 6° is 0.09
+ * units against a 0.4 player radius, and 6° is under the same
+ * `acos(0.99) = 8.11°` the cross-section is cut to — so the movement clip loop
+ * still reads consecutive segments as one surface and nothing catches.
+ */
+const HALFPIPE_ANGLE_STEP_DEG = 6;
+/**
+ * The descending pipe's profile. Positive pitch descends, so this drops
+ * steeply, eases through level and finishes tilted *back up* by
+ * `EXIT_PITCH` — a slight ramp off the end rather than a nose into the floor.
+ *
+ * 53° of total swing at `HALFPIPE_ANGLE_STEP_DEG` is 9 segments, so the piece
+ * costs 432 prisms against a straight pipe's 48. That is the most expensive
+ * thing in the kit by some way (a curved A-frame is 92) — worth knowing before
+ * a map is paved with them.
+ */
+const HALFPIPE_DESCENT_LENGTH = 60;
+const HALFPIPE_DESCENT_PITCH_DEG = 45;
+const HALFPIPE_DESCENT_EXIT_PITCH_DEG = -8;
+/**
+ * Mouth opening across, which fixes the radius at `width / (2·sin θmax)`. The
+ * kit's standard face width, so a pipe reads as the same gauge of piece as the
+ * ramps it chains with. Depth follows at 0.450 × this.
+ */
+const HALFPIPE_WIDTH = RAMP_FACE_WIDTH;
 
 /**
  * The library itself: data, not code. The palette, the spline generator and
@@ -176,6 +264,59 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     label: 'Slide',
     hint: 'Steep narrow chute — a luge',
     defaults: { length: SLIDE_LENGTH, width: SLIDE_WIDTH, rollDeg: SLIDE_ROLL_DEG, pitchDeg: 8 },
+  },
+  // The three half-pipes differ in length and nothing else, and they must stay
+  // adjacent: `EditorUi.buildPalette` starts a new heading whenever the family
+  // changes between consecutive entries, so splitting them emits the heading
+  // three times. The length is in the label because it cannot be in the tile —
+  // `Thumbnails` frames each definition to its own bounds, so all three render
+  // identically.
+  {
+    id: 'halfpipe-short',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · short',
+    hint: '30 long · half-round pipe',
+    defaults: { length: 30, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-medium',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · medium',
+    hint: `${RAMP_LENGTH} long · half-round pipe`,
+    defaults: { length: RAMP_LENGTH, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-long',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · long',
+    hint: '80 long · half-round pipe',
+    defaults: { length: 80, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-descent',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · descent',
+    hint: 'Drops steeply, eases out, kicks up at the exit',
+    // Same section as the straight pipes; only the *path* curves. The pitch
+    // runs from a steep drop to a shallow climb, and `computeRampFrames`
+    // interpolates it linearly along the length — so the profile is a steep
+    // entry that keeps easing, passes through level, and finishes tilted back
+    // up. The exit kick is what hands a rider air off the end instead of
+    // spitting them at the floor.
+    //
+    // 45° of entry rather than the editor's 50° clamp so there is somewhere
+    // left to nudge it with `T`.
+    defaults: {
+      length: HALFPIPE_DESCENT_LENGTH,
+      width: HALFPIPE_WIDTH,
+      rollDeg: 0,
+      pitchDeg: HALFPIPE_DESCENT_PITCH_DEG,
+      endPitchDeg: HALFPIPE_DESCENT_EXIT_PITCH_DEG,
+    },
   },
   {
     id: 'vertical-curved-half',
@@ -284,10 +425,20 @@ export function pieceMode(piece: FreePiece): RampCurveMode {
   return 'straight';
 }
 
-/** Centre-path curve params for a piece whose entry point is `start`. */
+/**
+ * Centre-path curve params for a piece whose entry point is `start`.
+ *
+ * The segment step is decided here rather than at any one call site because
+ * `piecePath` and the mesh/collider walk both go through this: hand them
+ * different steps and a curved piece discretises two different ways, its
+ * midpoint lands somewhere else, and the geometry sits off the position the
+ * editor is showing you.
+ */
 function centreParams(piece: FreePiece, start: Vector3): RampCurveParams {
   return {
     start,
+    angleStepDeg:
+      defFor(piece.def).family === 'halfpipe' ? HALFPIPE_ANGLE_STEP_DEG : undefined,
     startYawDeg: piece.yawDeg,
     startPitchDeg: piece.pitchDeg,
     endPitchDeg: piece.endPitchDeg,
@@ -391,6 +542,26 @@ interface FaceStrip {
    * See `emitStripColliders`.
    */
   pad: number;
+  /**
+   * Overrides the per-ring `thickness / ny` under-side drop with one vertical
+   * distance for the whole strip.
+   *
+   * Every family but the half-pipe is built from strips of *equal* tilt — the
+   * mirrored ±roll pairs are symmetric — so each picks the same drop and their
+   * under-sides and end caps land flush. A curved cross-section is deliberately
+   * unequal: across a half-pipe wall `thickness / ny` runs 0.82 to 2.31, which
+   * would staircase the under-side and the entry/exit caps at every interior
+   * seam and leave the redundant interior wall quads at mismatched lengths,
+   * z-fighting in the open. One drop for the whole section keeps them flush and
+   * makes those quads exactly coincident — buried between two solids, so
+   * invisible.
+   */
+  verticalDrop?: number;
+}
+
+/** The under-side offset for a strip: its override, or the per-ring default. */
+function ringDrop(strip: FaceStrip, ring: FaceRing): number {
+  return strip.verticalDrop ?? strip.thickness / ring.ny;
 }
 
 type FaceEdgeMode = 'centre' | 'ridge' | 'valley';
@@ -457,11 +628,15 @@ function emitStripColliders(strip: FaceStrip): void {
     const a = rings[i];
     const b = rings[i + 1];
     // Same diagonal the skin uses, so collision and mesh are the same solid.
-    const depth = strip.thickness / Math.max(a.ny, 0.3) + COLLIDER_UNDER_DEPTH;
+    const depth = (strip.verticalDrop ?? strip.thickness / Math.max(a.ny, 0.3)) + COLLIDER_UNDER_DEPTH;
     // The strip's two end caps, tagged so the controller can tell them from the
     // lateral edge walls they are otherwise identical to. See `ColliderConvex.capPlane`.
     // In (a.high, b.high, b.low) the trailing edge b.high->b.low is edge 1; in
     // (a.high, b.low, a.low) the leading edge a.low->a.high is edge 2.
+    //
+    // "First and last" is along *travel*, which is the only axis a cap can face.
+    // A half-pipe's 24 strips are facets *across* the section, so the edges they
+    // share with each other are lateral walls and are correctly left untagged.
     registerPrism(a.high, b.high, b.low, depth, undefined, i === lastQuad ? 1 : undefined);
     registerPrism(a.high, b.low, a.low, depth, undefined, i === 0 ? 2 : undefined);
   }
@@ -584,7 +759,7 @@ function stripUv(strip: FaceStrip): { across: number[]; along: number[]; drop: n
   const k = uvPerUnit(gridCellFor(Math.max(...widths)));
 
   const across = widths.map((width) => (width / 2) * k);
-  const drop = strip.rings.map((ring) => (strip.thickness / ring.ny) * k);
+  const drop = strip.rings.map((ring) => ringDrop(strip, ring) * k);
 
   const centre = (i: number) =>
     strip.rings[i].high.clone().add(strip.rings[i].low).multiplyScalar(0.5);
@@ -623,8 +798,8 @@ function skinGeometry(strips: FaceStrip[]): BufferGeometry {
 
   for (const strip of strips) {
     const bottoms = strip.rings.map((ring) => ({
-      high: ring.high.clone().setY(ring.high.y - strip.thickness / ring.ny),
-      low: ring.low.clone().setY(ring.low.y - strip.thickness / ring.ny),
+      high: ring.high.clone().setY(ring.high.y - ringDrop(strip, ring)),
+      low: ring.low.clone().setY(ring.low.y - ringDrop(strip, ring)),
     }));
     const { across, along, drop } = stripUv(strip);
 
@@ -722,6 +897,97 @@ function pyramidFaceParams(piece: FreePiece): { params: RampCurveParams; collide
 }
 
 /**
+ * Arc radius that puts the mouth's across-extent at exactly `width`.
+ *
+ * Written against both ends of the arc rather than just the rim so it stays
+ * correct if `HALFPIPE_THETA_MIN_DEG` is ever lifted off the bottom — see the
+ * note there. At θmin = 0 the `sin` term is 0 and this is `width / 2·sin θmax`.
+ */
+function halfpipeRadius(width: number): number {
+  return (
+    width /
+    (2 * (Math.sin(degToRad(HALFPIPE_THETA_MAX_DEG)) - Math.sin(degToRad(HALFPIPE_THETA_MIN_DEG))))
+  );
+}
+
+/**
+ * The half-pipe's strips: two mirrored arcs, `HALFPIPE_STRIPS_PER_WALL` facets
+ * each, walking the same frames every other family walks.
+ *
+ * The section is built in the **un-rolled** basis. Roll never moves path
+ * positions — it only rotates `right`/`normal` about `forward` — so forcing it
+ * to zero leaves the sockets, `piecePath` and any chain snapped to them
+ * byte-identical, and buys a basis where `right.y` is exactly 0 and the arc
+ * maths stays closed-form. The arc *is* the bank: tipping a pipe rolls one
+ * wall down toward flat and the other up past vertical, where its collider
+ * thins to nothing. Pitch is fine and does the useful thing — it tilts the
+ * whole run of the pipe without touching the section. `pyramidFaceParams`
+ * ignores `rollDeg` for the same reason.
+ *
+ * Both walls' innermost ring sits exactly on the path point, so the crease
+ * closes by construction rather than by tolerance — the same property the V
+ * channel relies on.
+ */
+function halfpipeStrips(piece: FreePiece): FaceStrip[] {
+  const params = centreParams(piece, piecePath(piece).entry);
+  params.rollDeg = 0;
+
+  const path = computeRampFrames(params, pieceMode(piece));
+  const frames = path.frames;
+  const count = frames.length;
+
+  const radius = halfpipeRadius(piece.width);
+  const inner0 = degToRad(HALFPIPE_THETA_MIN_DEG);
+  const outer0 = degToRad(HALFPIPE_THETA_MAX_DEG);
+  const step = (outer0 - inner0) / HALFPIPE_STRIPS_PER_WALL;
+  const cosMin = Math.cos(inner0);
+  const sinMin = Math.sin(inner0);
+
+  const point = (frame: RampFrame, position: Vector3, wall: number, theta: number) =>
+    position
+      .clone()
+      .addScaledVector(frame.normal, radius * (cosMin - Math.cos(theta)))
+      .addScaledVector(frame.right, wall * radius * (Math.sin(theta) - sinMin));
+
+  const strips: FaceStrip[] = [];
+  for (const wall of [1, -1]) {
+    for (let s = 0; s < HALFPIPE_STRIPS_PER_WALL; s++) {
+      const inner = inner0 + step * s;
+      const outer = inner + step;
+      const rings: FaceRing[] = [];
+      // Same ring/frame pairing `faceRings` uses: the closing ring reuses the
+      // last segment's basis rather than inventing one past the end.
+      for (let i = 0; i <= count; i++) {
+        const frame = frames[Math.min(i, count - 1)];
+        const position = i < count ? frames[i].start : path.end;
+        rings.push({
+          low: point(frame, position, wall, inner),
+          high: point(frame, position, wall, outer),
+          // cos(pitch)·cos(theta), exact because `right.y` is 0 here. Inert
+          // while `verticalDrop` is set, but kept true so the ring contract
+          // still holds if that override is ever dropped.
+          ny: Math.max(frame.normal.y * Math.cos((inner + outer) / 2), 0.3),
+          forward: frame.forward.clone(),
+        });
+      }
+      // `path.overlapPad` is the piece's, not this facet's, and that is right:
+      // it is sized to the daylight half a step of rotation opens at the section's
+      // widest point, and a lead-in that is generous for the inner facets costs
+      // nothing. It matters more here than anywhere else in the kit, because a
+      // pipe walks its path at `HALFPIPE_ANGLE_STEP_DEG` (6) rather than the usual
+      // 2 for the reasons above, and the crack a join opens grows with the step.
+      strips.push({
+        rings,
+        thickness: COMPOSITE_THICKNESS,
+        verticalDrop: HALFPIPE_SHELL_DROP,
+        pad: path.overlapPad,
+      });
+    }
+  }
+  return strips;
+}
+
+/**
  * Meshes (and optionally colliders) for one library piece, in world space.
  *
  * The visible piece is **one watertight mesh**: every face is lofted into a
@@ -738,7 +1004,13 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
   const mode = pieceMode(piece);
   const strips: FaceStrip[] = [];
 
-  if (def.family === 'pyramid') {
+  // Checked by family, and *before* the variant test below: a half-pipe is
+  // stored as an `inverted` variant, so falling through would build it as a
+  // plain V channel — placing, snapping, saving and playing without a single
+  // error to say it had.
+  if (def.family === 'halfpipe') {
+    strips.push(...halfpipeStrips(piece));
+  } else if (def.family === 'pyramid') {
     for (const face of pyramidFaceParams(piece)) {
       strips.push({ ...faceRings(face.params, 'straight', 'centre'), thickness: COMPOSITE_THICKNESS });
     }

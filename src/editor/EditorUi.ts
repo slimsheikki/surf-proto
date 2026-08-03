@@ -113,6 +113,7 @@ export class EditorUi {
       trapezoid: 'Trapezoid',
       'reverse-trapezoid': 'Trapezoid',
       pyramid: 'Pyramid',
+      halfpipe: 'Halfpipe',
       slide: 'Slide',
       'vertical-curved': 'Vertical curve',
       'horizontal-curved': 'Horizontal curve',
