@@ -105,6 +105,31 @@ Verified in the live game loop: an approach shrine at radius 630 / +159 was
 collected, vanished, and came back exactly 30.00 s later at radius 93 / +16 — off
 the one-way start and onto the ring.
 
+## MEGAFLOW rebrand (new)
+
+The game is **MEGAFLOW**. Only the player-facing strings changed — window title,
+the start overlay's heading, and the main menu, which is now the wordmark image
+at `public/images/megaflow-logo.png` (1200 × 800, transparent, 1.11 MB). The
+`localStorage` keys keep their `surf-proto.` prefix deliberately: renaming them
+orphans every saved map and settings blob already in players' browsers. Repo,
+package name, and the `/surf-proto/` Pages base path are likewise untouched.
+
+Type is two faces behind CSS variables in `styles.css`: `--font-display`
+(Bitcount Prop Single SemiBold) on `h1`/`h2`, menu titles and items, banner and
+boss name; `--font-body` (IBM Plex Mono Regular) on everything else. Both live
+in `public/fonts/`. **`font-display: block`, not `swap`** — they are the first
+thing on screen.
+
+The logo turns `rotateY` 0→360 over 11 s, perspective on the parent, backface
+left visible so the mirrored reverse shows through the second half (a flat
+`rotate` would just be a pinwheel). Stops under `prefers-reduced-motion`.
+
+**An absolute `src` in `index.html` does not get the base path.** Vite rewrites
+`url()` inside CSS but leaves HTML `src` alone, so the logo's path is built from
+`import.meta.env.BASE_URL` in `MainMenu.ts` — the hard-coded form works on
+localhost and 404s on Pages. `MainMenu` also swaps in a text wordmark on the
+image's `error` event, so a missing file never shows a broken-image icon.
+
 ## Music (new)
 
 `src/audio/MusicManager.ts`, owned by `App` (it outlives a run). Nine liquid
