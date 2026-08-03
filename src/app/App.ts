@@ -275,7 +275,7 @@ export class App {
     this.mainMenu.show({
       onStandard: () => this.startStandardRun(),
       onEditor: () => this.openEditor(),
-      onSettings: () => this.settingsPanel.show('menu'),
+      onSettings: () => this.settingsPanel.show('back'),
       onFreeMap: (map) => this.startMapRun(map),
     });
   }
@@ -399,6 +399,13 @@ export class App {
       // goes back to the editor, because that is the useful exit while you are
       // iterating on a map; Quit is the one that leaves.
       onQuit: () => this.openMenu(),
+      onSettings: () => {
+        // Plain — no Advanced. `O` is the shortcut that expands it, and a menu
+        // item that dumped a player into a wall of convars would be the wrong
+        // first thing to show someone who only wants their FOV back.
+        this.settingsFromPause = true;
+        this.settingsPanel.show('back');
+      },
     });
   }
 
@@ -483,7 +490,12 @@ export class App {
         event.preventDefault();
         this.settingsFromPause = this.pauseMenu.isOpen;
         this.pauseMenu.hide();
-        this.settingsPanel.show(this.mode === 'play' ? 'run' : 'menu', true);
+        // Resumes the run only when `O` was pressed while playing; from the
+        // pause menu it goes back there, and the button has to say so.
+        this.settingsPanel.show(
+          this.mode === 'play' && !this.settingsFromPause ? 'resume' : 'back',
+          true,
+        );
         if (this.mode === 'play') this.input.releasePointerLock();
         this.startOverlay.classList.add('hidden');
         return;
