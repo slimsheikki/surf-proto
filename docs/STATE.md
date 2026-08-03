@@ -1,4 +1,4 @@
-# State — 2026-08-02
+# State — 2026-08-03
 
 Living handoff doc. Read at session start, update before finishing. Keep it short:
 delete anything resolved rather than accumulating history.
@@ -333,6 +333,78 @@ longer a floating panel of its own — it is embedded under a collapsible
 **Advanced Settings** section on that screen, and `MovementPanel` is now a
 content builder with no positioning, visibility or pointer-lock handling of its
 own. `O` still works and opens Settings with that section already expanded.
+
+## Banked powers — F (new)
+
+Playtest feedback: the only complaint was that a level-up stopped the run mid-flow. Levels
+no longer open anything. They **bank**, and the player cashes in when they choose:
+
+- **Tap `F`** — one power, three to choose from.
+- **Hold `F` for 2.5 s** (`BANK_HOLD_SECONDS`, `Game.ts`) — the all-in screen: spend the
+  whole bank one pick at a time, or stake it on a single blind roll.
+
+Both freeze the world and resume through the 3-2-1, with look live so the player re-aims
+before anything moves. A tickbox on both screens (`C`, `CountdownToggle`, persisted in
+`Settings.countdownOnResume`) turns the countdown off; with it off, `grantMomentumBoost()`
+stands in, because then the pause really did eat an input window with nothing given back.
+
+**A tap can only be told from a hold on the release**, so that is where it fires.
+`bankHoldArmed` stays false from the moment a hold fires until `F` comes back up — the
+screen opens with the key still down and is usually still down when the countdown ends, and
+without it the run would reopen the screen instantly and read the eventual release as a tap
+on top. `F` is consumed inside `updateGameplay`, so it is inert during the countdown, a
+rewind, game over and behind the pause menu for free. It is checked **after** the ReWind
+rising edge: ReWind is the panic button, banked powers keep.
+
+**The bank lives in `LevelSystem`** (`bankedPicks`, `PICK_CAP = 5`), which is why `Rewind.ts`
+needed no changes — it rides `LevelSnapshot`, the snapshot the recorder already stores, and
+`reset()` already runs on restart. Rewinding across a cash-in refunds the picks in the same
+motion that un-applies the stats. Rewinding across a *gamble* rerolls it; that costs a full
+ultimate charge and is capped at 15 s, so it is left in as a feature. Kill switch if it ever
+reads as an exploit: `this.rewind.clear()` in `Game.finishCashIn`.
+
+Past the cap, `level` still climbs (difficulty, boss cadence and ultimate scaling all read
+it) but the pick is dropped and the HUD pip goes red. That waste is the pressure to spend.
+
+**Rarity.** `Upgrade.rarity` is new. The original 15 entries are the common+rare pool and
+`drawUpgradeChoices` filters to exactly those, so pick menus and shrine blessings draw the
+distribution they always did. Ten epic/legendary entries are **gamble-only** — that is what
+makes banking worth doing. All of them write fields `Frame` already records, so the recorder
+was untouched; `.probe-bank.ts` asserts that property for all 25.
+
+Odds by stake (`GAMBLE_ODDS`, permille): bust/rare/epic/legendary at 2 = 50/34/15/1, at 3 =
+32/34/28/6, at 4 = 20/28/34/18, at 5 = 12/20/33/35. Staking 2 is a bad bet, 4 is about
+break-even, 5 is marginally favourable with a 1-in-8 bust — which assumes stacked commons
+have *sublinear* value. That assumption is what the table rests on; it holds for a pool of
+repeatable flat bonuses, and would need redoing if the pool ever gains real build pieces.
+Gambling needs 2 (`MIN_GAMBLE_PICKS`); at 1 the option renders disabled and says why.
+
+**Shrine blessings are unchanged** — instant pause, one menu, immediate resume with the
+momentum boost. They do not bank. `Game.openUpgradeChoice` is now that path alone.
+
+Fixed along the way:
+
+- **Every Monolith kill used to eat an upgrade.** `addXp` loops and `UpgradeMenu.show`
+  overwrote unconditionally, so a double level-up silently dropped one — and `XP_PER_BOSS`
+  is 45, about two levels. Structurally impossible now: there is no menu to overwrite.
+- **Escape over a power screen stacked the pause menu on it**, and since `PauseMenu`'s digit
+  listener is gated the same way `UpgradeMenu`'s is, `1` then fired *both* — Continue and
+  pick-the-first-power. `Game.isKeyboardOverlayOpen` now routes that `pointerlockchange`
+  branch to `App.resumeRun` instead. Deliberately not folded into `isMenuOpen`, which means
+  "hand the cursor back"; these screens want the lock.
+- **The ultimate arc drew a dark half-ring through the middle power card.** The crosshair and
+  arc are the only things above a full-screen panel and they follow pointer lock, which is
+  held through the pause. `Game.applyHudVisibility` drops them for `pausedForUpgrade` only —
+  not the countdown, which is exactly when the player *is* aiming.
+
+The 3-2-1 moved out of `UltimateEffect` into `src/ui/Countdown.ts` with its own `#countdown`
+node, shared by both resume paths. That is what lets one `'countdown'` state (renamed from
+`'rewindCountdown'`) serve both without a `countdownReason` field. `UltimateEffect` keeps the
+flames, the burst and the seconds, and gained `setResuming()`.
+
+Verified: `.probe-bank.ts` (32 assertions — bank arithmetic, snapshot round-trip, odds sum to
+exactly 1000, 200k rolls per stake within 1.5‰ of the table, every upgrade Frame-safe) and a
+Playwright pass covering all of the above plus restart and the ReWind resume regression.
 
 ## Known bugs
 
@@ -915,9 +987,11 @@ near-white. Lights are untouched (white ambient + white sun) and probably want a
 ## Next up
 
 1. Fix the approach entry (bug 1), then re-run the flow probe.
-2. Items / level-up powerups: two lists of 10 were delivered, **none implemented** —
-   awaiting the user's pick. Suggested starting with 4–5 items plus the knife.
-3. Re-test gaps with the friend once deployed.
+2. Banked powers want a human balance pass. Two numbers in particular: the 2.5 s hold, and
+   `epic-tailwind`'s `MAX_AIR_WISH_SPEED += 0.15` — that is +22% air control off a 0.667
+   base, the one new upgrade that could distort surf feel, and it is an aesthetic call.
+3. Re-test gaps with the friend once deployed — specifically whether tapping F is reached
+   for at all once the all-in screen is known about.
 4. `README.md` points at a `docs/` CS:S surf design reference that was never written — the
    agent assigned to it died. Either write it or drop the reference.
 5. Free mode wants a human pass on the palette: six presets is a guess, and whether the

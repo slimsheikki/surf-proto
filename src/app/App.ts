@@ -586,6 +586,13 @@ export class App {
         this.hasStartedRun = true;
         this.settingsPanel.hide();
         this.pauseMenu.hide();
+      } else if (this.hasStartedRun && this.game?.isKeyboardOverlayOpen) {
+        // Escape landed on a power screen. The sim is already frozen and the
+        // screen is picked with number keys, so take the lock straight back
+        // instead of opening a pause menu — whose digit listener is gated only
+        // on "am I open", exactly like the screen underneath it, so `1` would
+        // fire both of them.
+        this.resumeRun();
       } else if (this.hasStartedRun && !this.game?.isMenuOpen && !this.settingsPanel.isOpen) {
         // This is the Escape path. Under pointer lock the browser consumes the
         // Escape keydown and only releases the lock, so a key handler can never
@@ -596,7 +603,11 @@ export class App {
       // Never surface "click to start" on top of another panel.
       this.startOverlay.classList.toggle(
         'hidden',
-        locked || !!this.game?.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen,
+        locked ||
+          !!this.game?.isMenuOpen ||
+          !!this.game?.isKeyboardOverlayOpen ||
+          this.settingsPanel.isOpen ||
+          this.pauseMenu.isOpen,
       );
       // Crosshair and ultimate arc follow the lock: they only mean anything
       // while the sim is running, and they sit exactly where the start screen

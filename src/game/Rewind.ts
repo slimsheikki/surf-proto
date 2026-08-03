@@ -109,7 +109,7 @@ class Frame {
   maxHp = 0;
   regenPerSecond = 0;
 
-  level: LevelSnapshot = { level: 1, xp: 0, xpToNext: 0 };
+  level: LevelSnapshot = { level: 1, xp: 0, xpToNext: 0, bankedPicks: 0 };
   dash: DashSnapshot = { charges: 0, maxCharges: 0, rechargeSeconds: 0, rechargeTimer: 0 };
   spawn: SpawnSnapshot = { survivalTime: 0, timeSinceLastSpawn: 0, suspended: false };
 

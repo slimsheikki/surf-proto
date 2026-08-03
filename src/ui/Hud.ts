@@ -14,6 +14,12 @@ export interface HudState {
   dashMaxCharges: number;
   /** 0..1 fill of the ReWind ultimate. */
   ultimateFraction: number;
+  /** Unspent powers. Hidden at zero — see `update`. */
+  bankedPicks: number;
+  /** At the cap, so further level-ups are throwing picks away. */
+  picksAtCap: boolean;
+  /** 0..1 progress of the F hold toward the all-in screen. */
+  bankHoldFraction: number;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -29,6 +35,9 @@ export class Hud {
   private readonly levelEl = document.getElementById('level-readout')!;
   private readonly waveEl = document.getElementById('wave-readout')!;
   private readonly felledEl = document.getElementById('felled-readout')!;
+  private readonly picksEl = document.getElementById('picks-readout')!;
+  private readonly picksCountEl = document.getElementById('picks-count')!;
+  private readonly picksHintEl = document.getElementById('picks-hint')!;
   private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
   private readonly dashReadoutEl = document.getElementById('dash-readout')!;
   private readonly crosshairEl = document.getElementById('crosshair')!;
@@ -49,6 +58,17 @@ export class Hud {
     this.felledEl.textContent =
       state.bossesFelled > 0 ? `\u25C6 ${state.bossesFelled}` : '';
     this.felledEl.classList.toggle('hidden', state.bossesFelled === 0);
+
+    // Hidden at zero, which is also the whole affordance for a key that does
+    // nothing with an empty bank: the F hint is only on screen while F works.
+    // The hint doubles as the hold meter — 2.5 s with no feedback reads as a
+    // dead key — and says what the hold is *for* once it is under way.
+    this.picksEl.classList.toggle('hidden', state.bankedPicks === 0);
+    this.picksEl.classList.toggle('at-cap', state.picksAtCap);
+    this.picksCountEl.textContent = `▲ ${state.bankedPicks}`;
+    this.picksHintEl.textContent = state.bankHoldFraction > 0 ? 'ALL IN' : 'F';
+    this.picksHintEl.style.setProperty('--hold', state.bankHoldFraction.toFixed(3));
+
     this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
     this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
 

@@ -16,17 +16,27 @@ import { PlayerController } from '../player/PlayerController';
 import { PlayerModel } from '../player/PlayerModel';
 import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
-import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
+import {
+  createRunPerks,
+  drawOfRarity,
+  drawUpgradeChoices,
+  resetRunPerks,
+  rollGambleRarity,
+  UpgradeContext,
+} from '../progression/Upgrades';
 import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
+import { BankMenu } from '../ui/BankMenu';
 import { BossBar } from '../ui/BossBar';
+import { COUNTDOWN_SECONDS, Countdown } from '../ui/Countdown';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Shrine } from './Shrine';
 import { pickShrineRespawnPoint } from './ShrineRespawn';
 import { Rewind } from './Rewind';
+import { getSettings } from './Settings';
 import { Ultimate } from './Ultimate';
-import { COUNTDOWN_SECONDS, UltimateEffect } from '../ui/UltimateEffect';
+import { UltimateEffect } from '../ui/UltimateEffect';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
 import { CourseStage } from '../world/SurfCourse';
@@ -49,6 +59,17 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
+
+/**
+ * How long F must be held to open the all-in screen instead of cashing one
+ * power.
+ *
+ * Long enough that no tap reaches it by accident, short enough to sit through
+ * on a straight. The world keeps running for the whole hold — that is the price
+ * of the bigger decision, and the HUD fills a meter so the wait is never
+ * mistaken for a dead key.
+ */
+const BANK_HOLD_SECONDS = 2.5;
 /**
  * Fall detection: one rule only — below the course's `killPlaneY`, the run
  * ends. The plane is the map's true floor, safely under every piece of
@@ -168,20 +189,35 @@ export class Game {
    */
   private bossEpoch = 0;
 
-  /** Counts the 3-2-1 down while `state === 'rewindCountdown'`. */
+  /** Counts the 3-2-1 down while `state === 'countdown'`. */
   private countdownRemaining = 0;
   /** Rising-edge latch on R; see `updateGameplay`. */
   private ultimateHeldLastTick = false;
+  /** How long F has been down this press. Drives the HUD's hold meter. */
+  private bankHoldSeconds = 0;
+  /**
+   * False from the moment a hold fires until F comes back up.
+   *
+   * The all-in screen opens while the key is still down, and it is usually
+   * still down when the countdown ends — without this the run would reopen the
+   * screen on the first tick back, and the eventual release would read as a tap
+   * on top of that.
+   */
+  private bankHoldArmed = true;
 
   private readonly rewind: Rewind;
   private readonly ultFx = new UltimateEffect();
+  private readonly countdown = new Countdown();
 
   private paused = false;
+  /** Last pointer-lock-driven HUD visibility from `App`; see `applyHudVisibility`. */
+  private hudVisible = false;
   /** See `setRunVisible`. Starts false: `beginRun` is what turns the run on. */
   private runVisible = false;
   private readonly hud = new Hud();
   private readonly bossBar = new BossBar();
   private readonly upgradeMenu = new UpgradeMenu();
+  private readonly bankMenu = new BankMenu();
   private readonly gameOverScreen: GameOverScreen;
   private readonly banner = new Banner();
   private readonly dashFx = new DashEffect();
@@ -310,7 +346,7 @@ export class Game {
     if (!this.paused) {
       if (this.state === 'playing') this.updateGameplay(dt, input);
       else if (this.state === 'rewinding') this.updateRewind(dt, input);
-      else if (this.state === 'rewindCountdown') this.updateCountdown(dt, input);
+      else if (this.state === 'countdown') this.updateCountdown(dt, input);
     }
 
     // Outside the gameplay branch: the viewmodel keeps settling (and a swing
@@ -351,6 +387,33 @@ export class Game {
     if (pressed && this.ultimate.isReady && this.rewind.canRewind) {
       this.beginRewind();
       return;
+    }
+
+    // F, after the ReWind check on purpose. ReWind is the panic button, built
+    // over minutes and spent on activation; banked powers keep, and F is never
+    // urgent. Losing a rewind to a stray F is far worse than the reverse.
+    //
+    // A tap can only be told from a hold on the release, so that is where it
+    // fires. Both branches `return` like `startBlessing` does: the tick that
+    // opens a screen neither simulates nor records, so the world resumes
+    // exactly where it froze.
+    if (!input.bankHeld) {
+      const wasTap =
+        this.bankHoldArmed && this.bankHoldSeconds > 0 && this.bankHoldSeconds < BANK_HOLD_SECONDS;
+      this.bankHoldSeconds = 0;
+      this.bankHoldArmed = true;
+      if (wasTap && this.levelSystem.bankedPicks > 0) {
+        this.openSinglePick();
+        return;
+      }
+    } else if (this.bankHoldArmed && this.levelSystem.bankedPicks > 0) {
+      this.bankHoldSeconds += dt;
+      if (this.bankHoldSeconds >= BANK_HOLD_SECONDS) {
+        this.bankHoldSeconds = 0;
+        this.bankHoldArmed = false;
+        this.openAllInScreen();
+        return;
+      }
     }
 
     this.playerController.tick(dt, input);
@@ -459,7 +522,7 @@ export class Game {
     for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition);
 
     this.entityManager.cullCollectedOrbs((orb) => {
-      this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier), () => this.startLevelUp());
+      this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
     });
     this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
     this.entityManager.cullSpentBlasts();
@@ -515,26 +578,38 @@ export class Game {
     if (input.ultimateHeld && moreLeft) return;
 
     this.rewind.commit();
-    this.state = 'rewindCountdown';
+    this.ultFx.setResuming();
+    this.beginCountdown();
+  }
+
+  /**
+   * Hands the world back through the 3-2-1, shared by a finished ReWind and a
+   * finished cash-in. Both end with a frozen player who needs a beat to work
+   * out where they are before anything moves.
+   */
+  private beginCountdown(): void {
+    this.state = 'countdown';
     this.countdownRemaining = COUNTDOWN_SECONDS;
-    this.ultFx.beginCountdown();
-    this.ultFx.setCountdown(this.countdownRemaining);
+    this.countdown.begin();
+    this.countdown.set(this.countdownRemaining);
   }
 
   private updateCountdown(dt: number, input: InputFrame): void {
-    // Look is live here, and nothing else is. The player has just watched the
-    // run go backwards and is usually mid-air on a ramp; resuming on whatever
-    // heading the recording ended on would hand back a botched line as often as
-    // a saved one.
+    // Look is live here, and nothing else is. Whether the player has just
+    // watched the run go backwards or just read three cards, they are usually
+    // mid-air on a ramp; resuming on whatever heading they were left on would
+    // hand back a botched line as often as a saved one.
     this.playerController.applyLook(input.yawDelta, input.pitchDelta);
     this.ultimateHeldLastTick = input.ultimateHeld;
 
     this.countdownRemaining -= dt;
     if (this.countdownRemaining > 0) {
-      this.ultFx.setCountdown(this.countdownRemaining);
+      this.countdown.set(this.countdownRemaining);
       return;
     }
     this.state = 'playing';
+    this.countdown.end();
+    // A no-op when no rewind lit the flames — the effect is already off.
     this.ultFx.end();
   }
 
@@ -592,7 +667,7 @@ export class Game {
     this.spawnDirector.suspended = false;
     // Granted after the counter, so an award that levels the player straight
     // past the next boss threshold still finds `bossesFelled` correct.
-    this.levelSystem.addXp(XP_PER_BOSS, () => this.startLevelUp());
+    this.levelSystem.addXp(XP_PER_BOSS);
     this.banner.show(
       'MONOLITH DOWN',
       `${this.bossesFelled} felled — the next one is coming at level ${bossLevelFor(this.bossesFelled)}`,
@@ -609,10 +684,6 @@ export class Game {
       this.spawnDirector.elapsedSeconds,
       this.bossesFelled,
     );
-  }
-
-  private startLevelUp(): void {
-    this.openUpgradeChoice();
   }
 
   /**
@@ -645,26 +716,108 @@ export class Game {
   }
 
   /**
-   * Pauses the run on a three-way powerup choice — the shared body of a
-   * level-up and a shrine blessing. The pause is the same "welcome back"
-   * contract as ever: `grantMomentumBoost` compensates the input window the
-   * menu ate.
+   * Pauses the run on a three-way powerup choice, resuming the instant it is
+   * picked.
+   *
+   * The shrine path only, now. It is the one menu that still takes control with
+   * no warning — the player flew through a shrine, they did not ask for a
+   * screen — so it keeps the original "welcome back" contract, where
+   * `grantMomentumBoost` compensates the input window the menu ate.
    */
   private openUpgradeChoice(): void {
     this.state = 'pausedForUpgrade';
-    const choices = drawUpgradeChoices(3);
-    this.upgradeMenu.show(choices, (choice) => {
-      const ctx: UpgradeContext = {
-        weapon: this.weapon,
-        knife: this.knife,
-        playerHealth: this.playerHealth,
-        dash: this.dash,
-        perks: this.perks,
-      };
-      choice.apply(ctx);
+    this.upgradeMenu.show(drawUpgradeChoices(3), (choice) => {
+      choice.apply(this.upgradeContext());
       this.playerController.grantMomentumBoost();
       this.state = 'playing';
     });
+  }
+
+  private upgradeContext(): UpgradeContext {
+    return {
+      weapon: this.weapon,
+      knife: this.knife,
+      playerHealth: this.playerHealth,
+      dash: this.dash,
+      perks: this.perks,
+    };
+  }
+
+  /** A tap of F: one banked power, three to choose from. */
+  private openSinglePick(): void {
+    this.state = 'pausedForUpgrade';
+    this.runPicks(1, 1);
+  }
+
+  /** A long hold of F: spend the whole bank, or stake it on one roll. */
+  private openAllInScreen(): void {
+    const picks = this.levelSystem.bankedPicks;
+    this.state = 'pausedForUpgrade';
+    this.bankMenu.showDecision(picks, {
+      onSpend: () => this.runPicks(picks, picks),
+      onGamble: () => this.rollGamble(),
+    });
+  }
+
+  /**
+   * Runs `remaining` pick menus back to back, numbering them within `total`.
+   *
+   * Recursive through the pick callback rather than driven by a counter field,
+   * so the whole sequence lives in closures and there is nothing on `Game` for
+   * `restart` to forget. `total` is carried rather than re-read from the bank,
+   * which drains a pick at a time as the player chooses — reading it would
+   * relabel every menu "1 of what's left" and make a tap of F on a full bank
+   * announce itself as the last of five.
+   */
+  private runPicks(remaining: number, total: number): void {
+    if (remaining <= 0) {
+      this.finishCashIn();
+      return;
+    }
+    const label = total > 1 ? `Power ${total - remaining + 1} of ${total}` : '';
+    this.upgradeMenu.show(
+      drawUpgradeChoices(3),
+      (choice) => {
+        choice.apply(this.upgradeContext());
+        this.levelSystem.spendPicks(1);
+        this.runPicks(remaining - 1, total);
+      },
+      label,
+    );
+  }
+
+  /**
+   * Stakes the whole bank on one blind roll.
+   *
+   * Applied before the reveal rather than on dismissal, so there is no window
+   * in which the roll has happened but the stat has not — and no way to back
+   * out of one, which is the entire point of calling it a gamble.
+   */
+  private rollGamble(): void {
+    const picks = this.levelSystem.bankedPicks;
+    const upgrade = drawOfRarity(rollGambleRarity(picks));
+    upgrade.apply(this.upgradeContext());
+    this.levelSystem.spendPicks(picks);
+    this.bankMenu.showResult(upgrade, () => this.finishCashIn());
+  }
+
+  /**
+   * Hands the run back after a cash-in.
+   *
+   * With the countdown on, three seconds of live look is the compensation for
+   * the frozen window — strictly better than a shove, since the player gets to
+   * choose their heading. With it off there is no such window, so the shrine
+   * path's momentum boost stands in for it instead.
+   */
+  private finishCashIn(): void {
+    this.bankMenu.hide();
+    this.upgradeMenu.hide();
+    if (getSettings().countdownOnResume) {
+      this.beginCountdown();
+      return;
+    }
+    this.playerController.grantMomentumBoost();
+    this.state = 'playing';
   }
 
   /**
@@ -683,7 +836,24 @@ export class Game {
 
   /** The crosshair and the ultimate arc are centre-screen, so `#hud` cannot own them. */
   setHudVisible(visible: boolean): void {
-    this.hud.setVisible(visible);
+    this.hudVisible = visible;
+    this.applyHudVisibility();
+  }
+
+  /**
+   * Centre-screen HUD follows the pointer lock, *and* gets out of the way of a
+   * choice overlay.
+   *
+   * The crosshair and the ultimate arc are the only things on screen with a
+   * higher z-index than a full-screen panel, so without this the arc draws a
+   * dark half-ring straight through the middle power card. They mean nothing
+   * while the world is stopped on a choice, and the bottom HUD column stays up
+   * regardless — the banked-power counter has to stay readable while it drains.
+   *
+   * Not folded into the countdown: that is exactly when the player *is* aiming.
+   */
+  private applyHudVisibility(): void {
+    this.hud.setVisible(this.hudVisible && this.state !== 'pausedForUpgrade');
   }
 
   /**
@@ -706,6 +876,20 @@ export class Game {
 
   get isMenuOpen(): boolean {
     return this.state === 'gameOver';
+  }
+
+  /**
+   * A keyboard-driven overlay is up: the sim is frozen by `state`, but the run
+   * still wants the pointer lock.
+   *
+   * Distinct from `isMenuOpen`, which means "hand the cursor back". These
+   * screens are picked with number keys, so Escape over one should give the lock
+   * straight back rather than stack a pause menu on top — whose own digit
+   * listener is gated the same way this one's is, and would therefore fire
+   * alongside it on `1`.
+   */
+  get isKeyboardOverlayOpen(): boolean {
+    return this.state === 'pausedForUpgrade';
   }
 
   /**
@@ -745,8 +929,12 @@ export class Game {
     this.bossEpoch = 0;
     this.countdownRemaining = 0;
     this.ultimateHeldLastTick = false;
+    this.bankHoldSeconds = 0;
+    this.bankHoldArmed = true;
     resetMovementConfig();
+    this.countdown.reset();
     this.upgradeMenu.hide();
+    this.bankMenu.hide();
     this.gameOverScreen.hide();
     this.banner.hide();
     this.state = 'playing';
@@ -768,6 +956,10 @@ export class Game {
 
 
   private updateHud(): void {
+    // Runs every tick regardless of state, which is what lets a state change
+    // into or out of a choice overlay take the crosshair with it.
+    this.applyHudVisibility();
+
     // Hidden on the terminal screens so the bar doesn't hang over them.
     if (this.boss && this.state !== 'gameOver') {
       this.bossBar.update({
@@ -790,6 +982,9 @@ export class Game {
       dashCharges: this.dash.charges,
       dashMaxCharges: this.dash.maxCharges,
       ultimateFraction: this.ultimate.charge,
+      bankedPicks: this.levelSystem.bankedPicks,
+      picksAtCap: this.levelSystem.atPickCap,
+      bankHoldFraction: Math.min(1, this.bankHoldSeconds / BANK_HOLD_SECONDS),
     });
   }
 }

@@ -100,8 +100,17 @@ movement.
   an un-awaited call leaves the game silently mute forever. And the fade-in has to hang off
   that promise *resolving*: started beside the call it burns its two seconds while the audio
   is still blocked, then snaps on at full volume on the unlocking click.
-- `UpgradeMenu` reads `e.key`, not `e.code` — a synthetic `{code:'Digit1'}` is ignored, and a
-  headless test that "picks an upgrade" that way silently sits in the paused state forever.
+- `UpgradeMenu` and `BankMenu` read `e.key`, not `e.code` — a synthetic `{code:'Digit1'}` is
+  ignored, and a headless test that "picks an upgrade" that way silently sits in the paused
+  state forever.
+- **The crosshair and `UltimateArc` are the only things on screen above a full-screen panel**
+  (z-index 36 vs the overlays' auto), and they follow pointer lock, which is *held* through a
+  choice screen. Left alone, the arc draws a dark half-ring straight through the middle card.
+  `Game.applyHudVisibility` drops them for `pausedForUpgrade` only — the bottom HUD column
+  stays, because the banked-power counter has to stay readable while it drains.
+- **`PauseMenu`'s digit listener is gated only on "am I open"**, exactly like `UpgradeMenu`'s.
+  Any two of these open at once means one number key fires both. That is why Escape over a
+  power screen routes to `App.resumeRun` instead of opening the pause menu.
 
 ## Endless runs
 
@@ -114,6 +123,23 @@ is deliberately just above walk speed: it is the enemy that punishes *not* surfi
 
 `window.__surf` is a dev-only handle on the live `Game` (stripped from prod) — the late game
 is otherwise unreachable by scripted input. See `docs/STATE.md`.
+
+## Banked powers
+
+A level-up **banks a pick** and interrupts nothing — the run only stops when the player asks
+it to. **Tap `F`** for one power, **hold `F` 2.5 s** for the all-in screen (spend the bank, or
+stake it all on one blind roll). Both resume through the 3-2-1, toggleable with `C`.
+
+A tap is only distinguishable from a hold **on the release**, which is where it fires, and
+`Game.bankHoldArmed` must stay false until `F` comes back up — the screen opens with the key
+still down. `F` is read inside `updateGameplay`, so it is inert in every other state for free,
+and it is checked *after* the ReWind edge: ReWind is the panic button, powers keep.
+
+The bank lives in `LevelSystem`, so it rides `LevelSnapshot` and **`Rewind` needed no new
+`Frame` field** — the same reason `xpToNext` lives there. Epic/legendary upgrades are
+**gamble-only**; `drawUpgradeChoices` filters to common+rare, which is exactly the original
+fifteen, so pick menus draw what they always did. Shrine blessings are unchanged and do not
+bank. See `docs/STATE.md`.
 
 ## The ReWind ultimate
 

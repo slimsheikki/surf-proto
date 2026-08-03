@@ -41,6 +41,16 @@ export interface SettingsState {
   /** 0..1, applied to `MusicManager` by whoever owns it (`App`). */
   musicVolume: number;
   musicMuted: boolean;
+  /**
+   * Whether cashing in banked powers hands control back through the 3-2-1
+   * rather than dropping the player straight into a moving world.
+   *
+   * A preference, not a difficulty knob: the countdown is three seconds of live
+   * look to find the ramp again, which some players want and some read as the
+   * interruption they were trying to avoid. Toggled from the selection menu
+   * itself, where it is actually noticed.
+   */
+  countdownOnResume: boolean;
 }
 
 const state: SettingsState = {
@@ -48,6 +58,7 @@ const state: SettingsState = {
   sensitivity: MovementConfig.SENSITIVITY,
   musicVolume: DEFAULT_MUSIC_VOLUME,
   musicMuted: false,
+  countdownOnResume: true,
 };
 
 const listeners: ((s: SettingsState) => void)[] = [];
@@ -89,11 +100,17 @@ export function setMusicMuted(muted: boolean): void {
   commit();
 }
 
+export function setCountdownOnResume(enabled: boolean): void {
+  state.countdownOnResume = enabled;
+  commit();
+}
+
 export function resetSettings(): void {
   state.fov = DEFAULT_FOV;
   state.sensitivity = DEFAULT_SENSITIVITY;
   state.musicVolume = DEFAULT_MUSIC_VOLUME;
   state.musicMuted = false;
+  state.countdownOnResume = true;
   setMovementPreference('SENSITIVITY', DEFAULT_SENSITIVITY);
   commit();
 }
@@ -125,6 +142,9 @@ export function loadSettings(): void {
         state.musicVolume = clamp(parsed.musicVolume, MIN_MUSIC_VOLUME, MAX_MUSIC_VOLUME);
       }
       if (typeof parsed.musicMuted === 'boolean') state.musicMuted = parsed.musicMuted;
+      if (typeof parsed.countdownOnResume === 'boolean') {
+        state.countdownOnResume = parsed.countdownOnResume;
+      }
     }
   } catch {
     // Unreadable or corrupt storage: the defaults above are already correct.
