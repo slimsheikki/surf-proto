@@ -870,6 +870,48 @@ still needs a human re-test.
 - **XP orbs and player bolts are both cyan** (`0x7fe8ff`). Shifting orbs toward aqua-green
   would separate them.
 
+## Painted skybox (new)
+
+The procedural Ghibli sky is gone; `src/world/Sky.ts` now wraps the delivered
+`public/images/sky.png` — a sunset cloudscape, teal overhead through sage to a gold
+horizon — onto the same inward-facing sphere. The dome's skybox mechanics are unchanged
+(re-centred on the camera, `fog: false`, `renderOrder −1`, `frustumCulled` off, **no
+collider**); what is new is the compositing that turns a flat matte into an equirect map,
+and the three decisions inside it are the ones to know before touching that file.
+
+- **Nothing is drawn within 20° of the pole.** An equirect sphere squeezes each texture
+  row by `1/cos(elev)` and pinches the top row to a point. The first cut mapped the
+  painting across the full 90° with a small cap on top, and the source's two top-corner
+  cumulus came out as a four-bladed pinwheel when you looked up. Now the art stops at 70°
+  and dissolves into flat zenith blue over the 14° below that; the pole is one colour, so
+  the pinch is invisible. Verified by screenshot at pitch 88°.
+- **The wrap is closed with a cross-dissolve, not a mirror.** Two copies of a tile whose
+  end is faded back over its own start. Mirroring every second copy is the free way to
+  close a wrap and it was tried first — it makes the sky bilaterally symmetric about the
+  seam, and the spawn yaw happened to look straight down that axis, so every run opened on
+  a butterfly of two matched cumulus. Rolling the painting to move the axis into clear sky
+  does not work: a roll moves the symmetry axis and the discontinuity together. The
+  dissolve's cost is one ~25° band per copy where both cloudscapes show at once; it lands
+  on the painting's own two edges, which are both cloud, so it reads as thicker weather.
+- **Two copies**, because 180° of yaw against the 70° of pitch is 2.6:1 on a painting whose
+  sky is 1.96:1 — clouds come out about half again as wide, which reads as panoramic. Four
+  copies squeeze them narrow and repeat every 90°; one doubles the stretch.
+
+The painted horizon is placed on the equator (measured at row 846 of 948 — the sharpest
+luminance step in the lower third), its ground strip stretched over the top 50° of the
+lower hemisphere and the rest filled with that strip's end colour. Loading is async but
+`buildSkyDome` is not: the canvas goes up carrying a gradient sampled from the painting
+(per-row 20th-percentile luminance, which picks sky over cloud) and the image is
+composited into the *same* canvas on decode. A 404 therefore leaves a plausible sky rather
+than a black dome.
+
+`SKY_HORIZON_COLOR` moved from `0xdcedf6` (pale blue) to `0xeab262`, sampled from the
+source's horizon band, and `App` still drives fog and clear colour from it — so the whole
+world now fades into gold at the 220-unit fog wall. **The bright-sky contrast gotchas need
+re-reading against this**: the slash cone's normal blending and the emissive clipping notes
+were written against a pale blue sky, and violet/purple UI now sits on gold rather than on
+near-white. Lights are untouched (white ambient + white sun) and probably want a warm pass.
+
 ## Next up
 
 1. Fix the approach entry (bug 1), then re-run the flow probe.
