@@ -9,7 +9,7 @@ import {
 } from 'three';
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { registerPrism } from '../world/Colliders';
-import { computeRampFrames, RampCurveMode, RampCurveParams } from '../world/RampCurve';
+import { computeRampFrames, RampCurveMode, RampCurveParams, RampFrame } from '../world/RampCurve';
 import { gridCellFor, useRampTexture, uvPerUnit } from '../world/RampTexture';
 import {
   APPROACH_DESCENT_PITCH_DEG,
@@ -56,6 +56,7 @@ export type RampFamily =
   | 'trapezoid'
   | 'reverse-trapezoid'
   | 'pyramid'
+  | 'halfpipe'
   | 'slide'
   | 'vertical-curved'
   | 'horizontal-curved'
@@ -87,6 +88,60 @@ export interface RampDefinition {
 const SLIDE_WIDTH = 8;
 const SLIDE_ROLL_DEG = 62;
 const SLIDE_LENGTH = 40;
+
+/**
+ * Half-pipe cross-section: two mirrored circular arcs meeting in a crease on
+ * the centre path.
+ *
+ * **Truncated on purpose, and this is the whole design.** A true U carries its
+ * arc through the bottom, where the surface is horizontal — `normal.y = 1`,
+ * far above the 0.7 standable cutoff — so the player lands in the trough,
+ * stands up, and stops surfing. Starting each arc at 50° instead puts the
+ * shallowest *facet* at 52.5°, which is 6.9° clear of the 45.573° cutoff, the
+ * same margin `PYRAMID_SLOPE_DEG` keeps. Nothing on a half-pipe is standable.
+ *
+ * Truncating also makes it the shape that was actually asked for. At a fixed
+ * mouth width the truncated section is *deeper* than a true U — 15.0 against
+ * 5.9 at width 14 — because the flat bottom of a real half-pipe is exactly
+ * what makes it wide and shallow. depth/width is `tan((θmin+θmax)/2)/2`, a
+ * family constant of 1.072; it does not vary with `width`, which only scales.
+ *
+ * These are constants rather than per-piece parameters because they *are* the
+ * walkability guarantee. `rollDeg` is forced to 0 in the builder for the same
+ * reason: past ±6.9° of bank the downhill wall's innermost facet crosses the
+ * cutoff and one side of the trough becomes standable.
+ */
+const HALFPIPE_THETA_MIN_DEG = 50;
+/**
+ * The rim. 80° is as far round as the shape can go, and the limit is
+ * collision, not looks: a prism's solid thickness is `depth · cos θ`, so a wall
+ * approaching vertical thins toward nothing and a fast player would pass
+ * straight through it. At 80° the thinnest facet still carries 0.67 units of
+ * solid against a 0.4 player radius; at 85° it is 0.43 and at 90° exactly zero.
+ *
+ * The 50→80 sweep is also what makes the section read as a *curve* rather than
+ * a V. An earlier 50→70 build was geometrically correct and looked like a
+ * straight-walled channel with a flare — 20° of turn spread over a wall is not
+ * something the eye picks up.
+ */
+const HALFPIPE_THETA_MAX_DEG = 80;
+/**
+ * Facets per wall. Six is what makes each strip's chord one texture cell:
+ * equal steps in θ give equal chords, and 2.791 against a 2.844 cell is 1.9%
+ * off, inside what `gridCellFor` already absorbs. Five miss by 18%, seven by
+ * 16%, and either would put a different grid density on every strip.
+ */
+const HALFPIPE_STRIPS_PER_WALL = 6;
+/**
+ * Vertical shell drop, one value for the whole section — see
+ * `FaceStrip.verticalDrop`. With `COLLIDER_UNDER_DEPTH` on top it keeps every
+ * prism's solid thickness between 1.89 at the crease and 0.67 at the rim,
+ * never under the 0.4 player radius, and reads like the rest of the kit
+ * (`FACE_THICKNESS` is 1.4).
+ */
+const HALFPIPE_SHELL_DROP = 1.6;
+/** Mouth opening across. Narrow: the V channel is 22.5 across, this is 14. */
+const HALFPIPE_WIDTH = 14;
 
 /**
  * The library itself: data, not code. The palette, the spline generator and
@@ -176,6 +231,36 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     label: 'Slide',
     hint: 'Steep narrow chute — a luge',
     defaults: { length: SLIDE_LENGTH, width: SLIDE_WIDTH, rollDeg: SLIDE_ROLL_DEG, pitchDeg: 8 },
+  },
+  // The three half-pipes differ in length and nothing else, and they must stay
+  // adjacent: `EditorUi.buildPalette` starts a new heading whenever the family
+  // changes between consecutive entries, so splitting them emits the heading
+  // three times. The length is in the label because it cannot be in the tile —
+  // `Thumbnails` frames each definition to its own bounds, so all three render
+  // identically.
+  {
+    id: 'halfpipe-small',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · small',
+    hint: '30 long · narrow U trough',
+    defaults: { length: 30, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-medium',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · medium',
+    hint: `${RAMP_LENGTH} long · narrow U trough`,
+    defaults: { length: RAMP_LENGTH, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-large',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · large',
+    hint: '80 long · narrow U trough',
+    defaults: { length: 80, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
   {
     id: 'vertical-curved-half',
@@ -383,6 +468,26 @@ interface FaceRing {
 interface FaceStrip {
   rings: FaceRing[];
   thickness: number;
+  /**
+   * Overrides the per-ring `thickness / ny` under-side drop with one vertical
+   * distance for the whole strip.
+   *
+   * Every family but the half-pipe is built from strips of *equal* tilt — the
+   * mirrored ±roll pairs are symmetric — so each picks the same drop and their
+   * under-sides and end caps land flush. A curved cross-section is deliberately
+   * unequal: across a half-pipe wall `thickness / ny` runs 0.82 to 2.31, which
+   * would staircase the under-side and the entry/exit caps at every interior
+   * seam and leave the redundant interior wall quads at mismatched lengths,
+   * z-fighting in the open. One drop for the whole section keeps them flush and
+   * makes those quads exactly coincident — buried between two solids, so
+   * invisible.
+   */
+  verticalDrop?: number;
+}
+
+/** The under-side offset for a strip: its override, or the per-ring default. */
+function ringDrop(strip: FaceStrip, ring: FaceRing): number {
+  return strip.verticalDrop ?? strip.thickness / ring.ny;
 }
 
 type FaceEdgeMode = 'centre' | 'ridge' | 'valley';
@@ -443,7 +548,7 @@ function emitStripColliders(strip: FaceStrip): void {
     const a = strip.rings[i];
     const b = strip.rings[i + 1];
     // Same diagonal the skin uses, so collision and mesh are the same solid.
-    const depth = strip.thickness / Math.max(a.ny, 0.3) + COLLIDER_UNDER_DEPTH;
+    const depth = (strip.verticalDrop ?? strip.thickness / Math.max(a.ny, 0.3)) + COLLIDER_UNDER_DEPTH;
     registerPrism(a.high, b.high, b.low, depth);
     registerPrism(a.high, b.low, a.low, depth);
   }
@@ -490,7 +595,7 @@ function stripUv(strip: FaceStrip): { across: number[]; along: number[]; drop: n
   const k = uvPerUnit(gridCellFor(Math.max(...widths)));
 
   const across = widths.map((width) => (width / 2) * k);
-  const drop = strip.rings.map((ring) => (strip.thickness / ring.ny) * k);
+  const drop = strip.rings.map((ring) => ringDrop(strip, ring) * k);
 
   const centre = (i: number) =>
     strip.rings[i].high.clone().add(strip.rings[i].low).multiplyScalar(0.5);
@@ -529,8 +634,8 @@ function skinGeometry(strips: FaceStrip[]): BufferGeometry {
 
   for (const strip of strips) {
     const bottoms = strip.rings.map((ring) => ({
-      high: ring.high.clone().setY(ring.high.y - strip.thickness / ring.ny),
-      low: ring.low.clone().setY(ring.low.y - strip.thickness / ring.ny),
+      high: ring.high.clone().setY(ring.high.y - ringDrop(strip, ring)),
+      low: ring.low.clone().setY(ring.low.y - ringDrop(strip, ring)),
     }));
     const { across, along, drop } = stripUv(strip);
 
@@ -627,6 +732,77 @@ function pyramidFaceParams(piece: FreePiece): { params: RampCurveParams; collide
   });
 }
 
+/** Arc radius that puts the mouth's across-extent at exactly `width`. */
+function halfpipeRadius(width: number): number {
+  return (
+    width /
+    (2 * (Math.sin(degToRad(HALFPIPE_THETA_MAX_DEG)) - Math.sin(degToRad(HALFPIPE_THETA_MIN_DEG))))
+  );
+}
+
+/**
+ * The half-pipe's strips: two mirrored arcs, `HALFPIPE_STRIPS_PER_WALL` facets
+ * each, walking the same frames every other family walks.
+ *
+ * The section is built in the **un-rolled** basis. Roll never moves path
+ * positions — it only rotates `right`/`normal` about `forward` — so forcing it
+ * to zero leaves the sockets, `piecePath` and any chain snapped to them
+ * byte-identical, and buys a basis where `right.y` is exactly 0 and the arc
+ * maths stays closed-form. The arc *is* the bank; a stored one would tip the
+ * whole trough until a wall went walkable, which is the failure this shape
+ * exists to prevent. `pyramidFaceParams` ignores `rollDeg` for the same reason.
+ *
+ * Both walls' innermost ring sits exactly on the path point, so the crease
+ * closes by construction rather than by tolerance — the same property the V
+ * channel relies on.
+ */
+function halfpipeStrips(piece: FreePiece): FaceStrip[] {
+  const params = centreParams(piece, piecePath(piece).entry);
+  params.rollDeg = 0;
+
+  const path = computeRampFrames(params, pieceMode(piece));
+  const frames = path.frames;
+  const count = frames.length;
+
+  const radius = halfpipeRadius(piece.width);
+  const inner0 = degToRad(HALFPIPE_THETA_MIN_DEG);
+  const outer0 = degToRad(HALFPIPE_THETA_MAX_DEG);
+  const step = (outer0 - inner0) / HALFPIPE_STRIPS_PER_WALL;
+  const cosMin = Math.cos(inner0);
+  const sinMin = Math.sin(inner0);
+
+  const point = (frame: RampFrame, position: Vector3, wall: number, theta: number) =>
+    position
+      .clone()
+      .addScaledVector(frame.normal, radius * (cosMin - Math.cos(theta)))
+      .addScaledVector(frame.right, wall * radius * (Math.sin(theta) - sinMin));
+
+  const strips: FaceStrip[] = [];
+  for (const wall of [1, -1]) {
+    for (let s = 0; s < HALFPIPE_STRIPS_PER_WALL; s++) {
+      const inner = inner0 + step * s;
+      const outer = inner + step;
+      const rings: FaceRing[] = [];
+      // Same ring/frame pairing `faceRings` uses: the closing ring reuses the
+      // last segment's basis rather than inventing one past the end.
+      for (let i = 0; i <= count; i++) {
+        const frame = frames[Math.min(i, count - 1)];
+        const position = i < count ? frames[i].start : path.end;
+        rings.push({
+          low: point(frame, position, wall, inner),
+          high: point(frame, position, wall, outer),
+          // cos(pitch)·cos(theta), exact because `right.y` is 0 here. Inert
+          // while `verticalDrop` is set, but kept true so the ring contract
+          // still holds if that override is ever dropped.
+          ny: Math.max(frame.normal.y * Math.cos((inner + outer) / 2), 0.3),
+        });
+      }
+      strips.push({ rings, thickness: COMPOSITE_THICKNESS, verticalDrop: HALFPIPE_SHELL_DROP });
+    }
+  }
+  return strips;
+}
+
 /**
  * Meshes (and optionally colliders) for one library piece, in world space.
  *
@@ -644,7 +820,13 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
   const mode = pieceMode(piece);
   const strips: FaceStrip[] = [];
 
-  if (def.family === 'pyramid') {
+  // Checked by family, and *before* the variant test below: a half-pipe is
+  // stored as an `inverted` variant, so falling through would build it as a
+  // plain V channel — placing, snapping, saving and playing without a single
+  // error to say it had.
+  if (def.family === 'halfpipe') {
+    strips.push(...halfpipeStrips(piece));
+  } else if (def.family === 'pyramid') {
     for (const face of pyramidFaceParams(piece)) {
       strips.push({ rings: faceRings(face.params, 'straight', 'centre'), thickness: COMPOSITE_THICKNESS });
     }

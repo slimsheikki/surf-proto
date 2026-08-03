@@ -340,6 +340,64 @@ longer a floating panel of its own — it is embedded under a collapsible
 content builder with no positioning, visibility or pointer-lock handling of its
 own. `O` still works and opens Settings with that section already expanded.
 
+## Half-pipe pieces (new)
+
+Three palette entries — `halfpipe-small` / `-medium` / `-large`, lengths **30 / 50 / 80** —
+differing in length and nothing else. Medium is `RAMP_LENGTH`, so it socket-chains against
+the rest of the kit. The length is in the **label**, because it cannot be in the tile:
+`Thumbnails` frames every definition to its own bounds, so all three render identically.
+
+**The cross-section is a truncated U: two mirrored circular arcs meeting in a crease on the
+centre path, sweeping θ = 50° → 80°.** It is not a full semicircle, and that is the whole
+design:
+
+- A true U carries its arc through the bottom, where the surface is horizontal. `normal.y`
+  there is 1.0 against the 0.7 cutoff, so the player lands in the trough, **stands up and
+  stops surfing**. Starting at 50° puts the shallowest *facet* at 52.5°, 6.9° clear of the
+  45.573° cutoff. Pitch only ever makes it steeper (`ny = cos(pitch)·cos(θ)`), verified out
+  to the ±50° pitch clamp.
+- Truncating is also what makes it the *narrow deep* shape rather than a wide one. At a
+  fixed mouth the truncated section is **deeper** than a true U — 15.0 against 5.9 at
+  width 14 — because a real half-pipe's flat bottom is exactly what makes it wide and
+  shallow. `depth/width = tan((θmin+θmax)/2)/2 = 1.072`, a family constant: `width` scales
+  the section, it cannot deepen it.
+- **80° is a collision limit, not a taste one.** A prism's solid thickness is
+  `depth · cos θ`, so a wall nearing vertical thins toward nothing and a fast player would
+  pass through it. At 80° the thinnest facet keeps 0.671 units against a 0.4 player radius;
+  85° gives 0.43 and 90° exactly 0.
+- An earlier 50° → 70° build was geometrically correct and **looked like a V with a flare** —
+  20° of turn spread across a wall is not something the eye reads. 30° is.
+
+`rollDeg` defaults to 0 and the builder forces it to 0: past ±6.9° of bank the downhill
+wall's innermost facet crosses the cutoff and one side of the trough becomes standable. The
+arc *is* the bank. `B` (flip bank) is therefore a no-op on a half-pipe and the status line
+reads "bank flat", which is honest. Roll never moves path positions, so sockets and chaining
+are unaffected — verified.
+
+**One shared-code change: `FaceStrip.verticalDrop`.** Every other family is built from strips
+of equal tilt, so each picks the same `thickness / ny` under-side drop and they land flush. A
+curved section is deliberately unequal — across a half-pipe wall that expression runs 0.82 to
+2.31 — which would staircase the under-side and the end caps at every seam and leave the
+interior wall quads mismatched and z-fighting in the open. One drop for the whole section
+keeps them flush and makes those quads exactly coincident, buried between two solids.
+Purely additive with a `??` fallback; the default course still emits **3412** prisms, byte
+for byte what it did before.
+
+24 prisms per piece, all three sizes (a straight piece is one segment whatever its length).
+Context: the V channel is 4, a curved A-frame 92, the default course 3412.
+
+Straight only. No swept or pitched-curve variants ship, and they should not without work:
+each strip would sit at a different turn radius, so the UV `along` drifts and the grid's
+cross-lines fan out down the piece, and the segment count jumps 1 → 23, taking colliders to
+460 per piece.
+
+Verified by `.probe-halfpipe.ts` (27 assertions: exact cross-section against the closed form,
+`depth/width == tan(65°)/2`, zero walkable facets at pitch 0 / 26 / 50, 24 prisms with none
+rejected as degenerate, every slab over the player radius, sockets spanning the stored
+length, roll provably inert, and the default-course collider count unchanged) plus a headless
+ride: the player dropped into the trough **never grounds** across 3 s of settling and 12
+samples, tested with jump released so auto-bhop cannot mask a walkable floor.
+
 ## MegaFlow Demo V1 is the default course (new)
 
 The generated approach-and-ring course is no longer reachable from the menu. The single
@@ -583,8 +641,9 @@ following the two specification docs (modular kit + editor rework) and the vendo
 CS2 guide's taxonomy:
 
 - **`RampDefinition[]` is data.** Families: straight, trapezoid, reverse-trapezoid,
-  pyramid, slide, vertical-curved, horizontal-curved, platform. The palette, the piece
-  builder and the spline generator all read the list; adding a family is adding an entry.
+  pyramid, halfpipe, slide, vertical-curved, horizontal-curved, platform. The palette, the
+  piece builder and the spline generator all read the list; adding a family is adding an
+  entry. 18 definitions, 17 of them ramps.
 - **Variants:** half = one banked face; full = A-frame (two faces meeting at a ridge);
   inverted = V channel. The composite emitter offsets each face from the centre path
   **per segment frame** along that frame's own rolled basis, so the ridge/valley
@@ -610,7 +669,7 @@ CS2 guide's taxonomy:
   straight-edged, the pyramid is exact — planar faces, straight hips, one apex point),
   and under-sides drop vertically so faces sharing an edge meet exactly. Collision
   stays stepped oriented boxes from the same frame walk. An adversarial audit of all
-  14 definitions found the visuals defect-free and all real issues collision-side;
+  the 14 definitions that existed then found the visuals defect-free and all real issues collision-side;
   fixed since: collider boxes take *inscribed* (minimum-boundary) widths so collision
   never reaches past a visible tapered edge (was up to 1.4 over), taper steps halved
   to 1 unit, and the seam-overlap pad extends toward interior seams only, never past
@@ -664,7 +723,7 @@ CS2 guide's taxonomy:
   a face exactly, so a ray leaves one and enters the next at the same point — no cap
   between them, no gap. This is also what real surf maps do; the CS2 guide compiles
   curved ramps as *Multiple Convex Hulls* for exactly this reason.
-  **Result across all 14 definitions: sink 0.000, lip 0.000, holes 0.00%, no stalls at
+  **Result across the 14 definitions audited: sink 0.000, lip 0.000, holes 0.00%, no stalls at
   any of seven lateral positions.** What you see is what you ride.
   Standard course is untouched (still 28 boxes, 0 wedges — it builds through
   `buildRampCurve`). Cost: a heavy 30-curved-piece map is 1470 volumes at ~14.5 µs/ray,
@@ -687,7 +746,7 @@ CS2 guide's taxonomy:
   the next end-cap. A-frame ridges now *overlap* past the peak instead of mitering short
   of it: the ridge is convex, so the overshoot hides below the opposite face, and the
   slit that used to stop a player tracking the ridge is gone.
-  **Verified by simulating the real `PlayerController` down all 14 definitions at five
+  **Verified by simulating the real `PlayerController` down the 14 definitions then in the kit, at five
   lateral positions each: no sudden stops anywhere.** The probe must judge stalls by
   *absolute* one-tick speed loss — a relative test flags a player gently decelerating
   as they climb a 55° pyramid face, which is physics, not a defect.

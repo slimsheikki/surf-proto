@@ -167,6 +167,14 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
+**A ramp's shape has to clear the walkable cutoff, not just look right.** The half-pipe
+(`RampLibrary.ts`) is a *truncated* U — two arcs sweeping 50°→80° that meet in a crease —
+because a true U's horizontal bottom reads `normal.y = 1` against the 0.7 cutoff and lets the
+player stand up in the trough. Its rim stops at 80° for the opposite reason: a prism's solid
+thickness is `depth · cos θ`, so a wall nearing vertical thins to nothing and a fast player
+goes through it. Both limits are family constants, and `rollDeg` is forced to 0 in the
+builder — past ±6.9° of bank one wall crosses the cutoff.
+
 The front menu's map tiles render **real geometry** for their aerial thumbnails
 (`ui/MapThumbnails.ts`), which means they call `buildFreeWorld(map, **false**)` —
 the colliders flag is not optional, or every map in storage joins the collision
