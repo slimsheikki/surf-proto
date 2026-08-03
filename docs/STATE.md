@@ -105,6 +105,33 @@ Verified in the live game loop: an approach shrine at radius 630 / +159 was
 collected, vanished, and came back exactly 30.00 s later at radius 93 / +16 — off
 the one-way start and onto the ring.
 
+## Purple glass UI (new)
+
+The whole DOM layer is violet glass now. Tokens at the top of `styles.css`:
+`--accent` (#b45cff — the crosshair's colour, and the wordmark's, so the UI
+finally agrees with both instead of accenting mint green), `--accent-rgb` for
+custom alphas, `--glass` / `--glass-strong` / `--glass-blur` / `--glass-border`
+/ `--glass-highlight`, and `--glow-edge` / `--glow-sm` / `--glow-md` /
+`--glow-text`. Change the scheme there, not at the call sites.
+
+Three rules that are load-bearing rather than decorative:
+
+- **`#main-menu` opts out of the scrim blur** every other overlay takes. Its
+  backdrop is the course on a slow orbit — a held shot — and the shared
+  `.overlay` blur turned it to mush. Same element, higher specificity.
+- **The HUD bars get the rim and bloom but no `backdrop-filter`.** They are the
+  only glass-styled thing on screen during play, and a blur pass under them
+  would run every frame of a 128 Hz run. Everything that does blur appears
+  while the sim is paused.
+- **`#editor-footer` gained a pane.** It was bare text on the scene, which
+  worked while the accent was bright mint; violet over a bright sky was
+  unreadable. It hugs its content rather than spanning, or it runs under the
+  movement stamp in the far corner.
+
+Semantic bar colours are untouched — HP red, dash yellow, boss red. Only XP
+moved (blue → violet), because it is the one bar whose meaning is "progress"
+rather than "danger".
+
 ## MEGAFLOW rebrand (new)
 
 The game is **MEGAFLOW**. Only the player-facing strings changed — window title,
