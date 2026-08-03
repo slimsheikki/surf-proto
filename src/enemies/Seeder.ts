@@ -90,8 +90,8 @@ export class Seeder extends Enemy {
 
   /**
    * Hands over a plant recorded this tick, once. Polled by the game loop rather
-   * than pushed through a callback, matching how `Knife.tick` reports a swing —
-   * the thing that owns the scene stays the thing that adds to it.
+   * than pushed through a callback — the thing that owns the scene stays the
+   * thing that adds to it.
    */
   takePlantedBlast(): Vector3 | null {
     const plant = this.pendingPlant;

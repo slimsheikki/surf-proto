@@ -1,6 +1,5 @@
 import { Vector3 } from 'three';
 import { Health } from '../combat/Health';
-import { Knife } from '../combat/Knife';
 import { Weapon } from '../combat/Weapon';
 import { Boss } from '../enemies/Boss';
 import { Enemy } from '../enemies/Enemy';
@@ -132,10 +131,10 @@ class Frame {
   weaponAttacksPerSecond = 0;
   weaponRange = 0;
   weaponVelocityRounds = false;
-  knifeBonusDamage = 0;
-  knifeBonusRange = 0;
   healOnKill = 0;
   xpMultiplier = 1;
+  soundBlastDamage = 0;
+  solarWaveDps = 0;
   magnetRadius = 0;
   maxGroundSpeed = 0;
   maxAirWishSpeed = 0;
@@ -164,7 +163,6 @@ export interface RewindContext {
   dash: Dash;
   flowXp: FlowXP;
   weapon: Weapon;
-  knife: Knife;
   perks: RunPerks;
   spawnDirector: SpawnDirector;
   entityManager: EntityManager;
@@ -282,10 +280,10 @@ export class Rewind {
     frame.weaponAttacksPerSecond = c.weapon.attacksPerSecond;
     frame.weaponRange = c.weapon.range;
     frame.weaponVelocityRounds = c.weapon.velocityRounds;
-    frame.knifeBonusDamage = c.knife.bonusDamage;
-    frame.knifeBonusRange = c.knife.bonusRange;
     frame.healOnKill = c.perks.healOnKill;
     frame.xpMultiplier = c.perks.xpMultiplier;
+    frame.soundBlastDamage = c.perks.soundBlastDamage;
+    frame.solarWaveDps = c.perks.solarWaveDps;
     frame.magnetRadius = XP_MAGNET.radius;
     frame.maxGroundSpeed = MovementConfig.MAX_GROUND_SPEED;
     frame.maxAirWishSpeed = MovementConfig.MAX_AIR_WISH_SPEED;
@@ -431,10 +429,10 @@ export class Rewind {
     c.weapon.attacksPerSecond = frame.weaponAttacksPerSecond;
     c.weapon.range = frame.weaponRange;
     c.weapon.velocityRounds = frame.weaponVelocityRounds;
-    c.knife.bonusDamage = frame.knifeBonusDamage;
-    c.knife.bonusRange = frame.knifeBonusRange;
     c.perks.healOnKill = frame.healOnKill;
     c.perks.xpMultiplier = frame.xpMultiplier;
+    c.perks.soundBlastDamage = frame.soundBlastDamage;
+    c.perks.solarWaveDps = frame.solarWaveDps;
     XP_MAGNET.radius = frame.magnetRadius;
     MovementConfig.MAX_GROUND_SPEED = frame.maxGroundSpeed;
     MovementConfig.MAX_AIR_WISH_SPEED = frame.maxAirWishSpeed;

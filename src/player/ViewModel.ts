@@ -8,7 +8,7 @@ import {
   PerspectiveCamera,
   Scene,
 } from 'three';
-import { buildKnifeHand, buildLeftHand, SWING_TIMING } from './KnifeHand';
+import { buildLeftHand, buildRightHand } from './Hands';
 
 /* ------------------------------------------------------------------ *
  * Overlay pass
@@ -32,7 +32,7 @@ const VIEWMODEL_FAR = 10;
  * Rest pose (camera space: -Z is forward, +X right, +Y up)
  * ------------------------------------------------------------------ */
 
-/** Lower-right of frame, knife hand. */
+/** Lower-right of frame, lead hand. */
 const RIGHT_ARM_BASE = { x: 0.23, y: -0.16, z: -0.53 };
 /** Lower-centre-left and further from camera: the off-hand, mostly out of frame. */
 const LEFT_ARM_BASE = { x: -0.21, y: -0.3, z: -0.5 };
@@ -87,71 +87,23 @@ const DASH_KICK_DURATION = 0.3;
 const DASH_KICK_POS = { x: 0, y: -0.035, z: 0.05 };
 const DASH_KICK_ROT = { x: -0.1, y: 0, z: 0.04 };
 
-/* ------------------------------------------------------------------ *
- * Slash animation
- * ------------------------------------------------------------------ */
-
-const { WINDUP_SECONDS, SLASH_SECONDS, RECOVER_SECONDS } = SWING_TIMING;
-
-/**
- * Cocked up and to the right, blade rotated toward vertical. Deliberately
- * restrained on Z: this close to the lens, pulling the fist a few more
- * centimetres toward the camera magnifies it into a wall that fills the corner
- * and hides the blade, so the read of the wind-up comes from rotation.
- *
- * Sign notes, because they are not guessable: +rotation.z turns the model
- * counter-clockwise on screen, and the blade sits at roughly 160 deg (up and to
- * the left) at rest. So the wind-up rolls NEGATIVE (clockwise, lifting the tip
- * toward vertical) and the slash rolls POSITIVE through and past the rest angle,
- * dropping the tip below horizontal — a right-to-left downward diagonal.
- */
-const WINDUP_POS = { x: 0.05, y: 0.075, z: 0.035 };
-const WINDUP_ROT = { x: 0.2, y: -0.2, z: -0.5 };
-/**
- * Follow-through: down and across to the left, tip below horizontal. Kept short
- * of the frame edge on purpose — a follow-through that carries the model right
- * out of view reads as the knife disappearing rather than as a swing.
- */
-const SLASH_POS = { x: -0.24, y: -0.07, z: -0.04 };
-const SLASH_ROT = { x: -0.25, y: 0.5, z: 0.6 };
-
-type SlashPhase = 'idle' | 'windup' | 'slash' | 'recover';
-
 function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t);
 }
 
 /**
- * Fast out of the gate and decelerating hard — this is what makes the swing
- * snap. A linear sweep across the same distance in the same 0.1 s reads as the
- * knife being *carried* across the frame rather than swung.
- */
-function easeOutCubic(t: number): number {
-  const inv = 1 - t;
-  return 1 - inv * inv * inv;
-}
-
-function easeInOutQuad(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-/**
- * First-person knife viewmodel: a crude greybox of two gloved fists and a
- * combat knife, rendered in its OWN scene and camera.
+ * First-person viewmodel: two gloved fists, rendered in their OWN scene and
+ * camera. (The combat knife they used to hold was cut with the knife weapon.)
  *
  * The separate scene is the whole point. A viewmodel drawn into the world scene
  * is subject to world depth, so the instant the player's eye passes within half
- * a metre of a ramp face the knife is sliced in half by it — which happens
+ * a metre of a ramp face the hands are sliced in half by it — which happens
  * constantly on a surf map, where you ride with your shoulder against the
  * geometry. Drawing this pass afterwards over a cleared depth buffer means the
  * model composites on top unconditionally and can never intersect the level.
  *
- * This class owns no game logic: `Game` drives `update`/`triggerSlash` on the
- * fixed timestep, and `main.ts` owns the render pass and visibility.
+ * This class owns no game logic: `Game` drives `update` on the fixed timestep,
+ * and `main.ts` owns the render pass and visibility.
  */
 export class ViewModel {
   readonly scene = new Scene();
@@ -164,18 +116,13 @@ export class ViewModel {
 
   /** Both hands. Carries the idle bob so the whole model breathes together. */
   private readonly root = new Group();
-  /** Right fist + knife. Carries the slash, so the off-hand stays put. */
+  /** The lead (right) fist, kept as its own group for future per-hand motion. */
   private readonly arm = new Group();
 
   private bobTime = 0;
   private swayX = 0;
   private swayY = 0;
   private dashKickTimer = 0;
-
-  private phase: SlashPhase = 'idle';
-  private phaseTime = 0;
-  /** At most one buffered follow-up swing; further clicks are dropped. */
-  private queuedSlash = false;
 
   constructor() {
     // The overlay scene has no background, so the main pass shows through.
@@ -192,7 +139,7 @@ export class ViewModel {
     this.scene.add(fill);
 
     this.arm.position.set(RIGHT_ARM_BASE.x, RIGHT_ARM_BASE.y, RIGHT_ARM_BASE.z);
-    this.arm.add(buildKnifeHand());
+    this.arm.add(buildRightHand());
 
     const leftHand = buildLeftHand();
     leftHand.position.set(LEFT_ARM_BASE.x, LEFT_ARM_BASE.y, LEFT_ARM_BASE.z);
@@ -207,16 +154,6 @@ export class ViewModel {
     this.dashKickTimer = DASH_KICK_DURATION;
   }
 
-  /** Queues a swing. During an active swing at most one follow-up is buffered. */
-  triggerSlash(): void {
-    if (this.phase === 'idle') {
-      this.phase = 'windup';
-      this.phaseTime = 0;
-    } else {
-      this.queuedSlash = true;
-    }
-  }
-
   /**
    * @param dt fixed simulation step, never wall-clock.
    * @param speed player horizontal speed, u/s.
@@ -225,7 +162,6 @@ export class ViewModel {
    */
   update(dt: number, speed: number, yawDelta: number, pitchDelta: number): void {
     this.updateIdle(dt, speed, yawDelta, pitchDelta);
-    this.updateSlash(dt);
   }
 
   private updateIdle(dt: number, speed: number, yawDelta: number, pitchDelta: number): void {
@@ -276,99 +212,16 @@ export class ViewModel {
     );
   }
 
-  private updateSlash(dt: number): void {
-    if (this.phase !== 'idle') this.phaseTime += dt;
-
-    let px = 0;
-    let py = 0;
-    let pz = 0;
-    let rx = 0;
-    let ry = 0;
-    let rz = 0;
-
-    switch (this.phase) {
-      case 'windup': {
-        const t = Math.min(1, this.phaseTime / WINDUP_SECONDS);
-        const e = easeOutQuad(t);
-        px = WINDUP_POS.x * e;
-        py = WINDUP_POS.y * e;
-        pz = WINDUP_POS.z * e;
-        rx = WINDUP_ROT.x * e;
-        ry = WINDUP_ROT.y * e;
-        rz = WINDUP_ROT.z * e;
-        if (t >= 1) this.advancePhase('slash');
-        break;
-      }
-      case 'slash': {
-        const t = Math.min(1, this.phaseTime / SLASH_SECONDS);
-        const e = easeOutCubic(t);
-        px = lerp(WINDUP_POS.x, SLASH_POS.x, e);
-        py = lerp(WINDUP_POS.y, SLASH_POS.y, e);
-        pz = lerp(WINDUP_POS.z, SLASH_POS.z, e);
-        rx = lerp(WINDUP_ROT.x, SLASH_ROT.x, e);
-        ry = lerp(WINDUP_ROT.y, SLASH_ROT.y, e);
-        rz = lerp(WINDUP_ROT.z, SLASH_ROT.z, e);
-        if (t >= 1) this.advancePhase('recover');
-        break;
-      }
-      case 'recover': {
-        const t = Math.min(1, this.phaseTime / RECOVER_SECONDS);
-        const e = easeInOutQuad(t);
-        px = SLASH_POS.x * (1 - e);
-        py = SLASH_POS.y * (1 - e);
-        pz = SLASH_POS.z * (1 - e);
-        rx = SLASH_ROT.x * (1 - e);
-        ry = SLASH_ROT.y * (1 - e);
-        rz = SLASH_ROT.z * (1 - e);
-        if (t >= 1) {
-          this.phase = 'idle';
-          this.phaseTime = 0;
-          if (this.queuedSlash) {
-            this.queuedSlash = false;
-            this.phase = 'windup';
-          }
-        }
-        break;
-      }
-      case 'idle':
-        break;
-    }
-
-    this.arm.position.set(
-      RIGHT_ARM_BASE.x + px,
-      RIGHT_ARM_BASE.y + py,
-      RIGHT_ARM_BASE.z + pz,
-    );
-    this.arm.rotation.set(rx, ry, rz);
-  }
-
-  /** Carries the overshoot into the next phase so a long tick can't stall one. */
-  private advancePhase(next: SlashPhase): void {
-    const spent = next === 'slash' ? WINDUP_SECONDS : SLASH_SECONDS;
-    this.phaseTime -= spent;
-    this.phase = next;
-  }
-
-  /** True while a swing is playing; exposed for tests and debugging. */
-  get isSwinging(): boolean {
-    return this.phase !== 'idle';
-  }
-
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
 
-  /** Drops any in-flight swing and re-centres the model. Used on restart. */
+  /** Re-centres the model. Used on restart. */
   reset(): void {
-    this.phase = 'idle';
-    this.phaseTime = 0;
-    this.queuedSlash = false;
     this.swayX = 0;
     this.swayY = 0;
     this.dashKickTimer = 0;
-    this.arm.position.set(RIGHT_ARM_BASE.x, RIGHT_ARM_BASE.y, RIGHT_ARM_BASE.z);
-    this.arm.rotation.set(0, 0, 0);
   }
 
   dispose(): void {

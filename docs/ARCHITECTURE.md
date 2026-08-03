@@ -98,7 +98,7 @@ if (this.mode === 'play' && this.game?.cameraRig.mode === 'first') {
 }
 ```
 
-The first pass draws the world. The second draws the first-person hands and knife, which live
+The first pass draws the world. The second draws the first-person hands, which live
 in **their own `Scene` with their own `Camera`** (`src/player/ViewModel.ts`), on top of a
 wiped depth buffer. `renderer.autoClear = false` is set in the constructor to make this
 possible.
@@ -112,10 +112,9 @@ narrower viewmodel FOV (55° vs the world's 75°).
 The **third-person body** is the other half of this. `src/player/PlayerModel.ts` is a blocky
 Minecraft-proportioned placeholder character that lives in the *world* scene (added by `Game`,
 not by the course), shown only while `cameraRig.mode === 'third'` — in first person the camera
-sits inside its head. It shares the gloved fists and the knife with the viewmodel:
-`src/player/KnifeHand.ts` owns those builders and the swing's phase durations, and both views
-call into it, so the two can never drift into holding different knives. The pose sets differ,
-the model does not.
+sits inside its head. It shares the gloved fists with the viewmodel: `src/player/Hands.ts`
+owns those builders and both views call into it, so the two can never drift into wearing
+different gloves. The pose sets differ, the model does not.
 
 Nothing in it is simulation — it reads the controller and never writes to it — so it needs no
 entry in `Rewind`'s `Frame`: rewinding the player's transform rewinds the body with it.
@@ -293,8 +292,9 @@ are ordered for a reason:
 5. Each enemy steers and may deal contact damage. Seeders plant blasts *immediately* after
    their own tick, so a blast lands on the position that tick used.
 6. Blasts tick — after the seeders that plant them, before the death check.
-7. Auto-weapon fires at the nearest target; then the knife swing resolves — before the kill
-   pass, so a drone finished by the knife still drops XP this tick.
+7. Auto-weapon fires at the nearest target; then the solar wake burns anything sitting in it —
+   before the kill pass, so a chaser it finishes still drops XP this tick. (A dash earlier in
+   the tick may also have fired the sound blast.)
 8. Cull dead enemies (dropping XP orbs), then distant ones (**awarding nothing** — leaving play
    is not a kill). Orbs magnet toward the player and are collected. Uncollected orbs are never
    despawned: dropped XP hovers where it fell until it is picked up or the run ends.
@@ -363,11 +363,11 @@ So "adding a small model" splits into two genuinely different options.
 
 ### Option A — build it in code (what the project does today)
 
-The pattern to copy is `ViewModel.buildKnife()` (`src/player/ViewModel.ts:314`): make a
-`Group`, add primitives positioned in local space, share one material per colour. The knife is
-a handle box, grip ridges, a pommel, a guard, a bolster, and a blade — the blade being the one
-place the project goes beyond boxes, drawing a 2D `Shape` outline and extruding it
-(`buildBladeGeometry`, `src/player/ViewModel.ts:204`).
+The pattern to copy is `buildRightHand()` (`src/player/Hands.ts`) or `PlayerModel.buildHead()`:
+make a `Group`, add primitives positioned in local space, share one material per colour. (The
+old combat knife went further — a 2D `Shape` outline extruded into a blade; it was cut with
+the knife weapon, but the technique is in git history under `KnifeHand.ts` if a non-box
+silhouette is ever needed again.)
 
 For enemies there is already a seam: `EnemyVisual` (`src/enemies/Enemy.ts:40`) is
 `{ geometry, color, emissive, emissiveIntensity }`, and it exists so a subclass can be a
@@ -406,7 +406,8 @@ It brings:
 - **Drive transforms from the sim tick, not the render frame.** Anything gameplay-relevant
   moves on the 1/128 s step.
 - **Two lighting gotchas already paid for:** additive blending desaturates against the bright
-  sky (the slash cone needs *normal* blending), and high `emissiveIntensity` on saturated
+  sky (combat flashes need *normal* blending — learned on the old slash cone, and the sound
+  blast and solar wake follow it), and high `emissiveIntensity` on saturated
   colours clips to white.
 
 ---
@@ -445,7 +446,7 @@ only be tested by playing it.
 | `src/world/` | Ramp geometry generation, ramp texturing, the built-in course, collider registry | `RampCurve.ts` |
 | `src/game/` | Run orchestration and tick order, entity lists | `Game.ts` |
 | `src/enemies/` | Drones, seeders, the Monolith, spawn director, difficulty scaling | `Enemy.ts` |
-| `src/combat/` | Auto-weapon, knife, projectiles, blasts, health | `Weapon.ts` |
+| `src/combat/` | Auto-weapon, sound blast, solar wake, projectiles, blasts, health | `Weapon.ts` |
 | `src/progression/` | XP orbs, levelling, the upgrade pool | `Upgrades.ts` |
 | `src/ui/` | DOM overlay classes | `Hud.ts` |
 | `src/editor/` | Free mode: fly camera, palette, map storage, share codes | `Editor.ts` |

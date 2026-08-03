@@ -89,8 +89,9 @@ movement.
 
 ## Gotchas that wasted time
 
-- Additive blending desaturates against the bright sky — the slash cone needs *normal*
-  blending. High `emissiveIntensity` on saturated colours clips to white.
+- Additive blending desaturates against the bright sky — combat flashes need *normal*
+  blending (learned on the old slash cone; the sound blast and solar wake follow it).
+  High `emissiveIntensity` on saturated colours clips to white.
 - Pointer lock hides the cursor and swallows clicks, so any menu needs keyboard
   selection (1/2/3) or it's unreachable. This froze the game at first level-up.
 - Proportional lerp toward a moving target fails at speed (closing velocity vanishes) —

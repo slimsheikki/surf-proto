@@ -1,5 +1,4 @@
 import { Health } from '../combat/Health';
-import { Knife } from '../combat/Knife';
 import { Weapon } from '../combat/Weapon';
 import { Dash } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
@@ -8,20 +7,29 @@ import { XP_MAGNET } from './XPOrb';
 /**
  * Run-scoped perks that live on `Game` rather than on any one subsystem —
  * hooks the game loop reads at the moment the relevant event happens (a kill,
- * an XP pickup). Reset wholesale on restart via `resetRunPerks`, the same
- * copy-the-defaults contract `resetMovementConfig` uses, so a new perk added
- * here is automatically reset without anyone remembering to list it.
+ * an XP pickup, a dash). Reset wholesale on restart via `resetRunPerks`, the
+ * same copy-the-defaults contract `resetMovementConfig` uses, so a new perk
+ * added here is automatically reset without anyone remembering to list it.
+ *
+ * Every field here must also ride `Rewind`'s `Frame` — an upgrade whose field
+ * is not recorded is one a rewind silently leaves applied.
  */
 export interface RunPerks {
   /** HP restored per drone kill. */
   healOnKill: number;
   /** Multiplier on all XP gained. */
   xpMultiplier: number;
+  /** Damage of the shockwave a dash emits. 0 = perk not owned. See `SoundBlast`. */
+  soundBlastDamage: number;
+  /** Damage per second of the burning wake. 0 = perk not owned. See `SolarWave`. */
+  solarWaveDps: number;
 }
 
 const PERK_DEFAULTS: RunPerks = {
   healOnKill: 0,
   xpMultiplier: 1,
+  soundBlastDamage: 0,
+  solarWaveDps: 0,
 };
 
 export function createRunPerks(): RunPerks {
@@ -34,7 +42,6 @@ export function resetRunPerks(perks: RunPerks): void {
 
 export interface UpgradeContext {
   weapon: Weapon;
-  knife: Knife;
   playerHealth: Health;
   dash: Dash;
   perks: RunPerks;
@@ -111,21 +118,21 @@ export const UPGRADE_POOL: Upgrade[] = [
     },
   },
   {
-    id: 'knife-damage',
-    name: '+Knife Damage',
-    description: 'Knife damage +12',
-    rarity: 'common',
+    id: 'sound-blast',
+    name: 'Sound Blast',
+    description: 'Dashing blasts everything within 7 units for 20 (stacks)',
+    rarity: 'rare',
     apply: (ctx) => {
-      ctx.knife.bonusDamage += 12;
+      ctx.perks.soundBlastDamage += 20;
     },
   },
   {
-    id: 'knife-reach',
-    name: '+Knife Reach',
-    description: 'Knife reach +0.8',
-    rarity: 'common',
+    id: 'solar-wave',
+    name: 'Solar Wave',
+    description: 'Leave a fading solar wake that burns pursuers for 10/s (stacks)',
+    rarity: 'rare',
     apply: (ctx) => {
-      ctx.knife.bonusRange += 0.8;
+      ctx.perks.solarWaveDps += 10;
     },
   },
   {
@@ -233,13 +240,12 @@ export const UPGRADE_POOL: Upgrade[] = [
     },
   },
   {
-    id: 'epic-butchers-bill',
-    name: "Butcher's Bill",
-    description: 'Knife damage +30, reach +1.6, heal 4 HP per kill',
+    id: 'epic-resonance',
+    name: 'Resonance',
+    description: 'Sound Blast +45 damage, heal 4 HP per kill',
     rarity: 'epic',
     apply: (ctx) => {
-      ctx.knife.bonusDamage += 30;
-      ctx.knife.bonusRange += 1.6;
+      ctx.perks.soundBlastDamage += 45;
       ctx.perks.healOnKill += 4;
     },
   },
@@ -324,13 +330,13 @@ export const UPGRADE_POOL: Upgrade[] = [
     },
   },
   {
-    id: 'legend-reapers-edge',
-    name: "Reaper's Edge",
-    description: 'Knife damage +60, reach +3',
+    id: 'legend-corona',
+    name: 'Corona',
+    description: 'Solar wake burns +35/s, Sound Blast +35 damage',
     rarity: 'legendary',
     apply: (ctx) => {
-      ctx.knife.bonusDamage += 60;
-      ctx.knife.bonusRange += 3;
+      ctx.perks.solarWaveDps += 35;
+      ctx.perks.soundBlastDamage += 35;
     },
   },
 ];

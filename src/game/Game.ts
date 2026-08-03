@@ -1,8 +1,9 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Blast } from '../combat/Blast';
 import { Health } from '../combat/Health';
-import { Knife, KnifeTarget, SlashCone } from '../combat/Knife';
-import { Weapon } from '../combat/Weapon';
+import { applySoundBlast, SoundBlastFx } from '../combat/SoundBlast';
+import { SolarWave } from '../combat/SolarWave';
+import { Weapon, WeaponTarget } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { degToRad } from '../engine/MathUtils';
 import { Boss } from '../enemies/Boss';
@@ -160,7 +161,6 @@ export class Game {
   readonly playerModel = new PlayerModel();
   readonly playerHealth = new Health(BASE_MAX_HP);
   readonly weapon = new Weapon();
-  readonly knife = new Knife();
   readonly levelSystem = new LevelSystem();
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
@@ -229,15 +229,13 @@ export class Game {
   /**
    * Reused each tick so the drone list and the boss can be handed to the weapon
    * as one target list without allocating an array 128 times a second.
-   *
-   * Typed as the knife's (wider) target — everything in it already carries a
-   * world position — so both weapons read the same array. `KnifeTarget extends
-   * WeaponTarget`, so it still satisfies `Weapon.tick` unchanged.
    */
-  private readonly weaponTargets: KnifeTarget[] = [];
+  private readonly weaponTargets: WeaponTarget[] = [];
 
-  /** One reused mesh; retriggered per swing rather than reallocated. */
-  private readonly slashCone = new SlashCone();
+  /** One reused mesh; retriggered per dash-blast rather than reallocated. */
+  private readonly soundBlastFx = new SoundBlastFx();
+  /** The burning wake. Owns its bounded point pool; see `SolarWave`. */
+  readonly solarWave = new SolarWave();
 
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
@@ -277,7 +275,8 @@ export class Game {
     // damage with nothing drawn.
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
-    scene.add(this.slashCone.mesh);
+    scene.add(this.soundBlastFx.mesh);
+    scene.add(this.solarWave.group);
     scene.add(this.playerModel.root);
     this.rebuildShrines();
     // Built last: it captures references to every subsystem above, and the
@@ -289,7 +288,6 @@ export class Game {
       dash: this.dash,
       flowXp: this.flowXp,
       weapon: this.weapon,
-      knife: this.knife,
       perks: this.perks,
       spawnDirector: this.spawnDirector,
       entityManager: this.entityManager,
@@ -370,7 +368,7 @@ export class Game {
     // keeps animating through a level-up pause, and gets no bank from a mouse
     // it is not being driven by while the run plays backwards.
     this.playerModel.update(dt, this.playerController, looking ? input.yawDelta : 0);
-    this.slashCone.tick(dt);
+    this.soundBlastFx.tick(dt);
     this.banner.tick(dt);
     this.dashFx.tick(dt);
     this.ultFx.tick(dt);
@@ -431,6 +429,16 @@ export class Game {
       this.viewModel.triggerDash();
       this.playerModel.triggerDash();
       this.dashFx.trigger();
+      // Sound Blast rides the dash: same tick, same position, so the shockwave
+      // is centred on where the player pushed off, not where the impulse threw
+      // them. Kills land in this tick's kill pass and drop XP while the dasher
+      // is still inside magnet range. Drones and seeders only — the boss's
+      // engagement-radius distance is a hitscan convenience a 7-unit shockwave
+      // must not inherit.
+      if (this.perks.soundBlastDamage > 0) {
+        applySoundBlast(this.entityManager.enemies, playerPosition, this.perks.soundBlastDamage);
+        this.soundBlastFx.trigger(playerPosition);
+      }
     }
 
     this.playerHealth.tick(dt);
@@ -504,16 +512,16 @@ export class Game {
     if (this.boss) this.weaponTargets.push(this.boss);
     this.weapon.tick(dt, playerPosition, this.weaponTargets, this.playerController.speed);
 
-    // After the auto-weapon, before the kill pass, so a drone finished off by
-    // the knife this tick still drops its XP on this tick.
-    const swing = this.knife.tick(dt, this.playerController, this.weaponTargets, input.attackPressed);
-    if (swing) {
-      this.viewModel.triggerSlash();
-      this.playerModel.triggerSlash();
-      // Shown on whiffs too — the point of the flash is to teach the reach,
-      // which is exactly what the player who just missed needs to see.
-      this.slashCone.trigger(playerPosition, this.playerController.yaw);
-    }
+    // After the auto-weapon, before the kill pass, so a chaser burned down by
+    // the wake this tick still drops its XP on this tick. Drones and seeders
+    // only, same reasoning as the sound blast above.
+    this.solarWave.tick(
+      dt,
+      playerPosition,
+      this.playerController.speed,
+      this.perks.solarWaveDps,
+      this.entityManager.enemies,
+    );
 
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
@@ -584,6 +592,10 @@ export class Game {
   private beginRewind(): void {
     this.ultimate.consume();
     this.rewind.begin();
+    // Same contract as live blasts (which `rewind.begin` clears): wake points
+    // live ~1.6 s, nothing recorded is still burning, and the trail re-grows
+    // the moment play resumes.
+    this.solarWave.clear();
     this.state = 'rewinding';
     this.ultFx.beginRewind();
     this.ultFx.setRewoundSeconds(0);
@@ -755,7 +767,6 @@ export class Game {
   private upgradeContext(): UpgradeContext {
     return {
       weapon: this.weapon,
-      knife: this.knife,
       playerHealth: this.playerHealth,
       dash: this.dash,
       perks: this.perks,
@@ -937,8 +948,8 @@ export class Game {
     this.spawnDirector.reset();
     this.levelSystem.reset();
     this.weapon.reset();
-    this.knife.reset();
-    this.slashCone.hide();
+    this.soundBlastFx.hide();
+    this.solarWave.clear();
     this.viewModel.reset();
     this.playerModel.reset();
     this.dash.reset();

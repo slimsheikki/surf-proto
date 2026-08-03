@@ -64,8 +64,8 @@ export class Weapon {
   range = BASE_STATS.range;
   /**
    * Velocity Rounds upgrade: when true, shots gain damage with carried speed —
-   * the same bargain the knife offers, bolted onto the auto-weapon. Half a
-   * point per u/s over 10, capped at +15 (reached at 40 u/s).
+   * surf well and the gun hits harder. Half a point per u/s over 10, capped
+   * at +15 (reached at 40 u/s).
    */
   velocityRounds = false;
   private cooldown = 0;

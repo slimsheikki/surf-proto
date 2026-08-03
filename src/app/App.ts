@@ -730,7 +730,7 @@ export class App {
 
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    // Second pass over a wiped depth buffer: the knife is always in front of the
+    // Second pass over a wiped depth buffer: the hands are always in front of the
     // level, so riding with your shoulder against a ramp can never saw it in
     // half. First person only — in third person a pair of floating fists five
     // units from the player makes no sense.
