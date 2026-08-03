@@ -167,6 +167,19 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
+**A curved surface must be cut COARSER than `DUPLICATE_PLANE_DOT` (8.11°), not finer.** That
+rule treats two surfaces within 8.11° as one and bails out of the bump loop, forfeiting the
+tick's remaining displacement — it is there for a ray-ring sweep double-reporting one flat
+ramp. Cut a curve finer and it trips on every crossing: a half-pipe at 3.5° facets left the
+player accelerating to 59 u/s while travelling 1.6 u/s, because every tick threw the movement
+away. Rounder geometry rides *worse*. Measure before changing `HALFPIPE_STRIPS_PER_WALL`.
+
+**A horizontal surface you must not stand on gets `isWall`.** The half-pipe's trough grounded
+the player and ground movement clamped 34 u/s to 7 in a single sample, then friction killed
+them — the piece was a speed trap. `registerPrism`'s `isWall` flag ("never register as
+walkable ground") had existed unused since the start; `FaceStrip.neverGround` sets it on just
+the facets that would ground someone, leaving the steep walls as ordinary surf faces.
+
 **The half-pipe's walkable trough is a decision, not a bug.** It is a half-round pipe (arc
 0°→84°, `RampLibrary.ts`), and a semicircle's bottom is horizontal, so 12.9 units of it read
 `normal.y ≥ 0.7` and the player can stand there. A truncated version that started the arc at

@@ -26,6 +26,16 @@ import type { FreePiece } from './MapData';
 const WORLD_UP = new Vector3(0, 1, 0);
 
 /**
+ * Source's standable cutoff, `normal.z >= 0.7`, as a literal.
+ *
+ * Deliberately not read off `MovementConfig.MAX_SLOPE_WALKABLE_DEG`: that one is
+ * a live convar on the tuning panel, and colliders are registered once when a
+ * world is built. Binding geometry to a number somebody can drag mid-session
+ * would leave the flags describing a cutoff that no longer exists.
+ */
+const WALKABLE_NORMAL_Y = 0.7;
+
+/**
  * The modular ramp kit the free-map editor is built from, following the CS2
  * surf-mapping taxonomy (docs/CS2_SURF_MAPPING.md): ramp *families* in Half /
  * Full / Inverted *variants*, every piece parameterised by dimensions rather
@@ -122,17 +132,33 @@ const HALFPIPE_THETA_MIN_DEG = 0;
  */
 const HALFPIPE_THETA_MAX_DEG = 84;
 /**
- * Facets per wall. Twelve puts each facet 7° apart, which is what keeps the
- * seams from catching: the movement clip loop treats two planes within
- * `acos(0.99) = 8.11°` as one surface and bails with the already-clipped
- * velocity, instead of resolving every seam as a two-plane wedge event.
+ * Facets per wall, and **coarse on purpose** — this is the number that decides
+ * whether the pipe is rideable.
  *
- * The cost is texture density. These chords are 1.10 units against a 2.84 grid
- * cell, so `gridCellFor` fits one cell per facet and the pipe wears a grid
- * about 0.39× the size of the one on a straight ramp beside it. Unavoidable
- * for a small-radius arc cut fine enough to read as round, and cosmetic.
+ * `DUPLICATE_PLANE_DOT` treats two surfaces within `acos(0.99) = 8.11°` as the
+ * same one and **bails out of the bump loop, forfeiting the tick's remaining
+ * displacement**. That rule exists for a ray-ring sweep double-reporting a
+ * single flat ramp. A curved wall cut finer than 8.11° trips it on every
+ * crossing, for real, and the piece stops handing the player their movement.
+ *
+ * Measured, entering a level pipe at 34 u/s and pendulling for 15 s:
+ *
+ * | facets | Δθ | samples with no forward progress | forward speed |
+ * |---|---|---|---|
+ * | 6 | 14.0° | 0/29 | 5.48 u/s |
+ * | 8 | 10.5° | 0/29 | 4.97 u/s |
+ * | 12 | 7.0° | 0/29 | 4.64 u/s |
+ * | 24 | 3.5° | **14/29** | **1.64 u/s** |
+ *
+ * At 24 the player's *speed* climbs to 59 u/s while they travel almost nowhere:
+ * gravity keeps adding velocity and every tick throws the displacement away.
+ * Cutting the arc finer makes the shape rounder and the ride worse, which is
+ * the opposite of the intuition, so leave this alone without re-measuring.
+ *
+ * Coarseness costs almost nothing to look at: the chord sagitta at 6 facets is
+ * 0.067 units — **3 Hammer units** off a true circle.
  */
-const HALFPIPE_STRIPS_PER_WALL = 12;
+const HALFPIPE_STRIPS_PER_WALL = 6;
 /**
  * Vertical shell drop, one value for the whole section — see
  * `FaceStrip.verticalDrop`. With `COLLIDER_UNDER_DEPTH` on top it keeps every
@@ -144,18 +170,19 @@ const HALFPIPE_SHELL_DROP = 1.6;
 /**
  * Degrees of pitch per segment *along* a curved pipe, against the kit's usual 2.
  *
- * Every other family carries one or two strips, so subdividing its length every
- * 2° costs two prisms a step. A pipe carries 24, so the same step would put
- * **1296 prisms on a single descending piece** — 38% again on top of the whole
- * default course, and the collider broadphase is a linear scan. At 6° it is
- * 432.
+ * Kept above `DUPLICATE_PLANE_DOT`'s 8.11° for exactly the reason
+ * `HALFPIPE_STRIPS_PER_WALL` is: a seam finer than that reads as a re-report of
+ * the same surface and costs the tick its remaining motion. The cross-section
+ * and the length are cut by the same rule.
  *
- * Free to look at and free to ride. The along-length sagitta at 6° is 0.09
- * units against a 0.4 player radius, and 6° is under the same
- * `acos(0.99) = 8.11°` the cross-section is cut to — so the movement clip loop
- * still reads consecutive segments as one surface and nothing catches.
+ * It also keeps the piece affordable. Every other family carries one or two
+ * strips, so a 2° step costs two prisms a step; a pipe carries twelve. At 2° a
+ * single descending piece would emit 648 prisms against a collider broadphase
+ * that is a linear scan; at 10° it is 120.
+ *
+ * The along-length sagitta at 10° is 0.25 units, inside the 0.4 player radius.
  */
-const HALFPIPE_ANGLE_STEP_DEG = 6;
+const HALFPIPE_ANGLE_STEP_DEG = 10;
 /**
  * The descending pipe's profile. Positive pitch descends, so this drops
  * steeply, eases through level and finishes tilted *back up* by
@@ -549,6 +576,21 @@ interface FaceStrip {
    * invisible.
    */
   verticalDrop?: number;
+  /**
+   * Registers this strip's prisms as wall geometry: solid to slide along, never
+   * walkable ground.
+   *
+   * The half-pipe's trough is horizontal, so without this a rider who touches
+   * it grounds out and ground movement clamps them to `MAX_GROUND_SPEED` on the
+   * spot — **measured at 34 u/s into 7 in a single sample**, then friction to a
+   * standstill. That is not a pipe, it is a speed trap, and it is why the shape
+   * first shipped truncated into a V.
+   *
+   * Flagging only the facets that would actually ground someone keeps the steep
+   * walls ordinary surf faces, so they still get the landing redirect and still
+   * read as ramps to everything else.
+   */
+  neverGround?: boolean;
 }
 
 /** The under-side offset for a strip: its override, or the per-ring default. */
@@ -615,8 +657,8 @@ function emitStripColliders(strip: FaceStrip): void {
     const b = strip.rings[i + 1];
     // Same diagonal the skin uses, so collision and mesh are the same solid.
     const depth = (strip.verticalDrop ?? strip.thickness / Math.max(a.ny, 0.3)) + COLLIDER_UNDER_DEPTH;
-    registerPrism(a.high, b.high, b.low, depth);
-    registerPrism(a.high, b.low, a.low, depth);
+    registerPrism(a.high, b.high, b.low, depth, strip.neverGround);
+    registerPrism(a.high, b.low, a.low, depth, strip.neverGround);
   }
 }
 
@@ -871,7 +913,17 @@ function halfpipeStrips(piece: FreePiece): FaceStrip[] {
           ny: Math.max(frame.normal.y * Math.cos((inner + outer) / 2), 0.3),
         });
       }
-      strips.push({ rings, thickness: COMPOSITE_THICKNESS, verticalDrop: HALFPIPE_SHELL_DROP });
+      // Only the facets that would ground someone are marked. `ny` here is
+      // `cos(pitch)·cos(θmid)`, and pitch only ever steepens a facet, so
+      // deciding on the section angle alone is the conservative side: a pitched
+      // pipe flags at most the same strips a level one does.
+      const walkable = Math.cos((inner + outer) / 2) >= WALKABLE_NORMAL_Y;
+      strips.push({
+        rings,
+        thickness: COMPOSITE_THICKNESS,
+        verticalDrop: HALFPIPE_SHELL_DROP,
+        neverGround: walkable,
+      });
     }
   }
   return strips;

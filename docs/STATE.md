@@ -358,11 +358,20 @@ its run. 45° rather than the editor's 50° clamp so there is somewhere left to 
 two mirrored arcs meeting at the bottom of the centre path, sweeping θ = 0° → 84°, mouth
 `RAMP_FACE_WIDTH` (18), depth 8.1. depth/mouth is 0.450 against a true semicircle's 0.500.
 
-**The trough is walkable, and that is a deliberate human call, not an oversight.** A
-semicircle's bottom is horizontal — `normal.y` 1.0 against the 0.7 cutoff — so a player
-arriving slowly grounds out and can walk `1.429·R` of floor, **12.9 units, 72% of the mouth**.
-Everything outside that band is steeper than the cutoff and surfs normally; a rider carrying
-speed pendulums across without touching down. It is the slow arrival that stands up.
+**The trough would ground you, so its colliders are registered as wall geometry.** A
+semicircle's bottom is horizontal — `normal.y` 1.0 against the 0.7 cutoff — and the earlier
+claim here that "a rider carrying speed pendulums across without touching down" was simply
+**wrong**. Measured: entering a level pipe at 34 u/s, the player contacts the trough inside
+the first sample, `categorizePosition` grounds them and ground movement clamps them to
+`MAX_GROUND_SPEED` — **34 u/s to 7 in one sample**, then friction to a dead stop they never
+recover from. That is the "gets you stuck" the playtest hit.
+
+The fix is `FaceStrip.neverGround`, which passes `isWall` to `registerPrism`. That flag
+already existed, documented as "guide-wall/perimeter geometry that should never register as
+walkable ground", and no caller had ever set it. Only the facets that would actually ground
+someone are flagged — **12 of 24 prisms**, the trough band — so the steep walls stay ordinary
+surf faces and keep the landing redirect. With it the same entry pendulums the full length of
+the pipe, never grounded, and exits still moving.
 
 The first build truncated the arc at 50° precisely to make that impossible, and it was
 unimpeachable against the invariant — but it read as a **V**, which is not the shape the piece
@@ -373,11 +382,24 @@ one-line revert**: at 50° nothing on the piece is standable and it looks like a
 - **84°, not 90°, is a collision limit.** A prism's solid thickness is `depth · cos θ`, so a
   wall nearing vertical thins toward nothing and a fast player passes through it. 84° keeps
   the thinnest facet at 0.51 against a 0.4 player radius; 88° gives 0.32, 90° exactly 0.
-- **12 facets per wall = 7° apart**, under the `acos(0.99) = 8.11°` at which the movement clip
-  loop stops treating two planes as one surface — so seams do not catch. The cost is texture
-  density: chords are 1.10 against a 2.84 grid cell, so the pipe wears a grid ~0.39× the size
-  of the one on a ramp beside it. Cosmetic, and unavoidable for a small-radius arc cut fine
-  enough to read as round.
+- **6 facets per wall, 14° apart, and coarse on purpose — this is what makes it rideable.**
+  `DUPLICATE_PLANE_DOT` treats two surfaces within `acos(0.99) = 8.11°` as the same one and
+  **bails out of the bump loop, forfeiting the tick's remaining displacement**. That rule is
+  for a ray-ring sweep double-reporting one flat ramp; a wall cut finer than 8.11° trips it
+  for real on every crossing. Measured over a 15 s pendulum from 34 u/s:
+
+  | facets | Δθ | samples with no forward progress | forward |
+  |---|---|---|---|
+  | 6 | 14.0° | 0/29 | **5.48 u/s** |
+  | 8 | 10.5° | 0/29 | 4.97 u/s |
+  | 12 | 7.0° | 0/29 | 4.64 u/s |
+  | 24 | 3.5° | **14/29** | **1.64 u/s** |
+
+  At 24 the player's *speed* climbs to 59 u/s while going almost nowhere — gravity keeps
+  adding velocity and every tick throws the displacement away. **Cutting the arc finer makes
+  it rounder and rides worse**, which is the opposite of the intuition; do not "improve" this
+  without re-measuring. Coarseness costs 0.067 units of deviation from a true circle — 3
+  Hammer units.
 - `rollDeg` defaults to 0 and the builder forces it: tipping a pipe rolls one wall toward flat
   and the other past vertical where its collider thins to nothing. Pitch is fine and does the
   useful thing — it tilts the run without touching the section, and only ever *steepens*
@@ -391,18 +413,19 @@ drop for the whole section keeps them flush and makes those quads exactly coinci
 between two solids. Purely additive with a `??` fallback; the default course still emits
 **3412** prisms, byte for byte what it did before (checked by stashing the patch, not assumed).
 
-**48 prisms** for a straight pipe of any length (a straight path is one segment whatever its
-length); **432** for the descent. Context: the V channel is 4, a curved A-frame 92, the whole
+**24 prisms** for a straight pipe of any length (a straight path is one segment whatever its
+length); **120** for the descent. Context: the V channel is 4, a curved A-frame 92, the whole
 default course 3412 — so a descent is the most expensive piece in the kit by a distance, and
 the collider broadphase is a **linear scan with no spatial index**. Worth knowing before a map
 is paved with them.
 
-That 432 is already capped. `HALFPIPE_ANGLE_STEP_DEG` subdivides a curved pipe's length every
-6° of pitch instead of the kit's 2°, because every other family carries one or two strips
-where a pipe carries 24 — at 2° a single descent would emit **1296 prisms**, 38% again on top
-of the entire default course. 6° is free both ways: the along-length sagitta is 0.09 units
-against a 0.4 player radius, and it is under the same `acos(0.99) = 8.11°` the cross-section
-is cut to, so consecutive segments still read as one surface to the clip loop.
+`HALFPIPE_ANGLE_STEP_DEG` subdivides a curved pipe's length every 10° of pitch instead of the
+kit's 2° — kept above 8.11° for the same reason the cross-section is, and it keeps the piece
+affordable against a collider broadphase that is a linear scan. The along-length sagitta at
+10° is 0.25 units, inside the 0.4 player radius.
+
+Measured on the descent: enters at 20 u/s and **exits at 25**, gaining speed on the drop, no
+stalls, never grounded.
 
 **The step lives in `centreParams`, not at the call site**, and that is load-bearing:
 `piecePath` and the mesh/collider walk both go through it, and handing them different steps
