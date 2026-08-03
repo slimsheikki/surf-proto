@@ -4,4 +4,11 @@
  * see `Game.fellBoss` — so the only way out is death and the only screen with a
  * button on it is the game-over one.
  */
-export type GameState = 'playing' | 'pausedForUpgrade' | 'gameOver';
+export type GameState =
+  | 'playing'
+  | 'pausedForUpgrade'
+  /** ReWind is running the recording backwards; the sim is not advancing. */
+  | 'rewinding'
+  /** ReWind has picked its moment and is counting the player back in. */
+  | 'rewindCountdown'
+  | 'gameOver';

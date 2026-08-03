@@ -42,6 +42,12 @@ const MAGNET_SPEED_PER_UNIT = 4;
 
 const toPlayer = new Vector3();
 
+let rewindIdCounter = 0;
+function nextRewindId(): number {
+  rewindIdCounter += 1;
+  return rewindIdCounter;
+}
+
 export class XPOrb {
   readonly mesh: Mesh;
   readonly position: Vector3;
@@ -51,8 +57,14 @@ export class XPOrb {
    * Latched once the player comes within MAGNET_RADIUS. Without the latch a
    * player travelling faster than the orb closes would leave the radius again
    * and strand it mid-flight.
+   *
+   * Public because the rewind recorder carries it: an orb restored mid-flight
+   * with the latch cleared would stop dead and hang in the air.
    */
-  private magnetised = false;
+  magnetised = false;
+
+  /** Stable identity across a rewind; see `Enemy.rewindId`. */
+  rewindId = nextRewindId();
 
   constructor(
     position: Vector3,

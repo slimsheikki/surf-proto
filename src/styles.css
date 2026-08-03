@@ -31,6 +31,10 @@ html, body {
   left: 16px;
   bottom: 16px;
   width: 260px;
+  /* Above #ult-fx (30). During a rewind the HUD is doing real work — the XP bar
+     and the run clock winding backwards are how the player judges how far they
+     have gone — so the flames must pass behind it. */
+  z-index: 35;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -728,7 +732,9 @@ html, body {
  */
 #movement-tag {
   position: fixed;
-  left: 12px;
+  /* Bottom-RIGHT. It started bottom-left and the ultimate meter grew the HUD
+     column down into it. */
+  right: 14px;
   bottom: 10px;
   z-index: 40;
   pointer-events: none;
@@ -834,4 +840,308 @@ html, body {
 
 .movement-panel-reset:hover {
   background: rgba(255, 255, 255, 0.19);
+}
+
+/* ------------------------------------------------------ ultimate meter (ReWind) */
+
+/*
+ * The meter sits directly under the XP bar. Position: relative so the flame row
+ * can be absolutely placed against it — the flames have to escape the bar,
+ * which clips its own overflow so the fill can round its ends.
+ */
+#ult-meter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Room for the flames, reserved whether or not they are showing. Sizing this
+     only in the ready state would shunt the whole HUD column up the moment the
+     bar filled — movement in the corner of the eye that means nothing. */
+  padding-top: 22px;
+}
+
+.bar-fill.ult {
+  background: linear-gradient(90deg, #7a3cff, #c86bff 55%, #ff9df5);
+}
+
+#ult-readout {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * Flames licking off the top of the bar, shown only at 100%.
+ *
+ * `display: none` rather than opacity 0 while charging: twelve blurred,
+ * independently animating elements are real compositor work to keep alive for
+ * the 99% of a run when they are invisible, and the HUD is on screen the whole
+ * time.
+ */
+#ult-bar-flames {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Fills the reserved padding above the bar. */
+  top: 0;
+  height: 22px;
+  display: none;
+  justify-content: space-between;
+  padding: 0 4px;
+  pointer-events: none;
+}
+
+#ult-meter.ready #ult-bar-flames {
+  display: flex;
+  align-items: flex-end;
+}
+
+/*
+ * One flame. The border-radius is a teardrop: round shoulders, a narrower
+ * waist, and a point at the top once the vertical scale stretches it. Blurred
+ * so twelve hard shapes read as fire rather than as twelve shapes.
+ */
+#ult-bar-flames span {
+  width: 11px;
+  height: 100%;
+  border-radius: 50% 50% 46% 46% / 68% 68% 32% 32%;
+  background: linear-gradient(
+    to top,
+    rgba(255, 214, 255, 0.95),
+    #d67bff 30%,
+    #8b3cff 62%,
+    rgba(90, 24, 176, 0) 100%
+  );
+  filter: blur(1.6px);
+  transform-origin: 50% 100%;
+  animation: ult-flame-flicker 0.68s ease-in-out infinite alternate;
+}
+
+/*
+ * Staggered so the row flickers as a body of fire instead of pulsing in
+ * lockstep. Prime-ish offsets keep the pattern from visibly repeating.
+ */
+#ult-bar-flames span:nth-child(3n) { animation-duration: 0.83s; animation-delay: -0.21s; }
+#ult-bar-flames span:nth-child(3n + 1) { animation-duration: 0.61s; animation-delay: -0.47s; }
+#ult-bar-flames span:nth-child(4n) { animation-duration: 0.94s; animation-delay: -0.13s; }
+#ult-bar-flames span:nth-child(2n) { width: 8px; height: 74%; align-self: flex-end; }
+#ult-bar-flames span:nth-child(3n + 2) { height: 88%; align-self: flex-end; }
+
+@keyframes ult-flame-flicker {
+  from {
+    transform: scaleY(0.55) scaleX(1.05);
+    opacity: 0.55;
+  }
+  to {
+    transform: scaleY(1.15) scaleX(0.85);
+    opacity: 1;
+  }
+}
+
+/* The bar itself glows when ready, so the state is readable without the flames
+   — peripheral vision catches a colour change far more reliably than shape. */
+#ult-meter.ready #bar-ult {
+  border-color: rgba(216, 140, 255, 0.85);
+  animation: ult-ready-pulse 1.5s ease-in-out infinite;
+}
+
+#ult-meter.ready #ult-readout {
+  color: #e6b6ff;
+  opacity: 1;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(178, 76, 255, 0.9);
+}
+
+@keyframes ult-ready-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(160, 76, 255, 0.55); }
+  50% { box-shadow: 0 0 18px rgba(200, 107, 255, 0.95); }
+}
+
+/* --------------------------------------------------- ReWind full-screen effect */
+
+/*
+ * Sibling of #hud, covering the viewport. Every value that has to move with the
+ * sim is a custom property written from UltimateEffect.tick — the rewind lasts
+ * exactly as long as the player holds the button, so none of it can be a timed
+ * CSS animation.
+ */
+#ult-fx {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 30;
+  /* Purple grade over the whole world while the rewind runs. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(80, 20, 160, 0) 35%,
+    rgba(96, 24, 190, calc(var(--ult-tint, 0) * 0.75)) 100%
+  );
+}
+
+#ult-fx.hidden {
+  display: none;
+}
+
+/*
+ * Activation shockwave: an expanding RING, not a bloom.
+ *
+ * The first version was a filled radial gradient and it read as the screen
+ * gently going purple — no impact, no direction, and indistinguishable from the
+ * tint that follows it. A ring has an edge, and an edge travelling outward is
+ * what the eye reads as a blast. Normal blending, not additive: additive over
+ * this game's bright sky desaturates to a white wash and loses the purple
+ * entirely.
+ */
+#ult-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 140vmax;
+  height: 140vmax;
+  transform: translate(-50%, -50%) scale(var(--ult-burst-scale, 0.15));
+  opacity: var(--ult-burst, 0);
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0) 36%,
+    rgba(255, 242, 255, 0.95) 44%,
+    rgba(205, 115, 255, 0.8) 50%,
+    rgba(122, 50, 235, 0.3) 58%,
+    rgba(60, 12, 120, 0) 67%
+  );
+}
+
+/*
+ * The hit itself: a single frame-ish wash of purple over everything, gone in
+ * under a fifth of a second. The ring gives the blast its shape; this gives it
+ * its impact, and it has to decay far faster than the ring or the two smear
+ * into one soft event.
+ */
+#ult-fx::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgb(226, 168, 255);
+  opacity: var(--ult-flash, 0);
+}
+
+/* Flames along the bottom edge of the screen, climbing as --ult-flame goes to
+   1. Scaled from the bottom so they grow out of the frame edge. */
+#ult-flames {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34vh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  opacity: var(--ult-flame, 0);
+  transform: scaleY(calc(0.25 + var(--ult-flame, 0) * 0.75));
+  transform-origin: 50% 100%;
+}
+
+#ult-flames span {
+  flex: 1 1 0;
+  height: 100%;
+  margin: 0 -1.4vw;
+  border-radius: 50% 50% 42% 42% / 72% 72% 28% 28%;
+  background: linear-gradient(
+    to top,
+    rgba(255, 220, 255, 0.62),
+    rgba(197, 106, 255, 0.46) 26%,
+    rgba(112, 44, 220, 0.26) 58%,
+    rgba(60, 12, 120, 0) 100%
+  );
+  filter: blur(10px);
+  transform-origin: 50% 100%;
+  animation: ult-screen-flicker 1.1s ease-in-out infinite alternate;
+}
+
+#ult-flames span:nth-child(3n) { animation-duration: 1.45s; animation-delay: -0.4s; }
+#ult-flames span:nth-child(3n + 1) { animation-duration: 0.86s; animation-delay: -0.7s; }
+#ult-flames span:nth-child(5n) { animation-duration: 1.7s; animation-delay: -0.2s; }
+
+/*
+ * Height stagger, and it is doing more work than the flicker is. Twenty blurred
+ * columns of identical height merge into a flat band with a hard horizontal
+ * edge across the screen — unmistakably a rectangle with a blur on it. Breaking
+ * the tops up is what turns the same twenty shapes into fire. Co-prime-ish
+ * cycle lengths (2/3/5) against twenty columns so the pattern never tiles.
+ */
+#ult-flames span:nth-child(2n) { height: 76%; }
+#ult-flames span:nth-child(3n) { height: 100%; }
+#ult-flames span:nth-child(5n) { height: 58%; }
+#ult-flames span:nth-child(5n + 2) { height: 88%; }
+#ult-flames span:nth-child(7n) { height: 66%; }
+
+@keyframes ult-screen-flicker {
+  from { transform: scaleY(0.62) scaleX(1.08); }
+  to { transform: scaleY(1.08) scaleX(0.9); }
+}
+
+/* Readout block, centred high enough to stay clear of the crosshair. */
+#ult-hud {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  text-shadow: 0 0 18px rgba(140, 60, 255, 0.9), 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+#ult-label {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  /* The letter-spacing pads the right side; pull it back so the text is
+     actually centred rather than sitting one space to the left. */
+  text-indent: 0.3em;
+  color: #eabaff;
+}
+
+#ult-seconds {
+  font-size: 34px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+#ult-countdown {
+  margin-top: 6px;
+  font-size: 92px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+#ult-countdown.hidden {
+  display: none;
+}
+
+/* Re-added per digit by UltimateEffect.setCountdown, which is the one place a
+   keyframe restart is actually wanted. */
+#ult-countdown.beat {
+  animation: ult-countdown-beat 0.5s ease-out;
+}
+
+@keyframes ult-countdown-beat {
+  from {
+    transform: scale(1.6);
+    opacity: 0.2;
+    filter: blur(6px);
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
 }

@@ -40,6 +40,12 @@ export interface SpawnContext {
  * both batch size and total live population are capped so entity count can
  * never grow without bound over a long run.
  */
+export interface SpawnSnapshot {
+  survivalTime: number;
+  timeSinceLastSpawn: number;
+  suspended: boolean;
+}
+
 export class SpawnDirector {
   /**
    * Halts new drones without stopping the run clock — set while a Monolith is
@@ -108,6 +114,25 @@ export class SpawnDirector {
       difficulty.droneSpeed,
       difficulty.droneContactDamage,
     );
+  }
+
+  /**
+   * The run clock and the spawn cadence, for the rewind recorder. Both are
+   * private and both must travel: the clock is what the HUD and the game-over
+   * screen report, and difficulty is a function of it.
+   */
+  capture(): SpawnSnapshot {
+    return {
+      survivalTime: this.survivalTime,
+      timeSinceLastSpawn: this.timeSinceLastSpawn,
+      suspended: this.suspended,
+    };
+  }
+
+  restore(snapshot: SpawnSnapshot): void {
+    this.survivalTime = snapshot.survivalTime;
+    this.timeSinceLastSpawn = snapshot.timeSinceLastSpawn;
+    this.suspended = snapshot.suspended;
   }
 
   reset(): void {

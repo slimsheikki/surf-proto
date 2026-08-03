@@ -6,6 +6,12 @@ function xpRequiredAfterReaching(level: number): number {
   return 5 + level * 3;
 }
 
+export interface LevelSnapshot {
+  level: number;
+  xp: number;
+  xpToNext: number;
+}
+
 export class LevelSystem {
   level = INITIAL_LEVEL;
   xp = 0;
@@ -28,6 +34,23 @@ export class LevelSystem {
   /** XP still needed for the next level — exposed mainly so tests/HUD can assert the curve. */
   get xpToNextLevel(): number {
     return this.xpToNext;
+  }
+
+  /**
+   * Progression state as one value, for the rewind recorder.
+   *
+   * `xpToNext` is private and grows with every level-up, so a rewind that only
+   * put `level` and `xp` back would leave the player needing the *old*
+   * threshold — the same class of bug `reset()` documents below.
+   */
+  capture(): LevelSnapshot {
+    return { level: this.level, xp: this.xp, xpToNext: this.xpToNext };
+  }
+
+  restore(snapshot: LevelSnapshot): void {
+    this.level = snapshot.level;
+    this.xp = snapshot.xp;
+    this.xpToNext = snapshot.xpToNext;
   }
 
   /**

@@ -22,6 +22,9 @@ import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Shrine } from './Shrine';
+import { Rewind } from './Rewind';
+import { Ultimate } from './Ultimate';
+import { COUNTDOWN_SECONDS, UltimateEffect } from '../ui/UltimateEffect';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
 import { CourseStage } from '../world/SurfCourse';
@@ -124,6 +127,8 @@ export class Game {
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
   readonly dash = new Dash();
+  /** The ReWind ultimate's charge meter. Fed by speed, air time and kills. */
+  readonly ultimate = new Ultimate();
   /** Run-scoped perk hooks (heal-on-kill, XP multiplier). See `RunPerks`. */
   readonly perks = createRunPerks();
 
@@ -137,6 +142,24 @@ export class Game {
 
   /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
   bossesFelled = 0;
+
+  /**
+   * Rolling identity for "which Monolith encounter is this". Bumped when one
+   * arrives and again when one falls, and recorded into every rewind frame:
+   * the rewind window is cut short at any change, because un-felling a boss
+   * would mean restoring a 786-line state machine, and the alternative — the
+   * kill standing while the XP it paid is rewound away — is a worse deal than
+   * simply not offering it. See `Rewind`.
+   */
+  private bossEpoch = 0;
+
+  /** Counts the 3-2-1 down while `state === 'rewindCountdown'`. */
+  private countdownRemaining = 0;
+  /** Rising-edge latch on R; see `updateGameplay`. */
+  private ultimateHeldLastTick = false;
+
+  private readonly rewind: Rewind;
+  private readonly ultFx = new UltimateEffect();
 
   private paused = false;
   private readonly hud = new Hud();
@@ -192,6 +215,22 @@ export class Game {
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
     this.rebuildShrines();
+    // Built last: it captures references to every subsystem above, and the
+    // shrines are handed over as a getter because `setCourse` replaces them.
+    this.rewind = new Rewind({
+      playerController: this.playerController,
+      playerHealth: this.playerHealth,
+      levelSystem: this.levelSystem,
+      dash: this.dash,
+      weapon: this.weapon,
+      knife: this.knife,
+      perks: this.perks,
+      spawnDirector: this.spawnDirector,
+      entityManager: this.entityManager,
+      getShrines: () => this.shrines,
+      getBoss: () => this.boss,
+      getBossEpoch: () => this.bossEpoch,
+    });
   }
 
   /**
@@ -243,22 +282,45 @@ export class Game {
   tick(dt: number, input: InputFrame): void {
     if (input.cameraTogglePressed) this.cameraRig.toggle();
 
-    if (this.state === 'playing' && !this.paused) {
-      this.updateGameplay(dt, input);
+    if (!this.paused) {
+      if (this.state === 'playing') this.updateGameplay(dt, input);
+      else if (this.state === 'rewinding') this.updateRewind(dt, input);
+      else if (this.state === 'rewindCountdown') this.updateCountdown(dt, input);
     }
 
     // Outside the gameplay branch: the viewmodel keeps settling (and a swing
     // keeps playing out) through a level-up pause instead of freezing mid-arc.
-    this.viewModel.update(dt, this.playerController.speed, input.yawDelta, input.pitchDelta);
+    // While the world is running backwards it gets no look deltas: the player's
+    // view is being restored from the recording, so feeding the sway the mouse
+    // motion they are *not* being given would be sway from nothing.
+    const looking = this.state !== 'rewinding';
+    this.viewModel.update(
+      dt,
+      this.playerController.speed,
+      looking ? input.yawDelta : 0,
+      looking ? input.pitchDelta : 0,
+    );
     this.slashCone.tick(dt);
     this.banner.tick(dt);
     this.dashFx.tick(dt);
+    this.ultFx.tick(dt);
 
     this.cameraRig.update(this.playerController);
     this.updateHud();
   }
 
   private updateGameplay(dt: number, input: InputFrame): void {
+    // Rising edge, not the raw hold. A player who happens to be resting on R
+    // when the bar completes would otherwise spend the ultimate without ever
+    // deciding to — and the ability is spent on activation, so there is no
+    // taking it back.
+    const pressed = input.ultimateHeld && !this.ultimateHeldLastTick;
+    this.ultimateHeldLastTick = input.ultimateHeld;
+    if (pressed && this.ultimate.isReady && this.rewind.canRewind) {
+      this.beginRewind();
+      return;
+    }
+
     this.playerController.tick(dt, input);
     const playerPosition = this.playerController.position;
     const playerVelocity = this.playerController.velocity;
@@ -349,6 +411,7 @@ export class Game {
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
       if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
+      this.ultimate.registerKill();
     });
     // Runs after the kill pass so a drone that dies this tick still drops XP;
     // distance culling itself awards nothing — leaving play is not a kill.
@@ -371,7 +434,69 @@ export class Game {
     }
     if (this.boss && !this.boss.isAlive) {
       this.fellBoss();
+      return;
     }
+
+    // Last in the tick, and in this order. The meter is charged from the state
+    // this tick produced, and the recording is written from the state the
+    // player will be handed back if they rewind to here — which must be the
+    // settled end-of-tick world, not a half-updated one.
+    this.ultimate.tick(
+      dt,
+      this.playerController.speed,
+      !this.playerController.grounded,
+      this.levelSystem.level,
+    );
+    this.rewind.record(dt);
+  }
+
+  // ------------------------------------------------------------------ ReWind
+
+  /**
+   * Spends the ultimate and hands the world to the playback head.
+   *
+   * The charge goes immediately rather than when the rewind finishes: letting
+   * go of R after half a second still costs it. A refundable rewind would be a
+   * free scrub back through the last fifteen seconds to see what happened,
+   * which is a different mechanic and a much weaker one.
+   */
+  private beginRewind(): void {
+    this.ultimate.consume();
+    this.rewind.begin();
+    this.state = 'rewinding';
+    this.ultFx.beginRewind();
+    this.ultFx.setRewoundSeconds(0);
+  }
+
+  private updateRewind(dt: number, input: InputFrame): void {
+    const moreLeft = this.rewind.stepBack(dt);
+    this.ultFx.setRewoundSeconds(this.rewind.rewoundSeconds);
+    // Ends on the release OR on running out of recording — the player does not
+    // have to still be holding the button when the fifteen seconds are spent.
+    if (input.ultimateHeld && moreLeft) return;
+
+    this.rewind.commit();
+    this.state = 'rewindCountdown';
+    this.countdownRemaining = COUNTDOWN_SECONDS;
+    this.ultFx.beginCountdown();
+    this.ultFx.setCountdown(this.countdownRemaining);
+  }
+
+  private updateCountdown(dt: number, input: InputFrame): void {
+    // Look is live here, and nothing else is. The player has just watched the
+    // run go backwards and is usually mid-air on a ramp; resuming on whatever
+    // heading the recording ended on would hand back a botched line as often as
+    // a saved one.
+    this.playerController.applyLook(input.yawDelta, input.pitchDelta);
+    this.ultimateHeldLastTick = input.ultimateHeld;
+
+    this.countdownRemaining -= dt;
+    if (this.countdownRemaining > 0) {
+      this.ultFx.setCountdown(this.countdownRemaining);
+      return;
+    }
+    this.state = 'playing';
+    this.ultFx.end();
   }
 
   /**
@@ -393,6 +518,7 @@ export class Game {
       bossScaleFor(this.bossesFelled),
     );
     this.scene.add(this.boss.group);
+    this.bossEpoch += 1;
     this.spawnDirector.suspended = true;
     this.entityManager.clearEnemies();
     this.entityManager.clearBlasts();
@@ -422,6 +548,7 @@ export class Game {
    */
   private fellBoss(): void {
     this.bossesFelled += 1;
+    this.bossEpoch += 1;
     this.despawnBoss();
     this.spawnDirector.suspended = false;
     // Granted after the counter, so an award that levels the player straight
@@ -516,6 +643,12 @@ export class Game {
     this.slashCone.hide();
     this.viewModel.reset();
     this.dash.reset();
+    this.ultimate.reset();
+    this.rewind.clear();
+    this.ultFx.reset();
+    this.bossEpoch = 0;
+    this.countdownRemaining = 0;
+    this.ultimateHeldLastTick = false;
     resetMovementConfig();
     this.upgradeMenu.hide();
     this.gameOverScreen.hide();
@@ -558,6 +691,7 @@ export class Game {
       dashFraction: this.dash.fraction,
       dashCharges: this.dash.charges,
       dashMaxCharges: this.dash.maxCharges,
+      ultimateFraction: this.ultimate.charge,
     });
   }
 }

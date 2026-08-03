@@ -10,6 +10,8 @@ export interface HudState {
   dashFraction: number;
   dashCharges: number;
   dashMaxCharges: number;
+  /** 0..1 fill of the ReWind ultimate. */
+  ultimateFraction: number;
 }
 
 function formatClock(totalSeconds: number): string {
@@ -27,6 +29,9 @@ export class Hud {
   private readonly felledEl = document.getElementById('felled-readout')!;
   private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
   private readonly dashReadoutEl = document.getElementById('dash-readout')!;
+  private readonly ultMeterEl = document.getElementById('ult-meter')!;
+  private readonly ultFillEl = document.getElementById('bar-ult-fill')!;
+  private readonly ultReadoutEl = document.getElementById('ult-readout')!;
 
   update(state: HudState): void {
     this.speedEl.textContent = `${state.speed.toFixed(1)} u/s`;
@@ -41,5 +46,17 @@ export class Hud {
     this.felledEl.classList.toggle('hidden', state.bossesFelled === 0);
     this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
     this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
+
+    const ult = Math.max(0, Math.min(1, state.ultimateFraction));
+    this.ultFillEl.style.width = `${ult * 100}%`;
+    const ready = ult >= 1;
+    // The label carries the key prompt only when it is actually usable —
+    // "Ultimate 41%" is a progress readout, "REWIND READY [R]" is an
+    // instruction, and showing the instruction early trains the player to
+    // press a key that does nothing.
+    this.ultReadoutEl.textContent = ready
+      ? 'REWIND READY — HOLD R'
+      : `Ultimate ${Math.floor(ult * 100)}%`;
+    this.ultMeterEl.classList.toggle('ready', ready);
   }
 }

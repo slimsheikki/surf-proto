@@ -95,6 +95,16 @@ is deliberately just above walk speed: it is the enemy that punishes *not* surfi
 `window.__surf` is a dev-only handle on the live `Game` (stripped from prod) — the late game
 is otherwise unreachable by scripted input. See `docs/STATE.md`.
 
+## The ReWind ultimate
+
+Hold **R** at 100% to run up to 15 s of the run backwards; release to resume
+after a 3-2-1 countdown. `src/game/Rewind.ts` records **state, not diffs** —
+that is the only reason "rewind the powerups too" is tractable, since an upgrade
+is an arbitrary mutation and the pool cannot be asked to invert one. **A new
+upgrade is only rewound if the field it writes is listed in `Frame`.**
+`Ultimate.LEVEL_GROWTH` is deliberately the same 0.07 that `difficultyAt`
+divides the spawn interval by; move them together. See `docs/STATE.md`.
+
 ## Free mode
 
 A second mode off the main menu: a free-camera map editor where ramps are dragged in from

@@ -93,6 +93,25 @@ export class EntityManager {
     return removed;
   }
 
+  /**
+   * Drops every enemy the predicate rejects. The rewind uses this to delete
+   * enemies that had not spawned yet at the frame being restored — going
+   * through the same `removeEnemyAt` as every other path, so the mesh is
+   * unparented and the per-enemy material freed exactly once.
+   */
+  retainEnemies(keep: (enemy: Enemy) => boolean): void {
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      if (!keep(this.enemies[i])) this.removeEnemyAt(i);
+    }
+  }
+
+  /** Same for orbs — an orb collected after the rewind point must exist again. */
+  retainOrbs(keep: (orb: XPOrb) => boolean): void {
+    for (let i = this.orbs.length - 1; i >= 0; i--) {
+      if (!keep(this.orbs[i])) this.removeOrbAt(i);
+    }
+  }
+
   clear(): void {
     this.clearEnemies();
     for (let i = this.orbs.length - 1; i >= 0; i--) this.removeOrbAt(i);

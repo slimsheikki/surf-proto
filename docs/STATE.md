@@ -30,6 +30,57 @@ which must not survive.
 Awaiting the user's verdict before v2. Candidates already identified: a real 32x32x72 swept
 hull instead of the flat ray ring, and ducking.
 
+## ReWind — the ultimate (new)
+
+Hold **R** with the ultimate bar full and up to **15 seconds of the run play
+backwards**; let go anywhere in that window and play resumes from there after a
+3-2-1 countdown. Three files: `src/game/Ultimate.ts` (the meter),
+`src/game/Rewind.ts` (the recorder), `src/ui/UltimateEffect.ts` (the visuals).
+
+**The recorder stores state, never diffs.** That is what makes "rewind the
+powerups too" tractable: an upgrade is an arbitrary mutation (`maxHp += 20`,
+`rechargeSeconds = max(1.5, x - 1.2)`) and inverting one is not something the
+upgrade pool can be asked to support. A frame carries the *result* — weapon and
+knife stats, perks, magnet radius, the three `MovementConfig` fields upgrades
+touch, HP, the level system, the dash economy, the run clock, shrine flags, and
+every live enemy and orb. A new upgrade is rewound correctly the day it is added
+as long as the field it writes is in `Frame`.
+
+Load-bearing details, each of which cost something to find:
+
+- **32 Hz ring buffer, not 128.** A frame carries the whole entity list; at tick
+  rate that is 4x the memory for fidelity nobody can see. The player's transform
+  is interpolated between frames (the eye tracks it), everything else snaps.
+- **`Enemy.rewindId` / `XPOrb.rewindId`.** Reconciling the live list against a
+  recorded frame *by index* is wrong the moment anything was culled — the arrays
+  are spliced, so everything after the gap would be teleported into its
+  neighbour's slot. Ids are matched, so the common case (nothing changed) does no
+  work and a rebuilt enemy resumes being the same enemy.
+- **The window is cut at a Monolith arriving or falling** (`Game.bossEpoch`).
+  Un-felling a boss means restoring a 786-line state machine; letting the kill
+  stand while its XP is rewound away is a worse deal than not offering it.
+- **The charge is spent on activation, not completion.** Releasing R after half a
+  second still costs the ultimate — a refundable rewind is a free scrub through
+  the last fifteen seconds, which is a different and much weaker mechanic.
+- **Look is live during the countdown, nothing else is.** The player has just
+  watched the run go backwards and is usually mid-air on a ramp.
+- **`Ultimate`'s `LEVEL_GROWTH` is 0.07 because `difficultyAt`'s spawn interval
+  divides by `1 + 0.07n`.** Matching them makes the kill term level-neutral by
+  construction. **If that divisor is retuned, move this with it.** Measured fill
+  times against modelled kill rates: 45 s at level 1, 44 s at 10, 46 s at 20.
+
+Known limits, all deliberate: live blasts are cleared and not restored (they live
+~1 s, and the seeders come back and re-plant); enemy internals (heading, aim
+error, contact cooldown) do not travel, only position and health; and the ability
+cannot be fired from the game-over screen, so it saves a doomed fall but not a
+death.
+
+Verified headless (`.probe-rewind.ts`): a 7 s rewind across three upgrade picks,
+a level-up, a collected shrine and a wiped enemy wave restores all of it —
+position drift 0.000, and the scene child count comes back exactly, so nothing
+leaks. Browser pass: charge → ready flames → activation → countdown → resume,
+no console errors.
+
 ## Known bugs
 
 None blocking. The approach entry is fixed — see below.
