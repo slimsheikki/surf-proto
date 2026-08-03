@@ -22,6 +22,7 @@ import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { Shrine } from './Shrine';
+import { pickShrineRespawnPoint } from './ShrineRespawn';
 import { Rewind } from './Rewind';
 import { Ultimate } from './Ultimate';
 import { COUNTDOWN_SECONDS, UltimateEffect } from '../ui/UltimateEffect';
@@ -343,6 +344,11 @@ export class Game {
         this.startBlessing();
         return;
       }
+      // A collected blessing is gone, not spent: after its countdown it comes
+      // back somewhere else on the ring. Checked here rather than on a central
+      // timer so the countdown obeys the same pause the rest of the sim does —
+      // time spent in the upgrade menu is not time waiting for a shrine.
+      if (shrine.needsRespawn) this.respawnShrine(shrine);
     }
 
     // Falling is death, judged at the map's floor and nowhere else.
@@ -576,6 +582,30 @@ export class Game {
     this.openUpgradeChoice();
   }
 
+  /**
+   * Sends a collected blessing back into the world at a fresh spot on the ring.
+   *
+   * The occupied list is every *standing* blessing except this one, so two can
+   * never be planted on top of each other; `pickShrineRespawnPoint` owns the
+   * rest of the rules, including why a point on the ring is reachable by
+   * construction and a point on the approach would not be.
+   */
+  private respawnShrine(shrine: Shrine): void {
+    const occupied: Vector3[] = [];
+    for (const other of this.shrines) {
+      if (other !== shrine && !other.collected) occupied.push(other.position);
+    }
+    shrine.respawnAt(
+      pickShrineRespawnPoint({
+        trackRadius: this.course.trackRadius,
+        trackY: this.course.trackY,
+        islandCenter: this.course.islandCenter,
+        playerPosition: this.playerController.position,
+        occupied,
+      }),
+    );
+  }
+
   /** A shrine blessing: identical menu, identical stakes, no level required. */
   private startBlessing(): void {
     this.openUpgradeChoice();
@@ -609,6 +639,11 @@ export class Game {
    * whether the cursor should be handed back, and to keep the "click to start"
    * overlay from appearing on top of one of these.
    */
+  /** The crosshair and the ultimate arc are centre-screen, so `#hud` cannot own them. */
+  setHudVisible(visible: boolean): void {
+    this.hud.setVisible(visible);
+  }
+
   get isMenuOpen(): boolean {
     return this.state === 'gameOver';
   }

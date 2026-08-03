@@ -1,3 +1,5 @@
+import { UltimateArc } from './UltimateArc';
+
 export interface HudState {
   speed: number;
   hpFraction: number;
@@ -29,9 +31,12 @@ export class Hud {
   private readonly felledEl = document.getElementById('felled-readout')!;
   private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
   private readonly dashReadoutEl = document.getElementById('dash-readout')!;
-  private readonly ultMeterEl = document.getElementById('ult-meter')!;
-  private readonly ultFillEl = document.getElementById('bar-ult-fill')!;
-  private readonly ultReadoutEl = document.getElementById('ult-readout')!;
+  private readonly crosshairEl = document.getElementById('crosshair')!;
+  /**
+   * The ultimate meter is not a bar in this column any more — it is a half-ring
+   * around the crosshair, which is where it is actually read. See `UltimateArc`.
+   */
+  private readonly ultArc = new UltimateArc();
 
   update(state: HudState): void {
     this.speedEl.textContent = `${state.speed.toFixed(1)} u/s`;
@@ -47,16 +52,12 @@ export class Hud {
     this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
     this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
 
-    const ult = Math.max(0, Math.min(1, state.ultimateFraction));
-    this.ultFillEl.style.width = `${ult * 100}%`;
-    const ready = ult >= 1;
-    // The label carries the key prompt only when it is actually usable —
-    // "Ultimate 41%" is a progress readout, "REWIND READY [R]" is an
-    // instruction, and showing the instruction early trains the player to
-    // press a key that does nothing.
-    this.ultReadoutEl.textContent = ready
-      ? 'REWIND READY — HOLD R'
-      : `Ultimate ${Math.floor(ult * 100)}%`;
-    this.ultMeterEl.classList.toggle('ready', ready);
+    this.ultArc.setCharge(state.ultimateFraction);
+  }
+
+  /** Shown and hidden with the rest of the HUD; `#hud` cannot own it because it is centre-screen. */
+  setVisible(visible: boolean): void {
+    this.crosshairEl.classList.toggle('hidden', !visible);
+    this.ultArc.setVisible(visible);
   }
 }

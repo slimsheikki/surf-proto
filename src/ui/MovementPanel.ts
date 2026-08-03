@@ -45,15 +45,9 @@ type BooleanKey = {
 const hu = (perUnit: number) => (v: number) => `${Math.round(v * perUnit)} hu`;
 
 const FIELDS: Field[] = [
-  {
-    kind: 'range',
-    key: 'SENSITIVITY',
-    label: 'sensitivity',
-    min: 0.5,
-    max: 15,
-    step: 0.1,
-    help: 'CS sensitivity: yaw per count is m_yaw (0.022 deg) x this.',
-  },
+  // Sensitivity is deliberately NOT here any more. It moved to the Escape
+  // settings screen, which is where a player looks for it — and two sliders
+  // over one number is how they drift apart.
   {
     kind: 'range',
     key: 'AIR_ACCEL',
@@ -151,7 +145,8 @@ export class MovementPanel {
 
     const note = document.createElement('p');
     note.className = 'movement-panel-note';
-    note.textContent = 'Paused while open. O to close. Settings survive a restart.';
+    note.textContent =
+      'Paused while open. O to close. Settings survive a restart. FOV and sensitivity are on ESC.';
     this.root.appendChild(note);
 
     for (const field of FIELDS) {
