@@ -130,6 +130,11 @@ a side palette, moved in 3D, and played. `src/app/App.ts` is the switcher above 
 meshes every step), and **`Game` is constructed once and re-pointed with `setCourse`** (the
 terminal screens bind restart listeners in their constructors). See `docs/STATE.md`.
 
+The front menu's map tiles render **real geometry** for their aerial thumbnails
+(`ui/MapThumbnails.ts`), which means they call `buildFreeWorld(map, **false**)` —
+the colliders flag is not optional, or every map in storage joins the collision
+world.
+
 Maps are shared as links, not through a server (`src/editor/MapCode.ts`): JSON → deflate →
 base64url behind a format tag, carried in the URL **fragment** so it never reaches a host.
 Decoding routes through `parseMap`, imported names go through `uniqueMapName` (or Save

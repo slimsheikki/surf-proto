@@ -81,22 +81,30 @@
          judgement, so every note has to be attachable to a specific build. -->
     <div id="movement-tag"></div>
 
+    <!-- Classic stacked menu. PLAY opens a second page in the same overlay
+         rather than a separate screen, so the orbiting backdrop never cuts. -->
     <div id="main-menu" class="overlay hidden">
-      <h1>surf-proto</h1>
-      <div id="mode-choices">
-        <button class="mode-choice" data-mode="standard">
-          <span class="upgrade-key">1</span>
-          <strong>Standard</strong>
-          <span class="mode-blurb">The built course: an approach descent into an endless ring of ten
-          banked ramps. Survive the drones, level up, kill the Monolith.</span>
-        </button>
-        <button class="mode-choice" data-mode="free">
-          <span class="upgrade-key">2</span>
-          <strong>Free mode</strong>
-          <span class="mode-blurb">Fly a free camera and drag ramps out of the palette to build your
-          own course, then surf it. Same run as Standard &mdash; drones, levels, and the Monolith
-          at level 10, over the cylinder you placed. Maps are saved for next time.</span>
-        </button>
+      <div id="menu-root" class="menu-page">
+        <h1 class="menu-title">surf-proto</h1>
+        <nav id="menu-stack">
+          <button class="menu-item" data-action="play">
+            <span class="menu-key">1</span><span class="menu-label">Play</span>
+          </button>
+          <button class="menu-item" data-action="editor">
+            <span class="menu-key">2</span><span class="menu-label">Editor</span>
+          </button>
+          <button class="menu-item" data-action="settings">
+            <span class="menu-key">3</span><span class="menu-label">Settings</span>
+          </button>
+        </nav>
+      </div>
+      <div id="menu-play" class="menu-page hidden">
+        <h1 class="menu-title">Play</h1>
+        <div id="menu-map-grid"></div>
+        <p id="menu-play-empty" class="overlay-hint hidden">
+          No maps saved yet &mdash; build one in the Editor and it will show up here.
+        </p>
+        <button id="menu-play-back" class="menu-back">&larr; Back</button>
       </div>
     </div>
 

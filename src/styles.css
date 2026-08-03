@@ -292,41 +292,172 @@ html, body {
   background: linear-gradient(to bottom, rgba(6, 10, 16, 0.3), rgba(6, 10, 16, 0.72));
 }
 
-#mode-choices {
-  display: flex;
-  gap: 18px;
-  margin-top: 8px;
-  max-width: 900px;
-}
-
-.mode-choice {
+/* Each page fills the overlay in turn; only one is ever unhidden. */
+.menu-page {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 320px;
-  padding: 20px 22px;
-  /* Dark rather than the usual white-on-glass: these sit over a bright sky. */
-  background: rgba(8, 13, 20, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 10px;
+  align-items: center;
+  gap: 6px;
+}
+
+.menu-page.hidden {
+  display: none;
+}
+
+/* Out-specifies `.overlay h1`, which sets the shared overlay heading size —
+   a bare `.menu-title` loses to it and the title stays smaller than the items
+   below it. */
+#main-menu .menu-title {
+  margin: 0 0 22px;
+  font-size: 44px;
+  letter-spacing: 0.06em;
+}
+
+/*
+ * The classic stacked list: three words down the middle, no cards, no blurbs.
+ * The previous menu was two side-by-side description cards, which is a screen
+ * you read; this is one you act on.
+ */
+#menu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 300px;
+}
+
+.menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 26px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
   color: inherit;
   font: inherit;
-  text-align: center;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  /* Over a bright sky on a slow orbit, so the text carries its own contrast
+     rather than relying on the backdrop being dark where it happens to land. */
+  text-shadow: 0 2px 14px rgba(6, 10, 16, 0.95);
+  cursor: pointer;
+  transition: color 0.12s ease-out, background 0.12s ease-out;
+}
+
+.menu-item:hover {
+  background: rgba(92, 255, 176, 0.12);
+  color: #5cffb0;
+}
+
+/*
+ * The number is a hint, not a control: it stays out of the way until the row is
+ * under the cursor, at which point it explains why the key works.
+ *
+ * Taken out of the flow so it cannot shift the label. In the flow, centring a
+ * row of [key][label] centres the *pair*, which pushes each label sideways by
+ * half the key's width and leaves three differently-sized words failing to line
+ * up on any axis at all.
+ */
+.menu-key {
+  position: absolute;
+  left: 16px;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.32;
+  letter-spacing: 0;
+}
+
+.menu-item:hover .menu-key {
+  opacity: 0.9;
+}
+
+.menu-back {
+  margin-top: 16px;
+  padding: 8px 20px;
+  background: rgba(8, 13, 20, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
   cursor: pointer;
 }
 
-.mode-choice:hover {
+.menu-back:hover {
   background: rgba(18, 28, 40, 0.85);
 }
 
-.mode-choice strong {
-  font-size: 20px;
+/* ------------------------------------------------------------- map tiles */
+
+#menu-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  width: min(1000px, 88vw);
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 4px;
 }
 
-.mode-blurb {
-  font-size: 13px;
-  line-height: 1.45;
-  opacity: 0.78;
+.map-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  /* Dark rather than the usual white-on-glass: these sit over a bright sky. */
+  background: rgba(8, 13, 20, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-tile:hover {
+  background: rgba(18, 28, 40, 0.9);
+  border-color: rgba(92, 255, 176, 0.55);
+}
+
+/*
+ * The thumbnail's frame, sized before the image loads. A data URL decodes
+ * asynchronously even though it needs no network, so without a fixed aspect the
+ * whole grid reflows a frame after it opens.
+ */
+.map-tile-shot {
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.map-tile-shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.map-tile strong {
+  font-size: 15px;
+  /* Map names are user-supplied and can be anything; a long one must not widen
+     the grid column it lives in. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-tile-blurb {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.map-tile .menu-key {
+  position: absolute;
+  opacity: 0;
 }
 
 /* -------------------------------------------------------------- map editor */
@@ -618,6 +749,49 @@ html, body {
   text-shadow: 0 2px 12px rgba(6, 10, 16, 0.9);
 }
 
+/* ------------------------------------------------- settings: advanced section */
+
+.settings-advanced-toggle {
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-advanced-toggle:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.settings-advanced-toggle.is-open {
+  color: #5cffb0;
+  border-color: rgba(92, 255, 176, 0.4);
+}
+
+/*
+ * Scrolls on its own rather than growing the card past the viewport: the convar
+ * bench is a dozen sliders, and on a short window an un-scrolled section would
+ * push Resume off the bottom of the screen — the one control that must always
+ * be reachable.
+ */
+.settings-advanced {
+  margin-top: 10px;
+  max-height: 42vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.settings-advanced.hidden {
+  display: none;
+}
+
 /* ------------------------------------------------------- milestone banner */
 
 /* Not an overlay: felling a Monolith happens mid-air on a ramp, so the
@@ -805,25 +979,10 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
+/* Embedded inside the settings card, so it carries no position, size or chrome
+   of its own — the host owns all of that. See MovementPanel.ts. */
 #movement-panel {
-  position: fixed;
-  top: 50%;
-  right: 24px;
-  transform: translateY(-50%);
-  z-index: 60;
-  width: 360px;
-  max-height: 88vh;
-  overflow-y: auto;
-  padding: 18px 20px 20px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(12, 16, 22, 0.93);
-  color: #e8eef5;
   font-size: 13px;
-}
-
-#movement-panel.hidden {
-  display: none;
 }
 
 #movement-panel h2 {

@@ -307,7 +307,9 @@ does not.
 | `DashEffect` | Full-screen anime speed lines |
 | `UltimateEffect` | ReWind: activation shockwave, purple flames, 3-2-1 countdown |
 | `UltimateArc` | The ReWind meter as a half-ring around the crosshair |
-| `SettingsPanel` | FOV + sensitivity, on `Escape`; doubles as the pause screen |
+| `SettingsPanel` | FOV + sensitivity, on `Escape`; doubles as the pause screen; hosts the convar bench under Advanced Settings |
+| `MainMenu` | Stacked PLAY/EDITOR/SETTINGS, plus the play page's map tiles |
+| `MapThumbnails` | Aerial renders of whole courses, for those tiles |
 
 ---
 
