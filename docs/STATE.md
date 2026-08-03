@@ -50,6 +50,46 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
 
+## Knife cut; Sound Blast and Solar Wave in its place (new)
+
+The combat knife is gone — weapon, upgrades, viewmodel blade, slash animation, all of it.
+User call: a manual melee weapon in a game whose brief is "never stop surfing to fight" went
+unused, and its endgame irrelevance was already on the books (the boss could never be melee'd
+— that open question is closed by deletion). What remains of it: the gloved fists, now in
+`src/player/Hands.ts`, still shared by both views; the mouse-click `attackPressed` input,
+now unconsumed but left plumbed; and `KnifeHand.ts`'s extruded-blade technique, findable in
+git history if a non-box silhouette is ever wanted.
+
+In its place, two movement-triggered powerups, both passive in the "no new button" sense:
+
+- **Sound Blast** (`src/combat/SoundBlast.ts`) — dashing emits a shockwave: everything within
+  **7 units** takes the perk's damage (rare pick, +20 per stack; `RunPerks.soundBlastDamage`).
+  Hung off the dash because that is the one button already pressed *mid-surf*: a panic dash
+  out of a crowd is now also the attack on it. Kills land in the same tick's kill pass, so
+  orbs drop while the dasher is still inside magnet range. Drones and seeders only — the
+  boss's `distanceToPlayer` subtracts its ~95-unit engagement radius as a hitscan convenience,
+  and a shockwave must not inherit that lie. `applySoundBlast` is pure and probe-covered.
+- **Solar Wave** (`src/combat/SolarWave.ts`) — a fading wake of sunlight behind the player
+  that burns pursuers (rare pick, +10 DPS per stack; `RunPerks.solarWaveDps`). The
+  anti-pursuit weapon: every enemy intercepts from behind or beside, so the space just
+  vacated is exactly where the chasers are. Ring buffer of 64 burn points dropped every 0.9
+  units of travel **above 10 u/s** (a wake, not a bonfire — camping paints nothing), each
+  alive 1.6 s, burn radius 2.2, one burn per enemy per tick so clustered points never
+  multiply the advertised DPS. Cleared on restart *and* on rewind, same contract and same
+  reasoning as live blasts.
+
+Both perk fields ride `Rewind`'s `Frame` (the pool invariant held). The two knife gamble
+entries were **replaced, not dropped** — `epic-resonance` (Sound Blast +45, heal-on-kill +4)
+and `legend-corona` (wake +35/s, blast +35) — so the pool stays 15 visible / 10 gamble and
+the odds table's expected values still describe reality.
+
+Verified: `.probe-powerups.ts` 10 green (pool shape, blast radius/edge/dead-skip, wake
+length = lifetime·speed/spacing, exact 10.0 damage over a second in the wake with a
+clustered-point stacking guard, speed floor, lifetime fade, `clear()`); browser pass through
+`__surf` — wake forms in the live loop at 30 u/s, a real Shift keypress runs the whole
+input → dash → blast chain without errors, restart wipes wake and perks; `npm run build`
+clean with zero dangling knife references.
+
 ## XP at speed — registration fixes + flow XP (new)
 
 User report: kill an enemy while surfing fast and the XP sometimes never arrives. Four causes,
@@ -570,11 +610,13 @@ reads as an exploit: `this.rewind.clear()` in `Game.finishCashIn`.
 Past the cap, `level` still climbs (difficulty, boss cadence and ultimate scaling all read
 it) but the pick is dropped and the HUD pip goes red. That waste is the pressure to spend.
 
-**Rarity.** `Upgrade.rarity` is new. The original 15 entries are the common+rare pool and
-`drawUpgradeChoices` filters to exactly those, so pick menus and shrine blessings draw the
-distribution they always did. Ten epic/legendary entries are **gamble-only** — that is what
-makes banking worth doing. All of them write fields `Frame` already records, so the recorder
-was untouched; `.probe-bank.ts` asserts that property for all 25.
+**Rarity.** `Upgrade.rarity` is new. The common+rare pool is what pick menus and shrine
+blessings draw from; epic/legendary entries are **gamble-only** — that is what makes banking
+worth doing. All of them write fields `Frame` records, so the recorder needs no per-upgrade
+work; `.probe-bank.ts` asserted that property at introduction, and `.probe-powerups.ts`
+re-asserts the pool shape since. The knife cut later swapped four entries for Sound
+Blast/Solar Wave equivalents but preserved the counts — still **15 visible / 10 gamble** —
+so the draw distribution and the odds table's expected values are undisturbed.
 
 Odds by stake (`GAMBLE_ODDS`, permille): bust/rare/epic/legendary at 2 = 50/34/15/1, at 3 =
 32/34/28/6, at 4 = 20/28/34/18, at 5 = 12/20/33/35. Staking 2 is a bad bet, 4 is about
@@ -657,17 +699,14 @@ head/torso/arms/legs, a two-pixel face so it is not faceless from the front.
   `CameraRig`) makes the model's eyes land exactly where the first-person camera sits. Any
   other scaling makes the horizon jump when the camera is toggled. It comes out 1.83 units
   tall, a little over CS's 72 hu hull; that is the cost of the big head.
-- **The knife and gloves are not placeholder.** `src/player/KnifeHand.ts` was extracted out of
-  `ViewModel` and now owns the fists, the knife, the grip that holds them together, and the
-  swing's three phase durations. Both views build from it. `buildKnifeHand()` exists so the
-  fist/knife *relative* pose is stated once — the handle is buried inside the fist and only
-  the guard shows, so a few millimetres either way breaks it.
-- The whole assembly is scaled **uniformly** (`HAND_SCALE`) onto the chunkier blocky arm.
-  Scaling hand and knife apart is how you get a knife floating beside a glove.
+- **The gloves are not placeholder.** `src/player/Hands.ts` (né `KnifeHand.ts`, before the
+  knife was cut) owns the fist builders, and both views build from it — the fists on the
+  character are the fists in the first-person frame.
+- The hand assemblies are scaled **uniformly** (`HAND_SCALE`) onto the chunkier blocky arm.
 - Poses: a ground set and an airborne "surf" set, crossfaded on `grounded`. Airborne is the
-  one that matters — it is most of a run. The knife hand is carried forward and slightly out
+  one that matters — it is most of a run. The lead hand is carried forward and slightly out
   rather than across the chest, because the third-person camera looks at this character's
-  back almost exclusively and a blade held across spends the run inside the torso silhouette.
+  back almost exclusively and anything held across spends the run inside the torso silhouette.
 - The body **banks into turns** off the same smoothed yaw rate the viewmodel sways on. That
   is what makes it read as surfing rather than as a mannequin being flown around.
 - Sign conventions are written down in the file and are not guessable: for a limb hanging
@@ -1166,13 +1205,10 @@ still needs a human re-test.
 
 ## Open design questions for the user
 
-- **The knife can never reach the boss.** `Knife` measures true distance from
-  `target.position`, while `Boss.distanceToPlayer` subtracts a ~95-unit engagement radius
-  so a hitscan gun can engage it. Reusing that would let a 3.5-unit melee weapon hit from
-  across the arena for ~145 DPS in total safety. Consequence as built: the knife and its
-  speed bonus are irrelevant in the endgame. Deliberate, but worth a decision.
 - **XP orbs and player bolts are both cyan** (`0x7fe8ff`). Shifting orbs toward aqua-green
   would separate them.
+- (The old "knife can never reach the boss" question is closed: the knife was cut entirely —
+  see the Sound Blast / Solar Wave section.)
 
 ## Painted skybox (new)
 

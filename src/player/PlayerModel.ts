@@ -1,7 +1,7 @@
 import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { clamp, lerp } from '../engine/MathUtils';
 import { EYE_HEIGHT } from './CameraRig';
-import { buildKnifeHand, buildLeftHand, SWING_TIMING } from './KnifeHand';
+import { buildLeftHand, buildRightHand } from './Hands';
 import { PlayerController } from './PlayerController';
 
 /**
@@ -11,9 +11,9 @@ import { PlayerController } from './PlayerController';
  * rig, blocky enough that nobody mistakes it for the final character, rigged
  * properly enough that the real model can be dropped onto the same joints
  * without the animation code changing. The only parts that are *not*
- * placeholder are the gloved hands and the knife — those come from
- * `KnifeHand`, the same builders the first-person viewmodel uses, so the thing
- * in the character's fist is the thing the player was just looking at.
+ * placeholder are the gloved hands — those come from `Hands`, the same
+ * builders the first-person viewmodel uses, so the fists on this character
+ * are the fists the player was just looking at.
  *
  * This class owns no game logic and never writes to the controller: `Game`
  * ticks it on the fixed timestep with a read-only look at the player's state.
@@ -46,11 +46,9 @@ const ARM_X = px(6);
 const LEG_X = px(2);
 
 /**
- * The hands and knife are authored at world scale in `KnifeHand` (a 10.6 hu
- * blade), which is correct for a realistic body and slightly lost against
- * Minecraft's 4 px forearms. Scaled up as ONE group, never re-proportioned:
- * the knife's handle is buried inside the fist and only the guard shows, so
- * scaling the two apart is how you get a knife floating beside a glove.
+ * The hands are authored at world scale in `Hands`, which is correct for a
+ * realistic body and slightly lost against Minecraft's 4 px forearms — so the
+ * assembly is scaled up as one group onto the blocky arm.
  */
 const HAND_SCALE = 1.7;
 
@@ -83,7 +81,7 @@ interface Pose {
    * the same +X rotation that swings a limb forward tips the chest back.
    */
   torsoPitch: number;
-  /** Knife arm, then off-hand arm. */
+  /** Lead arm, then off-hand arm. */
   armR: { x: number; z: number };
   armL: { x: number; z: number };
   /** Static split; the walk cycle's swing is added on top of this. */
@@ -106,10 +104,10 @@ const GROUND_POSE: Pose = {
  * splayed, off-hand thrown wide for balance, chest tipped into the direction of
  * travel.
  *
- * The knife hand is carried forward and slightly OUT rather than across the
- * chest, which is the more natural pose — held across, the blade spends the
- * whole run inside the torso's silhouette, and the third-person camera looks
- * at this character's back almost exclusively.
+ * The lead hand is carried forward and slightly OUT rather than across the
+ * chest — held across, it spends the whole run inside the torso's silhouette,
+ * and the third-person camera looks at this character's back almost
+ * exclusively.
  */
 const AIR_POSE: Pose = {
   torsoPitch: 0.24,
@@ -160,40 +158,8 @@ const DASH_DURATION = 0.3;
 const DASH_CROUCH = px(1.2);
 const DASH_TORSO_PITCH = 0.3;
 
-/* ------------------------------------------------------------------ *
- * Slash — the third-person read of the same swing the viewmodel plays
- * ------------------------------------------------------------------ */
-
-const { WINDUP_SECONDS, SLASH_SECONDS, RECOVER_SECONDS } = SWING_TIMING;
-
-/**
- * Offsets from whatever the arm's base pose is, so a swing never pops the arm
- * to a fixed position — the same swing has to read from the running pose and
- * from the airborne one, and those hold the arm nowhere near each other.
- *
- * The wind-up rotates the arm nearly 110 deg *backwards* from the hang line,
- * which puts the fist up beside the head; the strike carries it forward and
- * hard across to the character's left. Right-to-left downward diagonal, which
- * is the same swing the viewmodel plays — see `ViewModel`'s note on why its
- * signs come out the other way in camera space.
- */
-const SWING_WINDUP = { x: -1.9, z: 0.9 };
-const SWING_STRIKE = { x: 0.7, z: -1.15 };
-
-type SlashPhase = 'idle' | 'windup' | 'slash' | 'recover';
-
 function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t);
-}
-
-/** Fast out of the gate and decelerating hard — what makes the swing snap rather than sweep. */
-function easeOutCubic(t: number): number {
-  const inv = 1 - t;
-  return 1 - inv * inv * inv;
-}
-
-function easeInOutQuad(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t);
 }
 
 function block(
@@ -228,11 +194,6 @@ export class PlayerModel {
   private lean = 0;
   private dashTimer = 0;
 
-  private phase: SlashPhase = 'idle';
-  private phaseTime = 0;
-  /** At most one buffered follow-up swing, matching the viewmodel's rule. */
-  private queuedSlash = false;
-
   constructor() {
     // YXZ, so the roll is applied in the body's own frame after the yaw —
     // i.e. banking about the direction of travel. With the default XYZ order
@@ -253,15 +214,15 @@ export class PlayerModel {
     this.armL.add(this.buildArm());
     this.torso.add(this.armR, this.armL);
 
-    // The same fist and the same knife as the first-person viewmodel, in the
-    // same grip, at the wrist. `KnifeHand` builds them facing -Z with +X right,
-    // which is exactly the body's own frame, so they need no reorientation.
-    const knifeHand = buildKnifeHand();
-    knifeHand.scale.setScalar(HAND_SCALE);
+    // The same fists as the first-person viewmodel, at the wrist. `Hands`
+    // builds them facing -Z with +X right, which is exactly the body's own
+    // frame, so they need no reorientation.
+    const rightHand = buildRightHand();
+    rightHand.scale.setScalar(HAND_SCALE);
     // A shade short of the full arm so the glove overlaps the sleeve's end
     // instead of floating off it.
-    knifeHand.position.y = -ARM_LENGTH + px(1);
-    this.armR.add(knifeHand);
+    rightHand.position.y = -ARM_LENGTH + px(1);
+    this.armR.add(rightHand);
 
     const offHand = buildLeftHand();
     offHand.scale.setScalar(HAND_SCALE);
@@ -345,16 +306,6 @@ export class PlayerModel {
     this.dashTimer = DASH_DURATION;
   }
 
-  /** Queues a swing. During an active swing at most one follow-up is buffered. */
-  triggerSlash(): void {
-    if (this.phase === 'idle') {
-      this.phase = 'windup';
-      this.phaseTime = 0;
-    } else {
-      this.queuedSlash = true;
-    }
-  }
-
   /** The body only exists for the third-person camera; in first person it is inside the lens. */
   setVisible(visible: boolean): void {
     this.root.visible = visible;
@@ -408,11 +359,11 @@ export class PlayerModel {
       lerp(GROUND_POSE.torsoPitch, AIR_POSE.torsoPitch, t) + dashEase * DASH_TORSO_PITCH
     );
 
-    const armRBaseX = lerp(GROUND_POSE.armR.x, AIR_POSE.armR.x, t) - stride * swingAmp;
-    const armRBaseZ = lerp(GROUND_POSE.armR.z, AIR_POSE.armR.z, t);
-    const swing = this.updateSlash(dt);
-
-    this.armR.rotation.set(armRBaseX + swing.x, 0, armRBaseZ + swing.z);
+    this.armR.rotation.set(
+      lerp(GROUND_POSE.armR.x, AIR_POSE.armR.x, t) - stride * swingAmp,
+      0,
+      lerp(GROUND_POSE.armR.z, AIR_POSE.armR.z, t),
+    );
     this.armL.rotation.set(
       lerp(GROUND_POSE.armL.x, AIR_POSE.armL.x, t) + stride * swingAmp,
       0,
@@ -431,67 +382,8 @@ export class PlayerModel {
     );
   }
 
-  /**
-   * Advances the swing and returns it as an OFFSET from the arm's base pose.
-   * Offsets rather than absolute angles is what lets the same swing play from
-   * the running pose and the airborne one without either of them popping.
-   */
-  private updateSlash(dt: number): { x: number; z: number } {
-    if (this.phase !== 'idle') this.phaseTime += dt;
-
-    let x = 0;
-    let z = 0;
-
-    switch (this.phase) {
-      case 'windup': {
-        const t = Math.min(1, this.phaseTime / WINDUP_SECONDS);
-        const e = easeOutQuad(t);
-        x = SWING_WINDUP.x * e;
-        z = SWING_WINDUP.z * e;
-        if (t >= 1) this.advancePhase('slash');
-        break;
-      }
-      case 'slash': {
-        const t = Math.min(1, this.phaseTime / SLASH_SECONDS);
-        const e = easeOutCubic(t);
-        x = lerp(SWING_WINDUP.x, SWING_STRIKE.x, e);
-        z = lerp(SWING_WINDUP.z, SWING_STRIKE.z, e);
-        if (t >= 1) this.advancePhase('recover');
-        break;
-      }
-      case 'recover': {
-        const t = Math.min(1, this.phaseTime / RECOVER_SECONDS);
-        const e = easeInOutQuad(t);
-        x = SWING_STRIKE.x * (1 - e);
-        z = SWING_STRIKE.z * (1 - e);
-        if (t >= 1) {
-          this.phase = 'idle';
-          this.phaseTime = 0;
-          if (this.queuedSlash) {
-            this.queuedSlash = false;
-            this.phase = 'windup';
-          }
-        }
-        break;
-      }
-      case 'idle':
-        break;
-    }
-
-    return { x, z };
-  }
-
-  /** Carries the overshoot into the next phase so a long tick can't stall one. */
-  private advancePhase(next: SlashPhase): void {
-    this.phaseTime -= next === 'slash' ? WINDUP_SECONDS : SLASH_SECONDS;
-    this.phase = next;
-  }
-
-  /** Drops any in-flight swing and re-centres the rig. Used on restart. */
+  /** Re-centres the rig. Used on restart. */
   reset(): void {
-    this.phase = 'idle';
-    this.phaseTime = 0;
-    this.queuedSlash = false;
     this.stridePhase = 0;
     this.airBlend = 1;
     this.lean = 0;
