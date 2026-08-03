@@ -21,6 +21,7 @@ import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
 import { MainMenu } from '../ui/MainMenu';
+import { PauseMenu } from '../ui/PauseMenu';
 import { renderWorldThumbnail } from '../ui/MapThumbnails';
 import { SettingsPanel } from '../ui/SettingsPanel';
 import { getSettings, loadSettings, onSettingsChanged } from '../game/Settings';
@@ -85,6 +86,18 @@ export class App {
    * separate movement panel here any more.
    */
   private readonly settingsPanel = new SettingsPanel(() => this.closeSettings());
+  /** Mid-run `Escape`: Continue / Restart / Quit. */
+  private readonly pauseMenu = new PauseMenu();
+  /**
+   * Whether the settings screen was opened *from* the pause menu, and so should
+   * hand back to it rather than straight to the game.
+   *
+   * Without this, `O` pressed mid-flight to nudge a convar would dump the
+   * player back into the pause menu they never opened, and `Settings` reached
+   * from the pause menu would silently resume the run on close. The two entry
+   * points want different exits.
+   */
+  private settingsFromPause = false;
   /**
    * Whether the player has taken pointer lock at least once this run.
    *
@@ -250,6 +263,8 @@ export class App {
   private openMenu(): void {
     this.mode = 'menu';
     this.menuElapsed = 0;
+    this.pauseMenu.hide();
+    this.settingsPanel.hide();
     this.input.releasePointerLock();
     this.editorUi?.hide();
     this.editor?.exit();
@@ -369,11 +384,33 @@ export class App {
     this.game.setPaused(true);
     this.hasStartedRun = false;
     this.settingsPanel.hide();
+    this.pauseMenu.hide();
     this.startOverlay.classList.remove('hidden');
+  }
+
+  private openPauseMenu(): void {
+    this.pauseMenu.show({
+      onContinue: () => this.input.requestPointerLock(),
+      onRestart: () => {
+        this.game?.restartRun();
+        this.input.requestPointerLock();
+      },
+      // Always the front menu, even for a free-mode run. `M` is the one that
+      // goes back to the editor, because that is the useful exit while you are
+      // iterating on a map; Quit is the one that leaves.
+      onQuit: () => this.openMenu(),
+    });
   }
 
   private closeSettings(): void {
     this.settingsPanel.hide();
+    // Back where it came from: the pause menu if that is where it was opened,
+    // otherwise straight into the run.
+    if (this.settingsFromPause && this.mode === 'play') {
+      this.settingsFromPause = false;
+      this.openPauseMenu();
+      return;
+    }
     if (this.mode === 'play') this.input.requestPointerLock();
   }
 
@@ -382,6 +419,7 @@ export class App {
     if (this.mode !== 'play') return;
     this.hasStartedRun = false;
     this.settingsPanel.hide();
+    this.pauseMenu.hide();
     this.game?.setPaused(true);
     this.input.releasePointerLock();
     if (this.playMode === 'free') this.openEditor();
@@ -403,8 +441,8 @@ export class App {
     // the panel is the way back in, so it has to come back.
     document.addEventListener('pointerlockerror', () => {
       if (this.mode !== 'play' || this.input.isLocked()) return;
-      if (this.game?.isMenuOpen) return;
-      this.settingsPanel.show('run');
+      if (this.game?.isMenuOpen || this.settingsPanel.isOpen) return;
+      this.openPauseMenu();
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -413,17 +451,18 @@ export class App {
       if (locked) {
         this.hasStartedRun = true;
         this.settingsPanel.hide();
-      } else if (this.hasStartedRun && !this.game?.isMenuOpen) {
+        this.pauseMenu.hide();
+      } else if (this.hasStartedRun && !this.game?.isMenuOpen && !this.settingsPanel.isOpen) {
         // This is the Escape path. Under pointer lock the browser consumes the
         // Escape keydown and only releases the lock, so a key handler can never
         // see it — but this event always fires, and the pause it already caused
-        // now opens a screen worth looking at.
-        this.settingsPanel.show('run');
+        // now has a menu on it.
+        this.openPauseMenu();
       }
       // Never surface "click to start" on top of another panel.
       this.startOverlay.classList.toggle(
         'hidden',
-        locked || !!this.game?.isMenuOpen || this.settingsPanel.isOpen,
+        locked || !!this.game?.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen,
       );
       this.game?.setPaused(!locked);
     });
@@ -442,6 +481,8 @@ export class App {
       // expanded rather than a second floating panel.
       if (event.code === 'KeyO' && this.mode !== 'editor') {
         event.preventDefault();
+        this.settingsFromPause = this.pauseMenu.isOpen;
+        this.pauseMenu.hide();
         this.settingsPanel.show(this.mode === 'play' ? 'run' : 'menu', true);
         if (this.mode === 'play') this.input.releasePointerLock();
         this.startOverlay.classList.add('hidden');
@@ -449,10 +490,15 @@ export class App {
       }
       if (event.code === 'Escape' && this.settingsPanel.isOpen) {
         event.preventDefault();
-        // Only ever a *close*. In a run, opening happens on the pointer-lock
-        // loss that this same keypress caused, one handler up; in the menu the
-        // Settings item opens it.
+        // Only ever a *close*. In a run, the pause menu is opened by the
+        // pointer-lock loss that this same keypress caused, one handler up; in
+        // the front menu the Settings item opens it.
         this.closeSettings();
+        return;
+      }
+      if (event.code === 'Escape' && this.pauseMenu.isOpen) {
+        event.preventDefault();
+        this.pauseMenu.continue();
         return;
       }
       if (event.code === 'KeyM' && this.mode === 'play') {
@@ -501,7 +547,10 @@ export class App {
       // cursor is handed back the moment one appears — under pointer lock it is
       // hidden and every click goes to the canvas, so the restart button would
       // be unreachable and the run would dead-end.
-      if ((this.game.isMenuOpen || this.settingsPanel.isOpen) && this.input.isLocked()) {
+      if (
+        (this.game.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen) &&
+        this.input.isLocked()
+      ) {
         this.input.releasePointerLock();
       }
     } else if (this.mode === 'editor') {

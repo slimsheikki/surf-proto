@@ -309,6 +309,7 @@ does not.
 | `UltimateArc` | The ReWind meter as a half-ring around the crosshair |
 | `SettingsPanel` | FOV + sensitivity, on `Escape`; doubles as the pause screen; hosts the convar bench under Advanced Settings |
 | `MainMenu` | Stacked PLAY/EDITOR/SETTINGS, plus the play page's map tiles |
+| `PauseMenu` | Mid-run `Escape`: Continue / Restart / Quit |
 | `MapThumbnails` | Aerial renders of whole courses, for those tiles |
 
 ---

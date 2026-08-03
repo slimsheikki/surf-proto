@@ -66,6 +66,14 @@ export class Shrine {
    */
   readonly position: Vector3;
 
+  /**
+   * Where the course authored this shrine. Kept because the position is
+   * mutable now: without it, restarting a run would leave every blessing
+   * wherever the *previous* run happened to scatter it, and a fresh level would
+   * not look like a fresh level.
+   */
+  private readonly origin: Vector3;
+
   private respawnRemaining = 0;
   private readonly crystal: Mesh;
   private readonly crystalMaterial: MeshStandardMaterial;
@@ -74,6 +82,7 @@ export class Shrine {
 
   constructor(position: Vector3) {
     this.position = position.clone();
+    this.origin = position.clone();
     this.crystalMaterial = new MeshStandardMaterial({
       color: SHRINE_COLOR,
       emissive: SHRINE_EMISSIVE,
@@ -132,10 +141,11 @@ export class Shrine {
     this.setVisible(true);
   }
 
-  /** Un-collects in place for a fresh run. */
+  /** Un-collects and returns to its authored spot, for a fresh run. */
   reset(): void {
     this.collected = false;
     this.respawnRemaining = 0;
+    this.placeAt(this.origin);
     this.setVisible(true);
   }
 

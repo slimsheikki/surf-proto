@@ -306,8 +306,9 @@ html, body {
 
 /* Out-specifies `.overlay h1`, which sets the shared overlay heading size —
    a bare `.menu-title` loses to it and the title stays smaller than the items
-   below it. */
-#main-menu .menu-title {
+   below it. Both stacked menus share the rule. */
+#main-menu .menu-title,
+#pause-menu .menu-title {
   margin: 0 0 22px;
   font-size: 44px;
   letter-spacing: 0.06em;
@@ -1506,4 +1507,35 @@ html, body {
 #settings-panel .overlay-hint {
   margin: 16px 0 0;
   text-align: center;
+}
+
+/* --------------------------------------------------------------- pause menu */
+
+/*
+ * Reuses `.menu-page` / `.menu-item` / `.menu-key` from the front menu on
+ * purpose: a player who has read one has learned the other, and the number keys
+ * mean the same thing on both.
+ *
+ * Dimmed harder than the front menu, which shows off its backdrop. Here the
+ * backdrop is a frozen frame of the run — the point is that it has stopped, and
+ * a bright unmoving world reads as a hitch rather than a pause.
+ */
+#pause-menu {
+  z-index: 65;
+  background: rgba(6, 10, 16, 0.74);
+}
+
+#pause-menu.hidden {
+  display: none;
+}
+
+#pause-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 300px;
+}
+
+#pause-menu .overlay-hint {
+  margin-top: 20px;
 }
