@@ -17,6 +17,12 @@
     <div id="hud" class="hidden">
       <div id="bar-xp" class="bar"><div id="bar-xp-fill" class="bar-fill xp"></div></div>
       <div id="hud-readouts">
+        <!-- Banked powers lead the row: it is the only readout here that is
+             asking the player to do something. Hidden at zero, like the felled
+             counter, so the F hint is only ever on screen while F does something. -->
+        <span id="picks-readout" class="hidden"
+          ><span id="picks-count"></span><span id="picks-hint"></span
+        ></span>
         <span id="level-readout">Lv 1</span>
         <span id="wave-readout">0:00</span>
         <span id="speed-readout">0 u/s</span>
@@ -35,8 +41,38 @@
     </div>
     <div id="upgrade-menu" class="overlay hidden">
       <h1>Choose a Power</h1>
+      <p id="upgrade-progress"></p>
       <div id="upgrade-choices"></div>
       <p class="overlay-hint">Press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> to choose</p>
+      <button class="countdown-toggle" id="upgrade-countdown-toggle"></button>
+    </div>
+    <!-- Banked powers. Two pages in one overlay, the same way the front menu
+         does it, so swapping from the decision to the reveal never cuts the
+         scrim behind them. -->
+    <div id="bank-menu" class="overlay hidden">
+      <div id="bank-decision" class="bank-page">
+        <h1>Banked Powers</h1>
+        <p id="bank-count"></p>
+        <div id="bank-options">
+          <button id="bank-spend" class="bank-option">
+            <span class="upgrade-key">1</span>
+            <strong>Spend</strong>
+            <span id="bank-spend-body"></span>
+          </button>
+          <button id="bank-gamble" class="bank-option">
+            <span class="upgrade-key">2</span>
+            <strong>Gamble</strong>
+            <span id="bank-gamble-body"></span>
+          </button>
+        </div>
+        <p class="overlay-hint">Press <kbd>1</kbd> <kbd>2</kbd> to choose</p>
+        <button class="countdown-toggle" id="bank-countdown-toggle"></button>
+      </div>
+      <div id="bank-result" class="bank-page hidden">
+        <h1 id="bank-result-title"></h1>
+        <div id="bank-result-card" class="upgrade-choice"></div>
+        <p class="overlay-hint">Press <kbd>1</kbd> to continue</p>
+      </div>
     </div>
     <div id="game-over" class="overlay hidden">
       <h1>Wiped Out</h1>
@@ -51,7 +87,8 @@
       <div class="dash-lines"></div>
     </div>
     <!-- ReWind: activation burst, purple flames held for the length of the
-         rewind, the seconds readout, and the 3-2-1 countdown. -->
+         rewind, and the seconds readout. The 3-2-1 that follows is #countdown
+         below, because cashing in banked powers resumes through it too. -->
     <div id="ult-fx" class="hidden">
       <div id="ult-burst"></div>
       <div id="ult-flames" aria-hidden="true">
@@ -63,9 +100,11 @@
       <div id="ult-hud">
         <div id="ult-label"></div>
         <div id="ult-seconds"></div>
-        <div id="ult-countdown" class="hidden"></div>
       </div>
     </div>
+    <!-- Shared resume countdown. Sits below #ult-hud rather than inside it: a
+         level-up has no business wearing the ultimate's purple. -->
+    <div id="countdown" class="hidden"><span id="countdown-digit"></span></div>
     <!-- Start screen. Three bands, and the order is the order they are read in:
          the turning wordmark up top, the one instruction that has to land in the
          centre under the crosshair, and the controls along the bottom — parked
@@ -151,8 +190,8 @@
           <span class="guide-body">
             <span class="guide-title">Level up</span>
             <span class="guide-line">
-              Fill the XP bar and pick a new power with
-              <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>.
+              Powers bank up instead of stopping the run. Tap <kbd>F</kbd> for one,
+              or hold it to spend the lot &mdash; or gamble them.
             </span>
           </span>
         </li>
@@ -175,8 +214,8 @@
           <span class="guide-body">
             <span class="guide-title">Keys</span>
             <span class="guide-line">
-              <kbd>Esc</kbd> pause &middot; <kbd>V</kbd> camera &middot;
-              <kbd>M</kbd> back &middot; <kbd>O</kbd> movement tuning
+              <kbd>Esc</kbd> pause &middot; <kbd>V</kbd> camera &middot; <kbd>F</kbd> powers
+              &middot; <kbd>M</kbd> back &middot; <kbd>O</kbd> movement tuning
             </span>
           </span>
         </li>

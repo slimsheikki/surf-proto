@@ -326,14 +326,17 @@ does not.
 
 | Class | Owns |
 |---|---|
-| `Hud` | Speed, HP, XP, level, dash charges, run clock, Monoliths felled, ultimate meter |
+| `Hud` | Speed, HP, XP, level, dash charges, run clock, Monoliths felled, ultimate meter, banked powers |
 | `MainMenu` | Mode select at boot |
-| `UpgradeMenu` | Level-up choice of three (**keyboard 1/2/3** — see pointer lock, §2) |
+| `UpgradeMenu` | Power choice of three (**keyboard 1/2/3** — see pointer lock, §2) |
+| `BankMenu` | Banked powers: spend-or-gamble, and the blind roll's reveal |
+| `CountdownToggle` | The `C` tickbox on both power screens; state lives in `Settings` |
 | `GameOverScreen` | Death panel and restart |
 | `Banner` | Transient headline that pauses nothing |
 | `BossBar` | Monolith health |
 | `DashEffect` | Full-screen anime speed lines |
-| `UltimateEffect` | ReWind: activation shockwave, purple flames, 3-2-1 countdown |
+| `UltimateEffect` | ReWind: activation shockwave, purple flames, seconds readout |
+| `Countdown` | The shared 3-2-1 — both a ReWind and a cash-in resume through it |
 | `UltimateArc` | The ReWind meter as a half-ring around the crosshair |
 | `SettingsPanel` | FOV + sensitivity, on `Escape`; doubles as the pause screen; hosts the convar bench under Advanced Settings |
 | `MainMenu` | Stacked PLAY/EDITOR/SETTINGS, plus the play page's map tiles |

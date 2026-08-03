@@ -55,6 +55,13 @@ export interface InputFrame {
    * controller has to see the whole hold, not its leading edge.
    */
   ultimateHeld: boolean;
+  /**
+   * Held, not edge-triggered. F does two different things depending on how long
+   * it is down — a tap cashes one banked power, a long hold opens the all-in
+   * screen — and a tap is only knowable on the release, so the controller has
+   * to see the whole press rather than its leading edge.
+   */
+  bankHeld: boolean;
 }
 
 export class InputSystem {
@@ -168,6 +175,16 @@ export class InputSystem {
       attackPressed: this.attackQueued,
       dashPressed: this.dashQueued,
       ultimateHeld: this.keys.has('KeyR'),
+      // Ctrl/Cmd excluded so Ctrl+F stays the browser's find bar rather than
+      // quietly starting a hold behind it. `KeyF` is left out of
+      // GAME_KEY_CODES for the same reason — there is no default worth
+      // suppressing, and the editor binds F too.
+      bankHeld:
+        this.keys.has('KeyF') &&
+        !this.keys.has('ControlLeft') &&
+        !this.keys.has('ControlRight') &&
+        !this.keys.has('MetaLeft') &&
+        !this.keys.has('MetaRight'),
     };
 
     this.pendingYawDelta -= yawDelta;

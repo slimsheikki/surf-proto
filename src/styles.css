@@ -156,6 +156,66 @@ h2,
 }
 
 /*
+ * Banked powers, and the only readout in this row that is asking for something.
+ *
+ * Hidden at zero rather than shown as "0 F": the F hint on screen is the whole
+ * affordance for a key that does nothing with an empty bank, so it must not be
+ * there when the bank is empty. Same doctrine as the ultimate arc's "HOLD R".
+ */
+#picks-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 700;
+  color: #9ce7ff;
+}
+
+#picks-readout.hidden {
+  display: none;
+}
+
+/*
+ * Hold progress. The 2.5 s hold is invisible without it and reads as a dead
+ * key, so the hint fills left-to-right as a background wipe — no extra element,
+ * and it rides the per-tick HUD update that already runs every frame.
+ */
+#picks-hint {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  background-image: linear-gradient(
+    to right,
+    rgba(156, 231, 255, 0.55) 0,
+    rgba(156, 231, 255, 0.55) calc(var(--hold, 0) * 100%),
+    rgba(255, 255, 255, 0.14) calc(var(--hold, 0) * 100%)
+  );
+}
+
+#picks-readout.at-cap {
+  color: #ff5c5c;
+  animation: picks-cap-pulse 0.7s ease-in-out infinite alternate;
+}
+
+#picks-readout.at-cap #picks-hint {
+  border-color: rgba(255, 92, 92, 0.55);
+}
+
+/* Free-running and never retriggered, so a CSS animation is right here — the
+   same exception the ultimate's idle flame flicker gets. */
+@keyframes picks-cap-pulse {
+  from {
+    opacity: 0.55;
+    text-shadow: none;
+  }
+  to {
+    opacity: 1;
+    text-shadow: 0 0 10px rgba(255, 92, 92, 0.9);
+  }
+}
+
+/*
  * The XP bar leads and is bigger than the rest in both axes: it is the bar that
  * decides when the run's next *decision* arrives, which makes it the one worth
  * reading at a glance from the corner of the eye.
@@ -379,6 +439,166 @@ h2,
   border: 1px solid var(--glass-border);
   font-size: 13px;
   font-weight: 700;
+}
+
+/*
+ * Tier tints. Border and glow only, no box-model changes — a legendary must
+ * read as *the same card, lit differently*, or the eye starts measuring size
+ * instead of reading the name.
+ */
+.upgrade-choice.rarity-rare {
+  border-color: rgba(92, 200, 255, 0.65);
+  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(92, 200, 255, 0.25),
+    0 0 22px rgba(92, 200, 255, 0.35);
+}
+
+.upgrade-choice.rarity-epic {
+  border-color: rgba(200, 30, 224, 0.7);
+  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(200, 30, 224, 0.3),
+    0 0 26px rgba(200, 30, 224, 0.45);
+}
+
+.upgrade-choice.rarity-legendary {
+  border-color: rgba(255, 193, 77, 0.8);
+  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(255, 193, 77, 0.35),
+    0 0 34px rgba(255, 193, 77, 0.55);
+}
+
+.upgrade-rarity {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.rarity-rare .upgrade-rarity {
+  color: #5cc8ff;
+}
+
+.rarity-epic .upgrade-rarity {
+  color: #e07cf5;
+}
+
+.rarity-legendary .upgrade-rarity {
+  color: #ffc14d;
+}
+
+#upgrade-progress {
+  margin: 0 0 4px;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+#upgrade-progress:empty {
+  display: none;
+}
+
+/* ------------------------------------------------------------- banked powers */
+
+.bank-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bank-page.hidden {
+  display: none;
+}
+
+#bank-count {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+#bank-options {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+/* Same glass recipe as a power card, wider — these are the two shapes a whole
+   bank can take, not two items in a list. */
+.bank-option {
+  min-width: 240px;
+  padding: 18px 22px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-sm);
+  cursor: pointer;
+  color: inherit;
+  font-size: 15px;
+  transition: background 0.12s ease-out, box-shadow 0.12s ease-out,
+    border-color 0.12s ease-out;
+}
+
+.bank-option strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 19px;
+  letter-spacing: 0.06em;
+}
+
+.bank-option span:last-child {
+  display: block;
+  opacity: 0.8;
+}
+
+.bank-option:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.6);
+}
+
+.bank-option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#bank-result-card {
+  min-width: 300px;
+  cursor: default;
+}
+
+#bank-result-title {
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+}
+
+/*
+ * The countdown toggle.
+ *
+ * Bound to a key, not just clickable: the run is under pointer lock, so the
+ * cursor is hidden and every click goes to the canvas. A settings control that
+ * could only be clicked would be unreachable from the one screen it belongs on.
+ */
+.countdown-toggle {
+  margin-top: 14px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.countdown-toggle:hover {
+  opacity: 1;
+  border-color: rgba(var(--accent-rgb), 0.6);
 }
 
 .overlay-hint {
@@ -1859,8 +2079,33 @@ h2,
   color: #ffffff;
 }
 
-#ult-countdown {
-  margin-top: 6px;
+/* ---------------------------------------------------------- resume countdown */
+
+/*
+ * Shared by ReWind and by cashing in banked powers, so it lives outside #ult-fx
+ * and carries none of its purple.
+ *
+ * `top` clears #ult-hud (22%, ~70px tall): during a rewind resume the `-12.3s`
+ * readout is still on screen above this. z-index sits above #hud (35) and
+ * #ult-fx (30), below the pause menu (65).
+ */
+#countdown {
+  position: fixed;
+  top: 34%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: none;
+  text-align: center;
+  text-shadow: 0 0 18px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+#countdown.hidden {
+  display: none;
+}
+
+#countdown-digit {
+  display: block;
   font-size: 92px;
   font-weight: 900;
   line-height: 1;
@@ -1868,17 +2113,13 @@ h2,
   color: #ffffff;
 }
 
-#ult-countdown.hidden {
-  display: none;
+/* Re-added per digit by Countdown.set, which is the one place a keyframe
+   restart is actually wanted. */
+#countdown-digit.beat {
+  animation: countdown-beat 0.5s ease-out;
 }
 
-/* Re-added per digit by UltimateEffect.setCountdown, which is the one place a
-   keyframe restart is actually wanted. */
-#ult-countdown.beat {
-  animation: ult-countdown-beat 0.5s ease-out;
-}
-
-@keyframes ult-countdown-beat {
+@keyframes countdown-beat {
   from {
     transform: scale(1.6);
     opacity: 0.2;
