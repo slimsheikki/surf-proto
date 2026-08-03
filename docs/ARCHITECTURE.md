@@ -109,6 +109,17 @@ constantly. Drawing it as a separate pass over cleared depth means it composites
 unconditionally and can never intersect the level. CS does the same thing, including the
 narrower viewmodel FOV (55° vs the world's 75°).
 
+The **third-person body** is the other half of this. `src/player/PlayerModel.ts` is a blocky
+Minecraft-proportioned placeholder character that lives in the *world* scene (added by `Game`,
+not by the course), shown only while `cameraRig.mode === 'third'` — in first person the camera
+sits inside its head. It shares the gloved fists and the knife with the viewmodel:
+`src/player/KnifeHand.ts` owns those builders and the swing's phase durations, and both views
+call into it, so the two can never drift into holding different knives. The pose sets differ,
+the model does not.
+
+Nothing in it is simulation — it reads the controller and never writes to it — so it needs no
+entry in `Rewind`'s `Frame`: rewinding the player's transform rewinds the body with it.
+
 ### Input
 
 `src/engine/Input.ts` listens on `window` and accumulates state. `consumeFrame()` returns an
@@ -409,7 +420,7 @@ only be tested by playing it.
 |---|---|---|
 | `src/app/` | Composition root, renderer, mode switching, frame loop | `App.ts` |
 | `src/engine/` | Reusable primitives: fixed clock, input, raycasting, math, disposal | `Raycast.ts` |
-| `src/player/` | Controller, tuning constants, camera, first-person viewmodel, dash | `PlayerController.ts` |
+| `src/player/` | Controller, tuning constants, camera, first/third-person models, dash | `PlayerController.ts` |
 | `src/world/` | Ramp geometry generation, the standard course, collider registry | `RampCurve.ts` |
 | `src/game/` | Run orchestration and tick order, entity lists | `Game.ts` |
 | `src/enemies/` | Drones, seeders, the Monolith, spawn director, difficulty scaling | `Enemy.ts` |

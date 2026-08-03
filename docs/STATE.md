@@ -223,8 +223,17 @@ never up front), `HTMLAudioElement` with `loop = true` — no Web Audio anywhere
 in the project, and none needed for a stereo bed. Adding a track is one entry in
 `MUSIC_TRACKS` plus the file.
 
-- Menu and editor: the fixed `ultra-speed` track. Every run: a random one that
-  is **not** the track that just played, drawn in `pickTrack`.
+- Menu and editor: the fixed `ultra-speed` track, looping. A run is a **shuffled
+  playlist** instead — `pickTrack` deals off a Fisher-Yates bag, so all nine
+  play before any repeats, and the bag's refill swaps position 0 if it would
+  repeat the track that just ended.
+- **`loop` is set per playback, not per element** (`playTrack`), because the
+  menu bed is in the shuffle bag too: the menu loops, a run's track has to be
+  allowed to end so the next can be dealt.
+- The hand-over fires ~2 s *before* the end so the two overlap, driven by
+  `timeupdate` with `ended` as the backstop — a backgrounded tab throttles
+  timers and an unknown duration reports `NaN`, so both paths are needed.
+  `advancing` stops them dealing twice.
 - 2 s fade in, 1 s fade out, crossfaded when one track replaces another. Fades
   are per element and ramp on `requestAnimationFrame`, so they keep moving while
   the sim is paused behind "click to start".
@@ -328,6 +337,46 @@ own. `O` still works and opens Settings with that section already expanded.
 ## Known bugs
 
 None blocking. The approach entry is fixed — see below.
+
+## Third-person body (new)
+
+`V` used to switch to a camera looking at nothing — there was no player model. There is one
+now: `src/player/PlayerModel.ts`, a **deliberately placeholder Minecraft-shaped block
+character** standing in until the user's own model lands. Six boxes on a hips/shoulders rig,
+head/torso/arms/legs, a two-pixel face so it is not faceless from the front.
+
+- **Scale is pinned by the eye line, not by height.** `PIXEL = EYE_HEIGHT / 28` — Minecraft's
+  grid puts the eyes 28 px up a 32 px figure, so solving for `EYE_HEIGHT` (now exported from
+  `CameraRig`) makes the model's eyes land exactly where the first-person camera sits. Any
+  other scaling makes the horizon jump when the camera is toggled. It comes out 1.83 units
+  tall, a little over CS's 72 hu hull; that is the cost of the big head.
+- **The knife and gloves are not placeholder.** `src/player/KnifeHand.ts` was extracted out of
+  `ViewModel` and now owns the fists, the knife, the grip that holds them together, and the
+  swing's three phase durations. Both views build from it. `buildKnifeHand()` exists so the
+  fist/knife *relative* pose is stated once — the handle is buried inside the fist and only
+  the guard shows, so a few millimetres either way breaks it.
+- The whole assembly is scaled **uniformly** (`HAND_SCALE`) onto the chunkier blocky arm.
+  Scaling hand and knife apart is how you get a knife floating beside a glove.
+- Poses: a ground set and an airborne "surf" set, crossfaded on `grounded`. Airborne is the
+  one that matters — it is most of a run. The knife hand is carried forward and slightly out
+  rather than across the chest, because the third-person camera looks at this character's
+  back almost exclusively and a blade held across spends the run inside the torso silhouette.
+- The body **banks into turns** off the same smoothed yaw rate the viewmodel sways on. That
+  is what makes it read as surfing rather than as a mannequin being flown around.
+- Sign conventions are written down in the file and are not guessable: for a limb hanging
+  along -Y, +X swings it forward and +Z swings it out to the character's right — but the
+  torso points *up*, so its lean is negated on the way in. The root's Euler order is `YXZ`
+  so the bank is applied in the body's own frame; on the default `XYZ` it cartwheels
+  sideways on every heading but one.
+- Visibility has **two** gates: `cameraRig.mode === 'third'`, and `Game.setRunVisible`, which
+  `App` drives from the mode. Without the second the body stands on the course through the
+  menu's orbit shot — `Game` is constructed once and its world objects live in the shared
+  scene. It is deliberately *not* folded into `setHudVisible`, which follows pointer lock:
+  a body that vanished whenever the pause menu opened would be the worse bug.
+- Nothing here is simulation, so it needs no `Rewind` `Frame` entry — rewinding the player's
+  transform rewinds the body with it.
+
+Movement is untouched, so `MovementVersion` is not bumped.
 
 ## Round two of polish (falls, blessings, sky)
 

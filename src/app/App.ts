@@ -290,6 +290,7 @@ export class App {
     this.startOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.game?.setHudVisible(false);
+    this.game?.setRunVisible(false);
     this.scene.fog = null;
     // Crossfades whatever the run was playing out underneath it. At boot this
     // is the one start that can be refused by autoplay policy — the manager
@@ -327,6 +328,7 @@ export class App {
     this.startOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
     this.game?.setHudVisible(false);
+    this.game?.setRunVisible(false);
     this.scene.fog = null;
     // The editor keeps the menu bed rather than falling silent: arriving from a
     // scored menu into nothing reads as the audio having broken. Coming back
@@ -418,6 +420,10 @@ export class App {
     // not started, and dead centre is where the start screen's own prompt is.
     // The `pointerlockchange` handler is what brings them in.
     this.game.setHudVisible(false);
+    // The HUD follows pointer lock, but the player's body follows the *mode*:
+    // it has to be back the moment the course is on screen, start overlay or
+    // not, or the third-person camera opens the run pointed at nothing.
+    this.game.setRunVisible(true);
     // Suspended until the click that takes pointer lock, so drones don't spawn
     // and the player doesn't slide off a ramp behind the start overlay.
     this.game.setPaused(true);

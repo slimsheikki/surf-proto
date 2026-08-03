@@ -1,7 +1,13 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import { PlayerController } from './PlayerController';
 
-const EYE_HEIGHT = 1.6;
+/**
+ * Height of the eye above `PlayerController.position` (which is the player's
+ * feet). Exported because `PlayerModel` builds the third-person body around it:
+ * the block character's eyes have to land exactly here, or toggling the camera
+ * shifts the horizon.
+ */
+export const EYE_HEIGHT = 1.6;
 const THIRD_PERSON_DISTANCE = 5;
 const THIRD_PERSON_HEIGHT = 1.5;
 
