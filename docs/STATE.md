@@ -273,7 +273,7 @@ dark ramps.
 
 Classic stacked **PLAY / EDITOR / SETTINGS**, replacing the two side-by-side
 description cards. PLAY opens a second page *inside the same overlay* — so the
-orbiting backdrop never cuts — listing the standard course plus every map in
+orbiting backdrop never cuts — listing the built-in course plus every map in
 storage, each with an aerial thumbnail. Picking a saved map plays it directly,
 without a trip through the editor (`App.startMapRun`, which still hands the map
 to the editor because `M` out of a free run goes *back* there).
@@ -289,11 +289,17 @@ load-bearing:
   the tiles are dark cards; the first render came out as three near-black
   rectangles. From above, every banked face also turns its *underside* to the
   camera, so without a fill from below half the course renders black.
-- **The standard course is focused on the ring, not fitted.** Its bounding
-  sphere is set by the approach descent 600 units out, which shrinks the ring —
-  the thing that identifies the course — to a dot.
+- **Framed on the map's pieces (`mapFocus`), not the built world.** Two
+  reasons. `buildFreeWorld` hangs a 24-unit boss pillar below the boss marker,
+  the lowest thing in the scene on a course that finishes above it; and a
+  *radius* can only be fitted to one field of view, so a sphere fit sizes every
+  shot to the tile's height and leaves the 16:9 width unused. Given a box,
+  `fitDistance` solves its corners against both half-angles. Worth about 7% on
+  the default course and more on an elongated map — but it is not a fix for a course whose
+  plan is roughly square, which fills the height and leaves the sides empty
+  because that is what a square is in a 16:9 frame.
 
-The standard tile is photographed once at boot, which is the only moment that
+The built-in tile is photographed once at boot, which is the only moment that
 world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
 re-rendered per visit, because the editor can change one between two trips.
 
@@ -333,6 +339,42 @@ longer a floating panel of its own — it is embedded under a collapsible
 **Advanced Settings** section on that screen, and `MovementPanel` is now a
 content builder with no positioning, visibility or pointer-lock handling of its
 own. `O` still works and opens Settings with that section already expanded.
+
+## MegaFlow Demo V1 is the default course (new)
+
+The generated approach-and-ring course is no longer reachable from the menu. The single
+built-in tile is now **MegaFlow Demo V1**, a 61-piece map authored in the editor and shipped as
+data: `src/world/default-course.map.json` (the `compact` shape `MapCode` shares over the wire —
+no piece ids, two decimals) loaded through `src/world/DefaultCourse.ts`. It descends from y=202
+to y=16 over about 424 × 402 units and starts the player standing on a spawn pad.
+
+The module and file are named for the *role*; the title lives in the JSON's `name` alone, so a
+V2 is one edit rather than a rename rippling through the menu and three docs.
+
+**To update it:** open it in the editor, press Share, and re-emit the JSON from the code. Do
+not hand-edit piece coordinates — the editor is the only thing that can tell you whether the
+result is still surfable.
+
+Three things about how it is wired:
+
+- **Shipped, not seeded into `localStorage`.** Seeding raises questions with no good answers
+  (does it come back when deleted? what happens on rename?), and a shipped map is simply
+  always there. It is rebuilt per call via `defaultCourseMap()` rather than shared, because the
+  editor mutates whatever map it is handed — one shared instance would let a trip through the
+  editor edit the built-in course for the rest of the session.
+- **It has its own start path**, `App.startDefaultRun`, even though it is an ordinary free
+  map. `startMapRun` hands the map to the editor and sends `M` back there, which is right for
+  a map the player saved and baffling for the course the game opens on. `PlayMode` is
+  `'default' | 'free'` for that reason (was `'standard' | 'free'`).
+- **`buildSurfCourse` is now an unused export.** `SurfCourse.ts` stays regardless — it owns
+  the ramp constants `MapData.ts` reads — and rollup drops the unused generator from the
+  bundle, which is why adding 8 KB of map JSON made the gzipped build *smaller*. Delete the
+  function if the ring is definitely not wanted back.
+
+Verified in a headless browser: one tile titled MegaFlow Demo V1 with a real render, spawn lands on
+the pad at (206, 202, 226), the descent runs to y=123 under input without dying (so colliders
+register), `M` returns to the menu rather than the editor, and playing it writes nothing to
+player storage.
 
 ## Banked powers — F (new)
 

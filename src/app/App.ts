@@ -24,12 +24,12 @@ import { ViewModel } from '../player/ViewModel';
 import { mountLogo } from '../ui/Logo';
 import { MainMenu } from '../ui/MainMenu';
 import { PauseMenu } from '../ui/PauseMenu';
-import { renderWorldThumbnail } from '../ui/MapThumbnails';
+import { mapFocus, renderWorldThumbnail } from '../ui/MapThumbnails';
 import { SettingsPanel } from '../ui/SettingsPanel';
 import { getSettings, loadSettings, onSettingsChanged, setMusicMuted } from '../game/Settings';
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
 import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
-import { buildSurfCourse } from '../world/SurfCourse';
+import { defaultCourseMap } from '../world/DefaultCourse';
 import { clearColliders } from '../world/Colliders';
 
 /**
@@ -67,7 +67,7 @@ type AppMode = 'menu' | 'editor' | 'play';
  * rather than imported from the menu now that the menu has three items and no
  * longer describes a "mode" at all.
  */
-type PlayMode = 'standard' | 'free';
+type PlayMode = 'default' | 'free';
 
 /**
  * Composition root above `Game`: owns the renderer, the scene, and the one
@@ -150,7 +150,7 @@ export class App {
 
   private mode: AppMode = 'menu';
   /** Which mode a run belongs to — decides whether `M` goes to the menu or back to the editor. */
-  private playMode: PlayMode = 'standard';
+  private playMode: PlayMode = 'default';
 
   private game: Game | null = null;
   /** The world currently in the scene. Owned here, disposed on every swap. */
@@ -208,22 +208,14 @@ export class App {
     this.camera.fov = getSettings().fov;
     this.camera.updateProjectionMatrix();
     this.installListeners();
-    const standard = this.loadStandardWorld();
-    // Photographed here and nowhere else. This is the only moment the standard
-    // course is guaranteed to be live: `setWorld` disposes whatever it replaces,
-    // so a reference kept for a lazy render would be pointing at freed geometry
-    // the first time the player visited the editor. One small render at boot
-    // buys a tile that is always correct. `this.world` is what
-    // `loadStandardWorld` just installed.
-    const standardShot = this.world
-      ? renderWorldThumbnail(this.world, {
-          center: standard.islandCenter.clone().setY(standard.trackY),
-          // The ring plus a margin. Fitting the whole course instead would frame
-          // the approach, which starts 600 units out and shrinks the ring to a dot.
-          radius: standard.trackRadius * 1.5,
-        })
-      : null;
-    this.mainMenu.setStandardThumbnailSource(() => standardShot);
+    const defaultMap = defaultCourseMap();
+    this.loadFreeWorld(defaultMap);
+    // Photographed here rather than per visit to the menu, off the geometry the
+    // line above just installed: `setWorld` disposes whatever it replaces, so a
+    // reference kept for a lazy render would point at freed geometry the first
+    // time the player visited the editor.
+    const defaultShot = this.world ? renderWorldThumbnail(this.world, mapFocus(defaultMap)) : null;
+    this.mainMenu.setDefaultThumbnailSource(() => defaultShot);
     void this.bootFromUrl();
   }
 
@@ -282,11 +274,13 @@ export class App {
     this.scene.add(group);
   }
 
-  private loadStandardWorld(): GameCourse {
-    clearColliders();
-    const course = buildSurfCourse();
-    this.setWorld(course.group, this.world !== this.editor?.root);
-    return course;
+  /**
+   * The built-in course. A free-mode map like any other now — it just does not
+   * come out of the player's storage, and `M` out of it goes to the menu rather
+   * than the editor.
+   */
+  private loadDefaultWorld(): GameCourse {
+    return this.loadFreeWorld(defaultCourseMap());
   }
 
   private loadFreeWorld(map: FreeMap): GameCourse {
@@ -317,7 +311,7 @@ export class App {
     // picks a menu entry, so the menu is silent for at most a beat.
     this.music.playMenuMusic();
     this.mainMenu.show({
-      onStandard: () => this.startStandardRun(),
+      onDefault: () => this.startDefaultRun(),
       onEditor: () => this.openEditor(),
       onSettings: () => this.settingsPanel.show('back'),
       onFreeMap: (map) => this.startMapRun(map),
@@ -389,9 +383,17 @@ export class App {
 
   // -------------------------------------------------------------- mode: play
 
-  private startStandardRun(): void {
-    const course = this.loadStandardWorld();
-    this.playMode = 'standard';
+  /**
+   * The built-in course, straight from the menu.
+   *
+   * Deliberately not routed through `startMapRun` even though it is a free map:
+   * that one hands the map to the editor and sends `M` back there, which is
+   * right for a map the player saved and baffling for the course the game opens
+   * on.
+   */
+  private startDefaultRun(): void {
+    const course = this.loadDefaultWorld();
+    this.playMode = 'default';
     this.beginRun(course);
   }
 

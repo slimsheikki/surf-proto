@@ -172,6 +172,15 @@ The front menu's map tiles render **real geometry** for their aerial thumbnails
 the colliders flag is not optional, or every map in storage joins the collision
 world.
 
+**The default course is itself a free map**: `src/world/default-course.map.json`, authored in
+the editor and loaded by `DefaultCourse.ts`. Both are named for the role — the title on screen
+("MegaFlow Demo V1") lives in the JSON's `name` alone, so renaming it is one edit. It gets its
+own start path (`App.startDefaultRun`) rather than going through `startMapRun`, because that one
+hands the map to the editor and sends `M` back there — right for a saved map, baffling for the
+course the game opens on. `defaultCourseMap()` rebuilds it per call, since the editor mutates
+whatever map it is given. `buildSurfCourse` (the
+old generated ring) is now an unused export kept only for the constants `MapData.ts` reads.
+
 Maps are shared as links, not through a server (`src/editor/MapCode.ts`): JSON → deflate →
 base64url behind a format tag, carried in the URL **fragment** so it never reaches a host.
 Decoding routes through `parseMap`, imported names go through `uniqueMapName` (or Save

@@ -1,4 +1,5 @@
 import { FreeMap } from '../editor/MapData';
+import { DEFAULT_COURSE_BLURB, DEFAULT_COURSE_NAME } from '../world/DefaultCourse';
 import { listMapNames, loadMap } from '../editor/MapStorage';
 import { mountLogo } from './Logo';
 import { renderMapThumbnails } from './MapThumbnails';
@@ -19,7 +20,8 @@ import { renderMapThumbnails } from './MapThumbnails';
  */
 
 export interface MainMenuHandlers {
-  onStandard: () => void;
+  /** Play the built-in course. */
+  onDefault: () => void;
   onEditor: () => void;
   onSettings: () => void;
   /** Play a saved map directly, without going through the editor. */
@@ -45,12 +47,12 @@ export class MainMenu {
   /** Tiles on the play page, in display order, so number keys can pick them. */
   private playTiles: (() => void)[] = [];
   /**
-   * The standard course's tile image, rendered once from the world App already
+   * The built-in course's tile image, rendered once from the world App already
    * built at boot. Cached because that world never changes; the *map* tiles are
    * not cached, because the editor can change one between two visits here.
    */
-  private standardThumbnail: string | null = null;
-  private getStandardThumbnail: () => string | null = () => null;
+  private defaultThumbnail: string | null = null;
+  private getDefaultThumbnail: () => string | null = () => null;
 
   constructor() {
     // Art path and the missing-file fallback both live in `Logo.ts` now that the
@@ -88,11 +90,11 @@ export class MainMenu {
   }
 
   /**
-   * How the play page gets its standard-course picture. App owns that world, so
-   * it hands over a thunk rather than the menu reaching into the scene.
+   * How the play page gets the built-in course's picture. App owns that world,
+   * so it hands over a thunk rather than the menu reaching into the scene.
    */
-  setStandardThumbnailSource(source: () => string | null): void {
-    this.getStandardThumbnail = source;
+  setDefaultThumbnailSource(source: () => string | null): void {
+    this.getDefaultThumbnail = source;
   }
 
   get isOpen(): boolean {
@@ -144,12 +146,12 @@ export class MainMenu {
     this.grid.replaceChildren();
     this.playTiles = [];
 
-    if (this.standardThumbnail === null) this.standardThumbnail = this.getStandardThumbnail();
+    if (this.defaultThumbnail === null) this.defaultThumbnail = this.getDefaultThumbnail();
     this.addTile({
-      title: 'Standard',
-      blurb: 'An approach descent into an endless ring of ten banked ramps.',
-      thumbnail: this.standardThumbnail,
-      onPick: () => this.pick(handlers.onStandard),
+      title: DEFAULT_COURSE_NAME,
+      blurb: DEFAULT_COURSE_BLURB,
+      thumbnail: this.defaultThumbnail,
+      onPick: () => this.pick(handlers.onDefault),
     });
 
     const maps = listMapNames()
