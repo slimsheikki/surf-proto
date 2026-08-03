@@ -1,11 +1,14 @@
 import {
   getSettings,
   MAX_FOV,
+  MAX_MUSIC_VOLUME,
   MAX_SENSITIVITY,
   MIN_FOV,
+  MIN_MUSIC_VOLUME,
   MIN_SENSITIVITY,
   resetSettings,
   setFov,
+  setMusicVolume,
   setSensitivity,
 } from '../game/Settings';
 import { MovementPanel } from './MovementPanel';
@@ -46,6 +49,18 @@ interface Row {
   format: (value: number) => string;
 }
 
+/**
+ * Mute is the one control here that is not a number, so it is a button beside
+ * Reset rather than a row — and it is driven through `MusicManager` rather than
+ * the settings store, because the manager owns the live audio elements and the
+ * store only remembers what it settled on.
+ */
+export interface MusicControls {
+  isMuted: () => boolean;
+  /** Flips it and persists whatever it became. */
+  toggleMute: () => void;
+}
+
 export class SettingsPanel {
   private readonly root: HTMLDivElement;
   private readonly refreshers: (() => void)[] = [];
@@ -57,7 +72,10 @@ export class SettingsPanel {
   private open = false;
   private advancedOpen = false;
 
-  constructor(private readonly onClose: () => void) {
+  constructor(
+    private readonly onClose: () => void,
+    private readonly music: MusicControls,
+  ) {
     this.root = document.createElement('div');
     this.root.id = 'settings-panel';
     this.root.className = 'overlay hidden';
@@ -90,11 +108,38 @@ export class SettingsPanel {
         set: setSensitivity,
         format: (v) => v.toFixed(2),
       },
+      {
+        label: 'Music volume',
+        hint: 'Background music. A new track is drawn at the start of every run.',
+        // Percent rather than the stored 0..1 gain: a slider from 0 to 1 in
+        // steps of 0.01 puts "0.35" in the number field, which reads as a
+        // developer value. The store still keeps the gain.
+        min: MIN_MUSIC_VOLUME * 100,
+        max: MAX_MUSIC_VOLUME * 100,
+        step: 1,
+        get: () => getSettings().musicVolume * 100,
+        set: (value) => setMusicVolume(value / 100),
+        format: (v) => `${Math.round(v)}%`,
+      },
     ];
     for (const row of rows) card.appendChild(this.buildRow(row));
 
     const actions = document.createElement('div');
     actions.className = 'settings-actions';
+
+    const mute = document.createElement('button');
+    mute.type = 'button';
+    const syncMute = () => {
+      const muted = this.music.isMuted();
+      mute.textContent = muted ? 'Unmute music' : 'Mute music';
+      mute.classList.toggle('active', muted);
+    };
+    mute.addEventListener('click', () => {
+      this.music.toggleMute();
+      syncMute();
+    });
+    syncMute();
+    this.refreshers.push(syncMute);
 
     const reset = document.createElement('button');
     reset.type = 'button';
@@ -110,7 +155,7 @@ export class SettingsPanel {
     this.closeButton.textContent = 'Resume';
     this.closeButton.addEventListener('click', () => this.onClose());
 
-    actions.append(reset, this.closeButton);
+    actions.append(mute, reset, this.closeButton);
 
     // Collapsed by default and out of the tab order of a first-time player's
     // attention: these are convars, and someone who wants them is looking for

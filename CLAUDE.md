@@ -90,6 +90,10 @@ movement.
   panel back or the player is left on a paused world with no prompt.
 - Playwright's synthetic `Escape` does **not** trigger the native pointer-lock exit. Test
   that path with `document.exitPointerLock()`.
+- `audio.play()` **rejects a promise** when autoplay policy blocks it — it does not throw, so
+  an un-awaited call leaves the game silently mute forever. And the fade-in has to hang off
+  that promise *resolving*: started beside the call it burns its two seconds while the audio
+  is still blocked, then snaps on at full volume on the unlocking click.
 - `UpgradeMenu` reads `e.key`, not `e.code` — a synthetic `{code:'Digit1'}` is ignored, and a
   headless test that "picks an upgrade" that way silently sits in the paused state forever.
 

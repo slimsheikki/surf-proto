@@ -113,6 +113,12 @@ export interface GameCourse {
   killPlaneY?: number;
 }
 
+/** Notifications out of the run, for the things that live above it. */
+export interface GameHooks {
+  /** A run just started from the top — the restart button, or a new course. */
+  onRunStart?: () => void;
+}
+
 /**
  * Composition root: owns every subsystem and ties them together in a fixed
  * update order each tick. Combat/progression is a secondary layer here — it
@@ -204,6 +210,13 @@ export class Game {
      * play at a different speed on every monitor.
      */
     private readonly viewModel: ViewModel,
+    /**
+     * Fired at the end of every `restart`. It exists for the music, which has
+     * to draw a fresh track per run: a restart off the game-over screen never
+     * passes back through `App`, so without this the whole second run of a
+     * session would inherit the first one's track.
+     */
+    private readonly hooks: GameHooks = {},
   ) {
     this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
@@ -698,6 +711,8 @@ export class Game {
     this.gameOverScreen.hide();
     this.banner.hide();
     this.state = 'playing';
+    // Last, so anything the hook does sees a run that is already running.
+    this.hooks.onRunStart?.();
   }
 
   /** Unit vector along the player's actual 3D path, or their look direction when nearly still. */
