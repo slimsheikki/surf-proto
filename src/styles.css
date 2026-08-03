@@ -28,6 +28,41 @@
 :root {
   --font-display: 'Bitcount Prop Single', 'Impact', sans-serif;
   --font-body: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /*
+   * Purple, anchored on the crosshair's #b45cff — that colour was already in
+   * the game and is the same violet the wordmark is built from, so the UI now
+   * agrees with both instead of the mint green it used to accent with.
+   *
+   * `--accent-rgb` exists as bare channels because most uses need a custom
+   * alpha, and `rgba(var(--accent-rgb), 0.3)` is the only way to get one out of
+   * a variable without `color-mix`.
+   */
+  --accent: #b45cff;
+  --accent-rgb: 180, 92, 255;
+  --accent-bright: #d9a5ff;
+  --accent-deep: #7b2fd6;
+
+  /*
+   * Glass: a translucent violet-tinted pane, a blurred backdrop, a hairline
+   * border, and a highlight along the top edge. The highlight is what sells it
+   * as glass rather than as a flat transparent box — real panes catch light on
+   * the edge nearest it.
+   *
+   * `saturate()` alongside the blur keeps the sky behind a panel from going
+   * grey, which plain blur does at these opacities.
+   */
+  --glass: rgba(26, 13, 46, 0.58);
+  --glass-strong: rgba(20, 10, 36, 0.76);
+  --glass-blur: blur(18px) saturate(135%);
+  --glass-border: rgba(var(--accent-rgb), 0.3);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+
+  /* The "small glow around the edges": a tight rim plus a soft bloom. */
+  --glow-edge: 0 0 0 1px rgba(var(--accent-rgb), 0.16);
+  --glow-sm: 0 0 14px rgba(var(--accent-rgb), 0.26);
+  --glow-md: 0 0 30px rgba(var(--accent-rgb), 0.24);
+  --glow-text: 0 0 12px rgba(var(--accent-rgb), 0.55);
 }
 
 * {
@@ -131,13 +166,20 @@ h2,
   border-radius: 8px;
 }
 
+/*
+ * The HUD bars get the rim and a faint bloom, but **no `backdrop-filter`**.
+ * These are the only glass-styled elements on screen during play, and a blur
+ * pass under them would run every frame of a 128 Hz run for decoration nobody
+ * is looking at. The panels that do blur all appear while the sim is paused.
+ */
 .bar {
   width: 100%;
   height: 10px;
   border-radius: 5px;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(10, 5, 20, 0.55);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  box-shadow: var(--glass-highlight), 0 0 10px rgba(var(--accent-rgb), 0.18);
 }
 
 .bar-fill {
@@ -151,7 +193,7 @@ h2,
 }
 
 .bar-fill.xp {
-  background: linear-gradient(90deg, #5cc8ff, #5cffb0);
+  background: linear-gradient(90deg, #5cc8ff, var(--accent));
 }
 
 .bar-fill.dash {
@@ -225,7 +267,7 @@ h2,
   height: 14px;
   border-radius: 7px;
   background: rgba(0, 0, 0, 0.55);
-  border-color: rgba(255, 255, 255, 0.22);
+  border-color: var(--glass-border);
 }
 
 /* Phase is legible from the bar's colour alone, which matters when the player
@@ -250,7 +292,19 @@ h2,
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: rgba(6, 10, 16, 0.82);
+  /*
+   * The full-screen scrim is the bottom layer of the glass stack: a violet-lean
+   * wash plus a light blur, so the orbiting course behind it reads as *through*
+   * the panel rather than merely dimmed. The panels above it blur again, which
+   * is what separates them from this.
+   */
+  background: linear-gradient(
+    160deg,
+    rgba(18, 8, 34, 0.78),
+    rgba(8, 6, 18, 0.86)
+  );
+  backdrop-filter: blur(7px) saturate(120%);
+  -webkit-backdrop-filter: blur(7px) saturate(120%);
   text-align: center;
 }
 
@@ -261,6 +315,9 @@ h2,
 .overlay h1 {
   margin: 0;
   font-size: 32px;
+  /* The "small glow around the edges", applied to type as a halo rather than a
+     box-shadow — headings have no box to rim. */
+  text-shadow: var(--glow-text);
 }
 
 #upgrade-choices {
@@ -271,30 +328,42 @@ h2,
 .upgrade-choice {
   min-width: 180px;
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-sm);
   cursor: pointer;
   color: inherit;
   font-size: 15px;
+  transition: background 0.12s ease-out, box-shadow 0.12s ease-out,
+    border-color 0.12s ease-out;
 }
 
 .upgrade-choice:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-md);
 }
 
 #restart-button {
   padding: 10px 24px;
   font-size: 16px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--glow-sm);
   color: inherit;
   cursor: pointer;
+  transition: background 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 
 #restart-button:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.26);
+  box-shadow: var(--glass-highlight), var(--glow-md);
 }
 
 /* Number badge on each level-up choice: the run happens under pointer lock, so
@@ -307,7 +376,7 @@ h2,
   line-height: 22px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--glass-border);
   font-size: 13px;
   font-weight: 700;
 }
@@ -335,8 +404,19 @@ h2,
    menu's backdrop is the live course on a slow orbit, and at the shared 0.82
    dim it read as a murky silhouette — the whole point of rendering it is that
    it is visible. The gradient keeps the lower half dark enough for the cards. */
+/*
+ * The front screen opts out of the scrim blur that every other overlay takes.
+ * Its backdrop is the course on a slow orbit — a held shot, deliberately kept
+ * sharp and barely dimmed. Blurring it turns the one piece of the game visible
+ * behind the menu into mush, which is exactly what the shared `.overlay` rule
+ * did until this line was added back.
+ *
+ * Same element, higher specificity, so this wins.
+ */
 #main-menu {
-  background: linear-gradient(to bottom, rgba(6, 10, 16, 0.3), rgba(6, 10, 16, 0.72));
+  background: linear-gradient(to bottom, rgba(14, 6, 28, 0.3), rgba(10, 5, 22, 0.72));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Each page fills the overlay in turn; only one is ever unhidden. */
@@ -478,8 +558,10 @@ h2,
   justify-content: center;
   padding: 12px 26px;
   background: transparent;
-  border: none;
-  border-radius: 8px;
+  /* Transparent rather than `none`: the hover state adds a glass border, and a
+     border appearing from nothing would nudge every row by a pixel. */
+  border: 1px solid transparent;
+  border-radius: 12px;
   color: inherit;
   font: inherit;
   font-size: 30px;
@@ -493,9 +575,19 @@ h2,
   transition: color 0.12s ease-out, background 0.12s ease-out;
 }
 
+/*
+ * The rows are bare until pointed at, then they become glass. Giving all three
+ * a permanent pane would turn the front screen into a stack of boxes and bury
+ * the wordmark; lighting only the one under the cursor keeps the menu a list.
+ */
 .menu-item:hover {
-  background: rgba(92, 255, 176, 0.12);
-  color: #5cffb0;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glow-sm);
+  color: var(--accent-bright);
+  text-shadow: 0 2px 14px rgba(6, 10, 16, 0.95), var(--glow-text);
 }
 
 /*
@@ -523,9 +615,12 @@ h2,
 .menu-back {
   margin-top: 16px;
   padding: 8px 20px;
-  background: rgba(8, 13, 20, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 8px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-highlight), var(--glow-sm);
   color: inherit;
   font: inherit;
   font-size: 14px;
@@ -554,9 +649,12 @@ h2,
   gap: 6px;
   padding: 10px 12px 12px;
   /* Dark rather than the usual white-on-glass: these sit over a bright sky. */
-  background: rgba(8, 13, 20, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 10px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-sm);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -565,7 +663,7 @@ h2,
 
 .map-tile:hover {
   background: rgba(18, 28, 40, 0.9);
-  border-color: rgba(92, 255, 176, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
 /*
@@ -631,8 +729,8 @@ h2,
   padding: 14px;
   overflow-y: auto;
   pointer-events: auto;
-  background: rgba(8, 13, 20, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--glass-strong);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   border-radius: 10px;
 }
 
@@ -657,8 +755,8 @@ h2,
   gap: 3px;
   padding: 5px 5px 6px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.07);
+  border: 1px solid var(--glass-border);
   text-align: center;
   /* The whole point of the panel: these are dragged, never clicked. `grab`
      advertises that before the player has to guess. */
@@ -788,8 +886,8 @@ h2,
   gap: 6px;
   padding: 8px 10px;
   pointer-events: auto;
-  background: rgba(8, 13, 20, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--glass-strong);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   border-radius: 10px;
 }
 
@@ -798,8 +896,8 @@ h2,
 #editor-toolbar button {
   padding: 6px 11px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--accent-rgb), 0.1);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -818,35 +916,56 @@ h2,
 }
 
 #editor-toolbar button:hover {
-  background: rgba(255, 255, 255, 0.19);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 
 #editor-toolbar button.primary {
-  background: rgba(92, 255, 176, 0.18);
-  border-color: rgba(92, 255, 176, 0.5);
+  background: rgba(var(--accent-rgb), 0.18);
+  border-color: rgba(var(--accent-rgb), 0.5);
   font-weight: 700;
 }
 
 #editor-toolbar button.primary:hover {
-  background: rgba(92, 255, 176, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
+/*
+ * A glass pill rather than bare text on the scene, which is what it was.
+ *
+ * That worked while the accent was mint: bright type over a bright sky. The
+ * violet is a much darker colour and the same treatment left "Grid snap: on"
+ * barely readable against the horizon. A pane behind it fixes the contrast at
+ * the source instead of fighting it with heavier text shadows.
+ *
+ * Hugging its content instead of stretching to `right: 16px`: a full-width bar
+ * would run under the movement-build stamp in the opposite corner.
+ */
 #editor-footer {
   position: absolute;
   left: 16px;
   bottom: 16px;
-  right: 16px;
+  width: fit-content;
+  max-width: calc(100% - 32px);
   display: flex;
   gap: 14px;
   align-items: baseline;
+  padding: 7px 14px;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-highlight), var(--glow-sm);
   pointer-events: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
   font-size: 12px;
 }
 
+/* The light tint of the accent, not the base one: this is small type and the
+   base violet is dark enough that it muddies at 12px. */
 #editor-snap {
   font-weight: 700;
-  color: #5cffb0;
+  color: var(--accent-bright);
 }
 
 #editor-snap.off {
@@ -902,7 +1021,7 @@ h2,
   margin-top: 4px;
   padding: 9px 12px;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -913,12 +1032,12 @@ h2,
 }
 
 .settings-advanced-toggle:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(var(--accent-rgb), 0.07);
 }
 
 .settings-advanced-toggle.is-open {
-  color: #5cffb0;
-  border-color: rgba(92, 255, 176, 0.4);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.4);
 }
 
 /*
@@ -1036,7 +1155,7 @@ h2,
   flex-direction: column;
   gap: 10px;
   pointer-events: auto;
-  background: rgba(8, 13, 20, 0.94);
+  background: var(--glass-strong);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
@@ -1056,7 +1175,7 @@ h2,
   width: 100%;
   padding: 9px 11px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--glass-border);
   background: rgba(0, 0, 0, 0.4);
   color: inherit;
   font-family: var(--font-body);
@@ -1074,8 +1193,8 @@ h2,
 #share-actions button {
   padding: 7px 14px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--accent-rgb), 0.1);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -1083,17 +1202,17 @@ h2,
 }
 
 #share-actions button:hover {
-  background: rgba(255, 255, 255, 0.19);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 
 #share-actions button.primary {
-  background: rgba(92, 255, 176, 0.18);
-  border-color: rgba(92, 255, 176, 0.5);
+  background: rgba(var(--accent-rgb), 0.18);
+  border-color: rgba(var(--accent-rgb), 0.5);
   font-weight: 700;
 }
 
 #share-actions button.primary:hover {
-  background: rgba(92, 255, 176, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
 #share-hint {
@@ -1136,7 +1255,7 @@ h2,
   font-size: 13px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: #5cffb0;
+  color: var(--accent);
 }
 
 .movement-panel-note {
@@ -1158,7 +1277,7 @@ h2,
 .movement-panel-row input[type='range'] {
   grid-column: 1 / -1;
   width: 100%;
-  accent-color: #5cffb0;
+  accent-color: var(--accent);
 }
 
 .movement-panel-row-toggle {
@@ -1167,7 +1286,7 @@ h2,
 }
 
 .movement-panel-row-toggle input {
-  accent-color: #5cffb0;
+  accent-color: var(--accent);
 }
 
 .movement-panel-name {
@@ -1195,8 +1314,8 @@ h2,
   width: 100%;
   padding: 7px 10px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--accent-rgb), 0.1);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -1204,7 +1323,7 @@ h2,
 }
 
 .movement-panel-reset:hover {
-  background: rgba(255, 255, 255, 0.19);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 
 /* ------------------------------------------------------ ultimate meter (ReWind) */
@@ -1545,12 +1664,26 @@ h2,
   display: none;
 }
 
+/*
+ * The one panel that stays nearly opaque. It is a form — sliders, number
+ * fields, and the convar bench — and reading a value off it while the course
+ * orbits behind is exactly where a heavy blur stops being decoration and starts
+ * being a legibility problem. It gets the violet tint, the rim and the glow;
+ * it does not get to be see-through.
+ */
 .settings-card {
   width: min(460px, 88vw);
   padding: 24px 26px 20px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(12, 16, 22, 0.95);
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(
+    165deg,
+    rgba(32, 16, 56, 0.95),
+    rgba(14, 9, 26, 0.96)
+  );
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-md);
   text-align: left;
 }
 
@@ -1580,7 +1713,7 @@ h2,
 .settings-value {
   font-variant-numeric: tabular-nums;
   font-size: 14px;
-  color: #5cffb0;
+  color: var(--accent);
 }
 
 /* Slider takes the space, number field is a fixed gutter beside it — the two
@@ -1594,15 +1727,15 @@ h2,
 
 .settings-controls input[type='range'] {
   width: 100%;
-  accent-color: #5cffb0;
+  accent-color: var(--accent);
 }
 
 .settings-number {
   width: 100%;
   padding: 5px 7px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--accent-rgb), 0.09);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -1627,8 +1760,8 @@ h2,
   flex: 1;
   padding: 9px 14px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--glass-border);
+  background: rgba(var(--accent-rgb), 0.1);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -1636,7 +1769,7 @@ h2,
 }
 
 .settings-actions button:hover {
-  background: rgba(255, 255, 255, 0.19);
+  background: rgba(var(--accent-rgb), 0.22);
 }
 
 /* Mute reads as engaged while it is holding the music off — otherwise the only
@@ -1651,13 +1784,13 @@ h2,
 }
 
 .settings-actions button.primary {
-  background: rgba(92, 255, 176, 0.18);
-  border-color: rgba(92, 255, 176, 0.5);
+  background: rgba(var(--accent-rgb), 0.18);
+  border-color: rgba(var(--accent-rgb), 0.5);
   font-weight: 700;
 }
 
 .settings-actions button.primary:hover {
-  background: rgba(92, 255, 176, 0.3);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
 #settings-panel .overlay-hint {
@@ -1678,7 +1811,7 @@ h2,
  */
 #pause-menu {
   z-index: 65;
-  background: rgba(6, 10, 16, 0.74);
+  background: var(--glass-strong);
 }
 
 #pause-menu.hidden {
