@@ -107,9 +107,11 @@ the one-way start and onto the ring.
 
 ## Music (new)
 
-`src/audio/MusicManager.ts`, owned by `App` (it outlives a run). Five liquid
-DnB tracks in `public/audio/music/`, `HTMLAudioElement` with `loop = true` —
-no Web Audio anywhere in the project, and none needed for a stereo bed.
+`src/audio/MusicManager.ts`, owned by `App` (it outlives a run). Nine liquid
+DnB tracks in `public/audio/music/` (~53 MB, so elements are built on first use,
+never up front), `HTMLAudioElement` with `loop = true` — no Web Audio anywhere
+in the project, and none needed for a stereo bed. Adding a track is one entry in
+`MUSIC_TRACKS` plus the file.
 
 - Menu and editor: the fixed `ultra-speed` track. Every run: a random one that
   is **not** the track that just played, drawn in `pickTrack`.
@@ -127,10 +129,10 @@ no Web Audio anywhere in the project, and none needed for a stereo bed.
   takes an `onRunStart` hook and that is what draws the next track. Without it
   the whole session after the first run keeps one song.
 
-Verified headless (`docs/`-external probe, both autoplay policies): blocked
-start recovers on the mode click, ramp reaches 0.35 in 2 s, 13 consecutive runs
-with no back-to-back repeat, slider writes `musicVolume` to storage, mute and
-Reset behave.
+Verified headless (both autoplay policies): blocked start recovers on the mode
+click, ramp reaches 0.35 in 2 s, 13 consecutive runs with no back-to-back
+repeat, slider writes `musicVolume` to storage, mute and Reset behave, all nine
+files serve as `audio/mpeg`.
 
 ## Settings and HUD layout (new)
 

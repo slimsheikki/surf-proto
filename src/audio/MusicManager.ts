@@ -5,9 +5,9 @@
  * `HTMLAudioElement`, not Web Audio. There is no audio graph in this project —
  * nothing pans, ducks, or reacts to the world — and a plain media element gets
  * streaming, looping, and decode for free, where an `AudioContext` would mean
- * fetching and holding ~18 MB of decoded PCM to accomplish the same thing. The
- * one thing this file has to hand-roll is the volume ramp, which is a few lines
- * of `requestAnimationFrame`.
+ * fetching and decoding whole tracks into memory to accomplish the same thing.
+ * The one thing this file has to hand-roll is the volume ramp, which is a few
+ * lines of `requestAnimationFrame`.
  *
  * Three things this owns that are easy to get wrong:
  *
@@ -66,6 +66,26 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
     title: 'Light Drum & Bass',
     file: 'penguinmusic-light-drum-and-bass-216588.mp3',
   },
+  {
+    id: 'proximity',
+    title: 'Proximity',
+    file: 'penguinmusic-proximity-liquid-drum-and-bass-186378.mp3',
+  },
+  {
+    id: 'sleeping-sky',
+    title: 'Sleeping Sky',
+    file: 'wild-speed-records-shound-sleeping-sky-477427.mp3',
+  },
+  {
+    id: 'moment-ride',
+    title: 'Moment Ride',
+    file: 'wild-speed-records-shound-moment-ride-477399.mp3',
+  },
+  {
+    id: 'purple-flowers',
+    title: 'Purple Flowers',
+    file: 'wild-speed-records-shound-purple-flowers-477423.mp3',
+  },
 ];
 
 /** The menu bed. Fixed rather than random: the front door should sound the same every time. */
@@ -101,8 +121,10 @@ function clamp01(value: number): number {
 
 export class MusicManager {
   /**
-   * Built on first use rather than up front: the five tracks are ~18 MB
-   * together, and a player who never leaves the menu should pay for one.
+   * Built on first use rather than up front: the nine tracks are ~53 MB
+   * together, and a player who never leaves the menu should pay for one. The
+   * cost of that is a run whose track is fetched on the spot — which the
+   * fade-in covers, because it only starts once playback actually does.
    */
   private readonly elements = new Map<string, HTMLAudioElement>();
   /** Fade position per element, 0..1. Multiplied by `master` to get `el.volume`. */
