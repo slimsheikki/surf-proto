@@ -289,7 +289,8 @@ world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
 re-rendered per visit, because the editor can change one between two trips.
 
 **`Escape` mid-run opens the pause menu** (`ui/PauseMenu.ts`) — CONTINUE /
-RESTART / QUIT / SETTINGS — not the settings screen. Same stacked list and same number keys
+RESTART / SETTINGS / QUIT, with Quit last because it is the only item on it that
+ends the run — not the settings screen. Same stacked list and same number keys
 as the front menu, deliberately: a player who has read one has learned the other.
 The pause itself was already there (losing pointer lock pauses the sim); this
 gives it a menu.

@@ -1,5 +1,5 @@
 /**
- * The mid-run pause screen, on `Escape`: CONTINUE / RESTART / QUIT.
+ * The mid-run pause screen, on `Escape`: CONTINUE / RESTART / SETTINGS / QUIT.
  *
  * It is the same stacked list as the front menu, deliberately — a player who
  * has seen one has learned the other, and the number keys mean the same thing
@@ -33,11 +33,16 @@ interface Item {
   run: (handlers: PauseMenuHandlers) => void;
 }
 
+/**
+ * Order is the order they are read in, and Quit is deliberately last: it is the
+ * one item here that ends the run, so nothing sits under it for a mis-hit to
+ * land on. The number keys follow this array — the badges are its indices.
+ */
 const ITEMS: Item[] = [
   { label: 'Continue', run: (h) => h.onContinue() },
   { label: 'Restart', run: (h) => h.onRestart() },
-  { label: 'Quit', run: (h) => h.onQuit() },
   { label: 'Settings', run: (h) => h.onSettings() },
+  { label: 'Quit', run: (h) => h.onQuit() },
 ];
 
 export class PauseMenu {
