@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>surf-proto</title>
+    <title>MEGAFLOW</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -67,7 +67,7 @@
       </div>
     </div>
     <div id="start-overlay" class="overlay hidden">
-      <h1>surf-proto</h1>
+      <h1>MEGAFLOW</h1>
       <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
       <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
       <p>Press <kbd>ESC</kbd> mid-run to pause &mdash; continue, restart, quit to the menu, or open settings for field of view, mouse sensitivity, and music volume.</p>
@@ -85,7 +85,19 @@
          rather than a separate screen, so the orbiting backdrop never cuts. -->
     <div id="main-menu" class="overlay hidden">
       <div id="menu-root" class="menu-page">
-        <h1 class="menu-title">surf-proto</h1>
+        <!-- The wordmark is the logo image; the <span> beside it is the text
+             fallback and only appears if the file is missing or fails to
+             decode, so the menu never renders a broken-image icon where the
+             game's name should be. MainMenu.ts owns that swap.
+
+             No `src` here on purpose: Vite rewrites `url()` inside CSS with the
+             deploy's base path but leaves an absolute `src` in the HTML alone,
+             so a hard-coded `/images/...` would 404 on Pages and work only on
+             localhost. MainMenu.ts sets it from `import.meta.env.BASE_URL`. -->
+        <h1 class="menu-title menu-logo">
+          <img id="menu-logo-img" alt="MEGAFLOW" />
+          <span id="menu-logo-fallback" class="hidden">MEGAFLOW</span>
+        </h1>
         <nav id="menu-stack">
           <button class="menu-item" data-action="play">
             <span class="menu-key">1</span><span class="menu-label">Play</span>
