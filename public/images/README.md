@@ -6,6 +6,32 @@ in `index.html`, because Vite rewrites `url()` inside CSS with the deploy's base
 path but leaves an absolute `src` in the HTML alone, so the hard-coded form
 works on localhost and 404s on GitHub Pages.
 
+## sky.png
+
+The skybox, 1659 × 948 RGB. `world/Sky.ts` composites it into an equirectangular
+canvas at boot — read that file before replacing this one, because the fit is
+measured, not guessed.
+
+- **The horizon must stay at 89% of the image height.** `SOURCE_HORIZON_V` is
+  `846 / 948`, and it is what puts the painted horizon on the world's horizon.
+  A painting whose horizon sits elsewhere needs that constant re-measured (the
+  sharpest luminance step across the lower third finds it).
+- **Whatever is below the horizon is the entire lower hemisphere.** That strip
+  gets stretched over the first 50° below and its last row fills the rest, so it
+  wants to be a plain receding ground/haze rather than foreground detail.
+- **Any size works**, since the source rects are taken from the image's own
+  dimensions — but the composite gives one copy 2048 × 796 px, so about 1600
+  wide and 2:1-ish in its sky region is the shape that neither wastes pixels nor
+  gets resampled up.
+- **The two side edges end up next to each other**, cross-dissolved over a ~25°
+  band of sky. Edges that are both cloudy hide that; one cloudy edge against one
+  clear edge shows a ghost.
+- **The top ~20% is discarded**, dissolved into a flat zenith colour so the
+  sphere's pole has nothing to pinch. Do not put anything that matters up there.
+- **`SKY_HORIZON_COLOR` is hand-sampled** from the horizon band and drives the
+  game's fog and clear colour. A repaint with a different horizon tint wants that
+  constant re-sampled, or distant geometry fades into the wrong colour.
+
 ## megaflow-logo.png
 
 The main menu's wordmark, 1200 × 800 RGBA. `MainMenu.ts` looks for exactly this
