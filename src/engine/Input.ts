@@ -1,4 +1,19 @@
-const MOUSE_SENSITIVITY = 0.0022;
+import { MovementConfig } from '../player/MovementConfig';
+
+/**
+ * Radians of view rotation per mouse count, the CS way: `m_yaw` is 0.022
+ * degrees per count and the player's `sensitivity` multiplies it. Browsers
+ * report `movementX` in CSS pixels under pointer lock, which tracks raw mouse
+ * counts closely enough that a surfer's own sensitivity number means roughly
+ * what they expect it to mean.
+ *
+ * The previous constant was a bare 0.0022 rad/count, i.e. a fixed CS
+ * sensitivity of about 5.7 with no way to change it. Sensitivity is not a
+ * cosmetic setting for surf — the whole skill is sweeping the view at a rate
+ * matched to your speed, and a player evaluating strafe feel on the wrong
+ * sensitivity is evaluating the wrong thing.
+ */
+const M_YAW_RADIANS = (0.022 * Math.PI) / 180;
 
 /**
  * Keys the game consumes. Their browser defaults are suppressed so Space
@@ -44,6 +59,8 @@ export class InputSystem {
   private attackQueued = false;
   private dashQueued = false;
   private locked = false;
+  /** Ticks left in the current rendered frame; see `beginFrame`. */
+  private stepsRemaining = 1;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
@@ -71,8 +88,9 @@ export class InputSystem {
 
     window.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.pendingYawDelta -= e.movementX * MOUSE_SENSITIVITY;
-      this.pendingPitchDelta -= e.movementY * MOUSE_SENSITIVITY;
+      const scale = M_YAW_RADIANS * MovementConfig.SENSITIVITY;
+      this.pendingYawDelta -= e.movementX * scale;
+      this.pendingPitchDelta -= e.movementY * scale;
     });
 
     window.addEventListener('mousedown', (e) => {
@@ -101,7 +119,23 @@ export class InputSystem {
     return this.locked;
   }
 
-  /** Drains accumulated mouse/toggle deltas into a single tick's input frame. */
+  /**
+   * Announces how many sim ticks this rendered frame is about to run, so
+   * `consumeFrame` can hand each of them an equal share of the frame's mouse
+   * motion rather than giving the first tick all of it.
+   *
+   * Mouse events only arrive between frames. At 60 fps against a 128 Hz sim
+   * that is two ticks per frame, and dumping the whole turn into the first one
+   * leaves the second with a stale view angle — a tick that pays out no
+   * air-strafe gain, because gain is capped by how far the view has turned
+   * away from current velocity. Splitting it evenly is what a CS client does
+   * when it builds one usercmd per tick.
+   */
+  beginFrame(steps: number): void {
+    this.stepsRemaining = Math.max(1, steps);
+  }
+
+  /** Drains this tick's share of the accumulated mouse/toggle deltas. */
   consumeFrame(): InputFrame {
     let moveForward = 0;
     let moveRight = 0;
@@ -110,19 +144,27 @@ export class InputSystem {
     if (this.keys.has('KeyD')) moveRight += 1;
     if (this.keys.has('KeyA')) moveRight -= 1;
 
+    // Subtracting the share rather than dividing down to zero leaves any
+    // rounding remainder in the accumulator, so a frame's total view rotation
+    // is exactly preserved across its ticks.
+    const share = this.stepsRemaining;
+    const yawDelta = this.pendingYawDelta / share;
+    const pitchDelta = this.pendingPitchDelta / share;
+    this.stepsRemaining = Math.max(1, share - 1);
+
     const frame: InputFrame = {
       moveForward,
       moveRight,
       jumpHeld: this.keys.has('Space'),
-      yawDelta: this.pendingYawDelta,
-      pitchDelta: this.pendingPitchDelta,
+      yawDelta,
+      pitchDelta,
       cameraTogglePressed: this.cameraToggleQueued,
       attackPressed: this.attackQueued,
       dashPressed: this.dashQueued,
     };
 
-    this.pendingYawDelta = 0;
-    this.pendingPitchDelta = 0;
+    this.pendingYawDelta -= yawDelta;
+    this.pendingPitchDelta -= pitchDelta;
     this.cameraToggleQueued = false;
     this.attackQueued = false;
     this.dashQueued = false;

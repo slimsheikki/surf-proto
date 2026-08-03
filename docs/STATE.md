@@ -10,6 +10,26 @@ library + spline tool). It is on `claude/dash-mechanic-rework-z1o7r9` at origin 
 `backup/pre-editor-rework` locally (the remote refuses tag pushes). If the new editor breaks
 the game: `git checkout ed58d05`.
 
+## Movement — under active review
+
+`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v1 · Source Parity`** is what is deployed.
+The controller is now a full port of `CGameMovement::FullWalkMove` / `TryPlayerMove` rather
+than a sketch of it: split gravity, 4 bumps with plane accumulation and crease handling,
+Source's ground-state rules, and the CS:S constants. Two behaviour changes the user will
+notice immediately and is reviewing:
+
+- **The landing redirect is off** (`MovementConfig.SURF_LANDING_REDIRECT`). Dropping off the
+  start pad reads 17.4 u/s where it read 33.4. The code is still there behind the flag.
+- **`sv_airaccelerate` is 100**, the surf-server value, up from 12.
+
+`O` opens a live tuning panel (pauses the sim, hands back the cursor, sliders in CS convars
+with Hammer units alongside). Panel values are *preferences* and survive a run reset —
+`setMovementPreference` keeps them apart from the upgrade pool's writes to the same object,
+which must not survive.
+
+Awaiting the user's verdict before v2. Candidates already identified: a real 32x32x72 swept
+hull instead of the flat ray ring, and ducking.
+
 ## Known bugs
 
 None blocking. The approach entry is fixed — see below.

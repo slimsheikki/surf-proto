@@ -9,7 +9,20 @@ export class FixedStepLoop {
   private accumulator = 0;
   private lastTime: number | null = null;
 
-  step(nowSeconds: number, tick: (dt: number) => void): void {
+  /**
+   * `beforeSteps` is handed the number of ticks about to run, *before* the
+   * first of them. That count is not a diagnostic: mouse motion arrives once
+   * per rendered frame, and at 60 fps a 128 Hz sim runs two ticks per frame, so
+   * without knowing the count up front the input system hands the whole frame's
+   * mouse delta to the first tick and nothing to the second.
+   *
+   * That halves air-strafe gain. Gain per tick is capped at
+   * `AIR_SPEED_CAP - (velocity . wishDir)`, and a tick where the view does not
+   * turn is a tick where that dot product has already caught up to the cap and
+   * pays out nothing. Spreading the same total turn across both ticks pays out
+   * on both, which is what a CS client generating one usercmd per tick does.
+   */
+  step(nowSeconds: number, tick: (dt: number) => void, beforeSteps?: (steps: number) => void): void {
     if (this.lastTime === null) {
       this.lastTime = nowSeconds;
       return;
@@ -19,7 +32,10 @@ export class FixedStepLoop {
     if (frameDelta > MAX_FRAME_DELTA) frameDelta = MAX_FRAME_DELTA;
 
     this.accumulator += frameDelta;
-    while (this.accumulator >= FIXED_DT) {
+    const steps = Math.floor(this.accumulator / FIXED_DT);
+    if (steps <= 0) return;
+    beforeSteps?.(steps);
+    for (let i = 0; i < steps; i++) {
       tick(FIXED_DT);
       this.accumulator -= FIXED_DT;
     }

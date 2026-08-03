@@ -2,7 +2,12 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # The movement branch deploys too, on purpose: the movement is being judged
+    # by feel in the real build, and waiting for a merge to publish each version
+    # would make the review loop useless. It publishes to the same Pages site, so
+    # while this line is here the live URL is whatever was pushed most recently —
+    # drop it once the movement work lands on main.
+    branches: [main, claude/css-movement-alignment-j974gg]
   workflow_dispatch:
 
 permissions:
