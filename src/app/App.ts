@@ -94,7 +94,7 @@ export class App {
     // of the live state, one place it is written down.
     toggleMute: () => setMusicMuted(this.music.toggleMute()),
   });
-  /** Mid-run `Escape`: Continue / Restart / Quit. */
+  /** Mid-run `Escape`: Continue / Restart / Settings / Quit. */
   private readonly pauseMenu = new PauseMenu();
   /**
    * Whether the settings screen was opened *from* the pause menu, and so should

@@ -1,5 +1,5 @@
 /**
- * The mid-run pause screen, on `Escape`: CONTINUE / RESTART / QUIT.
+ * The mid-run pause screen, on `Escape`: CONTINUE / RESTART / SETTINGS / QUIT.
  *
  * It is the same stacked list as the front menu, deliberately — a player who
  * has seen one has learned the other, and the number keys mean the same thing
@@ -12,7 +12,14 @@
  * and the pause that losing the lock already caused finally has a menu on it.
  * `Escape` pressed *here* is delivered normally, because the lock is gone by
  * then, and it means CONTINUE.
+ *
+ * It carries the turning wordmark in the same place the start screen puts it —
+ * pinned to the top of the viewport, not laid out inside this menu's column —
+ * because these are the two screens a player flips between mid-run and a logo
+ * that jumped between them would read as two different screens.
  */
+
+import { createLogoHeading } from './Logo';
 
 export interface PauseMenuHandlers {
   onContinue: () => void;
@@ -26,11 +33,16 @@ interface Item {
   run: (handlers: PauseMenuHandlers) => void;
 }
 
+/**
+ * Order is the order they are read in, and Quit is deliberately last: it is the
+ * one item here that ends the run, so nothing sits under it for a mis-hit to
+ * land on. The number keys follow this array — the badges are its indices.
+ */
 const ITEMS: Item[] = [
   { label: 'Continue', run: (h) => h.onContinue() },
   { label: 'Restart', run: (h) => h.onRestart() },
-  { label: 'Quit', run: (h) => h.onQuit() },
   { label: 'Settings', run: (h) => h.onSettings() },
+  { label: 'Quit', run: (h) => h.onQuit() },
 ];
 
 export class PauseMenu {
@@ -41,6 +53,9 @@ export class PauseMenu {
     this.root = document.createElement('div');
     this.root.id = 'pause-menu';
     this.root.className = 'overlay hidden';
+    // Outside `.menu-page` on purpose: it is positioned against the viewport,
+    // and inside the column it would push CONTINUE off centre.
+    this.root.appendChild(createLogoHeading());
 
     const page = document.createElement('div');
     page.className = 'menu-page';

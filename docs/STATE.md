@@ -173,7 +173,7 @@ nine paragraphs down the middle of the viewport, one more every time the game
 grew a feature. Now three bands:
 
 - **The turning wordmark** at the top, the same `.menu-logo` treatment the front
-  menu uses (`.start-logo` only shrinks the caps), so the two screens agree.
+  menu uses, at `.screen-logo`'s smaller caps.
 - **"Click to start", pinned to the centre.** Taken out of the flex flow —
   `position: absolute; inset: 0` + `place-items: center` — because with the
   other two bands sized by their content, `space-between` puts it at whatever
@@ -200,6 +200,20 @@ the world once, and eight more passes buy nothing over a flat violet fill.
 in the `pointerlockchange` handler, and `false` in `beginRun`). They are aiming
 aids for a run that has not started, and dead centre is exactly where the prompt
 is.
+
+**`.screen-logo` is shared with the pause menu**, which is why it is positioned
+against the viewport instead of laid out by the column it sits in. Those two
+overlays are what a player flips between mid-run, and their bodies are nothing
+alike (a prompt and a card grid; a stacked menu) — anything flow-based would put
+the logo somewhere different on each and pausing would make it jump. `PauseMenu`
+builds its copy with `createLogoHeading()` and appends it *outside* `.menu-page`,
+or it would shove CONTINUE off centre.
+
+Both copies mount at boot, so they turn in phase and pausing does not restart the
+rotation. Under `max-height: 780px` the logo is the band that shrinks: it is
+pinned to the top while the bodies stay centred, so a short viewport closes that
+gap from both sides, and the pause column cannot move down to make room because
+the HUD is waiting for it at the bottom.
 
 ## Music (new)
 
@@ -284,7 +298,8 @@ world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
 re-rendered per visit, because the editor can change one between two trips.
 
 **`Escape` mid-run opens the pause menu** (`ui/PauseMenu.ts`) — CONTINUE /
-RESTART / QUIT / SETTINGS — not the settings screen. Same stacked list and same number keys
+RESTART / SETTINGS / QUIT, with Quit last because it is the only item on it that
+ends the run — not the settings screen. Same stacked list and same number keys
 as the front menu, deliberately: a player who has read one has learned the other.
 The pause itself was already there (losing pointer lock pauses the sim); this
 gives it a menu.
