@@ -28,6 +28,23 @@ const BOB_RATE = 1.6;
 const SPIN_RATE = 0.9;
 
 /**
+ * Seconds a collected blessing stays gone before it comes back somewhere else.
+ *
+ * Long enough that taking one is a real event rather than a resource tap, short
+ * enough that a lap of the ring is usually rewarded with a fresh one to chase.
+ */
+export const SHRINE_RESPAWN_SECONDS = 30;
+
+/** Everything about a shrine that has to survive a rewind. */
+export interface ShrineSnapshot {
+  collected: boolean;
+  respawnRemaining: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
  * A blessing shrine: a floating pickup the player reaches by carrying speed
  * off a face and sailing to it — the course places every one off the surf
  * line, so reaching it *costs* line and airtime. Flying through it opens the
@@ -41,12 +58,22 @@ export class Shrine {
   readonly group = new Group();
   collected = false;
 
+  /**
+   * Mutable now, because a blessing is no longer a fixture of the level: taking
+   * one removes it and it returns somewhere else entirely. Anything that stores
+   * a shrine's position must re-read it rather than caching — which is also why
+   * it is part of `ShrineSnapshot`.
+   */
+  readonly position: Vector3;
+
+  private respawnRemaining = 0;
   private readonly crystal: Mesh;
   private readonly crystalMaterial: MeshStandardMaterial;
   private readonly ringMaterial: MeshStandardMaterial;
-  private bobPhase: number;
+  private bobPhase = 0;
 
-  constructor(readonly position: Vector3) {
+  constructor(position: Vector3) {
+    this.position = position.clone();
     this.crystalMaterial = new MeshStandardMaterial({
       color: SHRINE_COLOR,
       emissive: SHRINE_EMISSIVE,
@@ -64,49 +91,94 @@ export class Shrine {
     const ring = new Mesh(RING_GEOMETRY, this.ringMaterial);
     ring.rotation.x = Math.PI / 2;
     this.group.add(this.crystal, ring);
-    this.group.position.copy(position);
-    // Desynchronised bobbing, keyed off position rather than Math.random() so
-    // a headless run and a browser run animate identically.
-    this.bobPhase = (position.x + position.z) * 0.7;
+    this.placeAt(this.position);
   }
 
-  /** Fixed-tick animation plus the pickup test. Returns true on the tick it is collected. */
+  /**
+   * Fixed-tick animation, respawn countdown, and the pickup test. Returns true
+   * on the tick it is collected.
+   */
   tick(dt: number, playerPosition: Vector3): boolean {
+    if (this.collected) {
+      // Keep counting even while invisible; `needsRespawn` is the game loop's
+      // cue to hand this shrine a new home.
+      this.respawnRemaining = Math.max(0, this.respawnRemaining - dt);
+      return false;
+    }
+
     this.bobPhase += dt * BOB_RATE;
     this.group.position.y = this.position.y + Math.sin(this.bobPhase) * BOB_AMPLITUDE;
     this.crystal.rotation.y += dt * SPIN_RATE;
 
-    if (this.collected) return false;
     if (playerPosition.distanceToSquared(this.group.position) > SHRINE_COLLECT_RADIUS ** 2) {
       return false;
     }
     this.collected = true;
-    this.setSpent(true);
+    this.respawnRemaining = SHRINE_RESPAWN_SECONDS;
+    this.setVisible(false);
     return true;
   }
 
-  /** Un-collects for a fresh run. */
+  /** True once the countdown has run out and the shrine is waiting on a position. */
+  get needsRespawn(): boolean {
+    return this.collected && this.respawnRemaining <= 0;
+  }
+
+  /** Brings a collected blessing back somewhere else. */
+  respawnAt(position: Vector3): void {
+    this.collected = false;
+    this.respawnRemaining = 0;
+    this.placeAt(position);
+    this.setVisible(true);
+  }
+
+  /** Un-collects in place for a fresh run. */
   reset(): void {
-    this.setCollected(false);
+    this.collected = false;
+    this.respawnRemaining = 0;
+    this.setVisible(true);
+  }
+
+  capture(): ShrineSnapshot {
+    return {
+      collected: this.collected,
+      respawnRemaining: this.respawnRemaining,
+      x: this.position.x,
+      y: this.position.y,
+      z: this.position.z,
+    };
   }
 
   /**
-   * Puts the collected flag back where it was, dimming or relighting to match.
-   * The rewind recorder uses this: rewinding past a shrine you flew through has
-   * to hand the blessing back, and a shrine that stayed dark would be a
-   * landmark promising something it no longer gives.
+   * The rewind recorder's write-back. Position travels alongside the collected
+   * flag because a shrine is no longer a fixture: rewinding across a pickup has
+   * to put the blessing back *where it was taken from*, not wherever it has
+   * since respawned.
    */
-  setCollected(collected: boolean): void {
-    this.collected = collected;
-    this.setSpent(collected);
+  restore(snapshot: ShrineSnapshot): void {
+    this.collected = snapshot.collected;
+    this.respawnRemaining = snapshot.respawnRemaining;
+    this.placeAt(new Vector3(snapshot.x, snapshot.y, snapshot.z));
+    this.setVisible(!snapshot.collected);
   }
 
-  /** Spent shrines stay visible but go dark — a landmark, no longer a promise. */
-  private setSpent(spent: boolean): void {
-    this.crystalMaterial.emissiveIntensity = spent ? 0.1 : 1.1;
-    this.crystalMaterial.opacity = spent ? 0.45 : 1;
-    this.crystalMaterial.transparent = spent;
-    this.ringMaterial.emissiveIntensity = spent ? 0.05 : 0.35;
+  private placeAt(position: Vector3): void {
+    this.position.copy(position);
+    this.group.position.copy(position);
+    // Desynchronised bobbing, keyed off position rather than Math.random() so
+    // a headless run and a browser run animate identically — and re-keyed on
+    // every move, so a respawned shrine does not resume mid-bob.
+    this.bobPhase = (position.x + position.z) * 0.7;
+  }
+
+  /**
+   * Collected blessings vanish outright rather than dimming in place. They used
+   * to stay as a dark landmark, which stopped making sense once they respawn:
+   * the shrine is not spent, it is *elsewhere*, and leaving a husk behind would
+   * advertise a blessing at a spot that no longer has one.
+   */
+  private setVisible(visible: boolean): void {
+    this.group.visible = visible;
   }
 
   dispose(): void {

@@ -306,6 +306,8 @@ does not.
 | `BossBar` | Monolith health |
 | `DashEffect` | Full-screen anime speed lines |
 | `UltimateEffect` | ReWind: activation shockwave, purple flames, 3-2-1 countdown |
+| `UltimateArc` | The ReWind meter as a half-ring around the crosshair |
+| `SettingsPanel` | FOV + sensitivity, on `Escape`; doubles as the pause screen |
 
 ---
 

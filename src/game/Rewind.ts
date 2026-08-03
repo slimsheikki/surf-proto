@@ -13,7 +13,7 @@ import { LevelSnapshot, LevelSystem } from '../progression/LevelSystem';
 import { RunPerks } from '../progression/Upgrades';
 import { XP_MAGNET, XPOrb } from '../progression/XPOrb';
 import { EntityManager } from './EntityManager';
-import { Shrine } from './Shrine';
+import { Shrine, ShrineSnapshot } from './Shrine';
 
 /** The advertised ceiling on the ability: fifteen seconds and not a frame more. */
 export const MAX_REWIND_SECONDS = 15;
@@ -134,8 +134,13 @@ class Frame {
   maxAirWishSpeed = 0;
   jumpSpeed = 0;
 
-  /** Parallel to the course's shrine list. */
-  shrinesCollected: boolean[] = [];
+  /**
+   * Parallel to the course's shrine list. Position travels too, not just the
+   * collected flag: a blessing is no longer a fixture of the level — taking one
+   * moves it — so rewinding across a pickup has to put it back where it was
+   * taken from.
+   */
+  shrines: ShrineSnapshot[] = [];
 
   /** Sub-arrays are reused and grow to the run's high-water mark; `*Count` is the live length. */
   enemyCount = 0;
@@ -278,8 +283,8 @@ export class Rewind {
     frame.jumpSpeed = MovementConfig.JUMP_SPEED;
 
     const shrines = c.getShrines();
-    frame.shrinesCollected.length = shrines.length;
-    for (let i = 0; i < shrines.length; i++) frame.shrinesCollected[i] = shrines[i].collected;
+    frame.shrines.length = shrines.length;
+    for (let i = 0; i < shrines.length; i++) frame.shrines[i] = shrines[i].capture();
 
     const enemies = c.entityManager.enemies;
     frame.enemyCount = enemies.length;
@@ -426,8 +431,8 @@ export class Rewind {
     MovementConfig.JUMP_SPEED = frame.jumpSpeed;
 
     const shrines = c.getShrines();
-    for (let i = 0; i < shrines.length && i < frame.shrinesCollected.length; i++) {
-      shrines[i].setCollected(frame.shrinesCollected[i]);
+    for (let i = 0; i < shrines.length && i < frame.shrines.length; i++) {
+      shrines[i].restore(frame.shrines[i]);
     }
 
     const boss = c.getBoss();

@@ -26,26 +26,62 @@ html, body {
   height: 100vh;
 }
 
+/*
+ * Bottom-centre, and every row centred within it. The column used to be docked
+ * bottom-left; centring puts it directly under the crosshair, so reading a bar
+ * is a glance down rather than a glance across.
+ */
 #hud {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
-  width: 260px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  /* 260 -> 325: everything 25% wider. #bar-xp then takes a further 25% on top. */
+  width: 325px;
   /* Above #ult-fx (30). During a rewind the HUD is doing real work — the XP bar
      and the run clock winding backwards are how the player judges how far they
      have gone — so the flames must pass behind it. */
   z-index: 35;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6px;
   pointer-events: none;
+  text-align: center;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   font-size: 14px;
 }
 
-#speed-readout {
+/*
+ * Level, clock, speed and the trophy count on one line instead of four stacked
+ * ones. Centring a column of four short strings leaves a ragged stack that is
+ * harder to read than the single row it fits into easily.
+ */
+#hud-readouts {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+#speed-readout {
   font-weight: 600;
+}
+
+#felled-readout.hidden {
+  display: none;
+}
+
+/*
+ * The XP bar leads and is bigger than the rest in both axes: it is the bar that
+ * decides when the run's next *decision* arrives, which makes it the one worth
+ * reading at a glance from the corner of the eye.
+ */
+#bar-xp {
+  width: 125%;
+  height: 16px;
+  border-radius: 8px;
 }
 
 .bar {
@@ -75,8 +111,32 @@ html, body {
   background: linear-gradient(90deg, #ffe45c, #ff9a5c);
 }
 
-#level-readout, #wave-readout, #dash-readout {
+#dash-readout {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Aiming dot. A filled purple disc with a hairline black ring — the ring is
+ * what keeps it visible against the bright sky *and* against the dark ramps,
+ * which no single flat colour manages on its own.
+ */
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -4.5px 0 0 -4.5px;
+  box-sizing: content-box;
+  border: 1px solid rgba(0, 0, 0, 0.92);
+  border-radius: 50%;
+  background: #b45cff;
+  pointer-events: none;
+  z-index: 36;
+}
+
+#crosshair.hidden {
+  display: none;
 }
 
 /* Boss fight banner. Top-centre so it never fights the bottom-left HUD for
@@ -845,117 +905,136 @@ html, body {
 /* ------------------------------------------------------ ultimate meter (ReWind) */
 
 /*
- * The meter sits directly under the XP bar. Position: relative so the flame row
- * can be absolutely placed against it — the flames have to escape the bar,
- * which clips its own overflow so the fill can round its ends.
- */
-#ult-meter {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  /* Room for the flames, reserved whether or not they are showing. Sizing this
-     only in the ready state would shunt the whole HUD column up the moment the
-     bar filled — movement in the corner of the eye that means nothing. */
-  padding-top: 22px;
-}
-
-.bar-fill.ult {
-  background: linear-gradient(90deg, #7a3cff, #c86bff 55%, #ff9df5);
-}
-
-#ult-readout {
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  opacity: 0.75;
-  letter-spacing: 0.04em;
-}
-
-/*
- * Flames licking off the top of the bar, shown only at 100%.
+ * The meter is a half-ring curving around the LEFT of the crosshair, concave
+ * side inward. It left the HUD column because that is not where it is read: the
+ * question it answers ("can I bail out of this line?") is asked mid-air with
+ * the eye on the crosshair, and a bar at the bottom of the screen is a glance
+ * away from the thing you are steering with.
  *
- * `display: none` rather than opacity 0 while charging: twelve blurred,
- * independently animating elements are real compositor work to keep alive for
- * the 99% of a run when they are invisible, and the HUD is on screen the whole
- * time.
+ * Geometry (radius, arc length, flame angles) lives in UltimateArc.ts — it has
+ * to agree with itself, so it is derived in one place rather than restated here.
  */
-#ult-bar-flames {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* Fills the reserved padding above the bar. */
-  top: 0;
-  height: 22px;
-  display: none;
-  justify-content: space-between;
-  padding: 0 4px;
+#ult-arc {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 200px;
+  height: 200px;
+  margin: -100px 0 0 -100px;
   pointer-events: none;
+  z-index: 36;
 }
 
-#ult-meter.ready #ult-bar-flames {
-  display: flex;
-  align-items: flex-end;
+#ult-arc.hidden {
+  display: none;
+}
+
+#ult-arc svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ult-arc-track {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.42);
+  stroke-linecap: round;
+}
+
+.ult-arc-fill {
+  fill: none;
+  stroke: #a855f7;
+  stroke-linecap: round;
+  /* Only the offset is animated; the dasharray is the measured path length and
+     is written once, from UltimateArc. */
+  transition: stroke-dashoffset 0.15s ease-out;
+}
+
+#ult-arc.ready .ult-arc-fill {
+  stroke: #e2b4ff;
+  animation: ult-arc-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ult-arc-pulse {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(168, 85, 247, 0.75)); }
+  50% { filter: drop-shadow(0 0 12px rgba(226, 180, 255, 1)); }
 }
 
 /*
- * One flame. The border-radius is a teardrop: round shoulders, a narrower
- * waist, and a point at the top once the vertical scale stretches it. Blurred
- * so twelve hard shapes read as fire rather than as twelve shapes.
+ * Flames licking off the *outside* of the ring when it is full. Each span is
+ * rotated to its angle and pushed out by the arc radius, so `--arc-angle` and
+ * `--arc-radius` (written from UltimateArc) are the only per-flame values —
+ * after the rotation, the element's own "up" already points away from centre.
+ *
+ * `display: none` while charging rather than opacity 0: nine blurred,
+ * independently animating elements are real compositor work to keep alive for
+ * the whole run, and the crosshair is on screen every frame of it.
  */
-#ult-bar-flames span {
-  width: 11px;
-  height: 100%;
+#ult-arc-flames {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+#ult-arc.ready #ult-arc-flames {
+  display: block;
+}
+
+#ult-arc-flames span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 26px;
+  margin: -13px 0 0 -6.5px;
   border-radius: 50% 50% 46% 46% / 68% 68% 32% 32%;
   background: linear-gradient(
     to top,
     rgba(255, 214, 255, 0.95),
-    #d67bff 30%,
-    #8b3cff 62%,
+    #d67bff 32%,
+    #8b3cff 64%,
     rgba(90, 24, 176, 0) 100%
   );
-  filter: blur(1.6px);
-  transform-origin: 50% 100%;
-  animation: ult-flame-flicker 0.68s ease-in-out infinite alternate;
+  filter: blur(2.2px);
+  transform-origin: 50% 50%;
+  transform: rotate(var(--arc-angle)) translateY(calc(var(--arc-radius) * -1px - 17px));
+  animation-name: ult-arc-flame;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  animation-timing-function: ease-in-out;
 }
 
 /*
- * Staggered so the row flickers as a body of fire instead of pulsing in
- * lockstep. Prime-ish offsets keep the pattern from visibly repeating.
+ * The rotate/translate has to be restated in both keyframes: a transform is one
+ * property, so animating scale alone would drop the placement and pile every
+ * flame in the middle of the screen.
  */
-#ult-bar-flames span:nth-child(3n) { animation-duration: 0.83s; animation-delay: -0.21s; }
-#ult-bar-flames span:nth-child(3n + 1) { animation-duration: 0.61s; animation-delay: -0.47s; }
-#ult-bar-flames span:nth-child(4n) { animation-duration: 0.94s; animation-delay: -0.13s; }
-#ult-bar-flames span:nth-child(2n) { width: 8px; height: 74%; align-self: flex-end; }
-#ult-bar-flames span:nth-child(3n + 2) { height: 88%; align-self: flex-end; }
-
-@keyframes ult-flame-flicker {
+@keyframes ult-arc-flame {
   from {
-    transform: scaleY(0.55) scaleX(1.05);
+    transform: rotate(var(--arc-angle)) translateY(calc(var(--arc-radius) * -1px - 14px)) scale(0.72);
     opacity: 0.55;
   }
   to {
-    transform: scaleY(1.15) scaleX(0.85);
+    transform: rotate(var(--arc-angle)) translateY(calc(var(--arc-radius) * -1px - 20px)) scale(1.1);
     opacity: 1;
   }
 }
 
-/* The bar itself glows when ready, so the state is readable without the flames
-   — peripheral vision catches a colour change far more reliably than shape. */
-#ult-meter.ready #bar-ult {
-  border-color: rgba(216, 140, 255, 0.85);
-  animation: ult-ready-pulse 1.5s ease-in-out infinite;
-}
-
-#ult-meter.ready #ult-readout {
-  color: #e6b6ff;
-  opacity: 1;
-  font-weight: 700;
-  text-shadow: 0 0 10px rgba(178, 76, 255, 0.9);
-}
-
-@keyframes ult-ready-pulse {
-  0%, 100% { box-shadow: 0 0 6px rgba(160, 76, 255, 0.55); }
-  50% { box-shadow: 0 0 18px rgba(200, 107, 255, 0.95); }
+/* Sits just outside the arc's left edge, clear of the crosshair. */
+#ult-arc-label {
+  position: absolute;
+  right: 50%;
+  top: 50%;
+  margin-right: 98px;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #f0d0ff;
+  text-shadow: 0 0 10px rgba(178, 76, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 
 /* --------------------------------------------------- ReWind full-screen effect */
@@ -1144,4 +1223,128 @@ html, body {
     opacity: 1;
     filter: blur(0);
   }
+}
+
+/* -------------------------------------------------------------- settings panel */
+
+/*
+ * Reuses `.overlay` for the backdrop, so it dims the world and blocks clicks the
+ * same way the level-up and game-over screens do. It doubles as the pause
+ * screen — see SettingsPanel.ts for why Escape forces that arrangement.
+ */
+#settings-panel {
+  z-index: 70;
+}
+
+#settings-panel.hidden {
+  display: none;
+}
+
+.settings-card {
+  width: min(460px, 88vw);
+  padding: 24px 26px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(12, 16, 22, 0.95);
+  text-align: left;
+}
+
+.settings-card h1 {
+  margin: 0 0 18px;
+  font-size: 20px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-row {
+  margin-bottom: 18px;
+}
+
+.settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.settings-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: #5cffb0;
+}
+
+/* Slider takes the space, number field is a fixed gutter beside it — the two
+   drive the same value; see SettingsPanel.ts for why both exist. */
+.settings-controls {
+  display: grid;
+  grid-template-columns: 1fr 74px;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-controls input[type='range'] {
+  width: 100%;
+  accent-color: #5cffb0;
+}
+
+.settings-number {
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.settings-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.6;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.settings-actions button {
+  flex: 1;
+  padding: 9px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-actions button:hover {
+  background: rgba(255, 255, 255, 0.19);
+}
+
+.settings-actions button.primary {
+  background: rgba(92, 255, 176, 0.18);
+  border-color: rgba(92, 255, 176, 0.5);
+  font-weight: 700;
+}
+
+.settings-actions button.primary:hover {
+  background: rgba(92, 255, 176, 0.3);
+}
+
+#settings-panel .overlay-hint {
+  margin: 16px 0 0;
+  text-align: center;
 }

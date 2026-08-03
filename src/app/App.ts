@@ -22,6 +22,8 @@ import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
 import { GameMode, MainMenu } from '../ui/MainMenu';
 import { MovementPanel } from '../ui/MovementPanel';
+import { SettingsPanel } from '../ui/SettingsPanel';
+import { getSettings, loadSettings, onSettingsChanged } from '../game/Settings';
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
 import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
 import { buildSurfCourse } from '../world/SurfCourse';
@@ -70,6 +72,20 @@ export class App {
    * panel never has to reach into `Game` to stop the sim.
    */
   private readonly movementPanel = new MovementPanel();
+  /**
+   * Field of view and sensitivity, on `Escape`, and the run's pause screen —
+   * see `SettingsPanel` for why those have to be the same thing.
+   */
+  private readonly settingsPanel = new SettingsPanel(() => this.closeSettings());
+  /**
+   * Whether the player has taken pointer lock at least once this run.
+   *
+   * It decides which screen a *loss* of pointer lock produces: before the first
+   * lock the player has not started yet and wants "click to start"; after it,
+   * losing the lock means they pressed Escape (or tabbed away), and the right
+   * answer is the settings/pause screen.
+   */
+  private hasStartedRun = false;
   /**
    * Distance fog, applied only while a run is in progress.
    *
@@ -123,6 +139,15 @@ export class App {
     this.input = new InputSystem(canvas);
 
     document.getElementById('movement-tag')!.textContent = MOVEMENT_VERSION_LABEL;
+    // Camera FOV follows the setting, including the one restored from storage
+    // by `loadSettings` below — which is why the listener is registered first.
+    onSettingsChanged(({ fov }) => {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    });
+    loadSettings();
+    this.camera.fov = getSettings().fov;
+    this.camera.updateProjectionMatrix();
     this.installListeners();
     this.loadStandardWorld();
     void this.bootFromUrl();
@@ -207,6 +232,7 @@ export class App {
     this.editor?.exit();
     this.startOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
+    this.game?.setHudVisible(false);
     this.scene.fog = null;
     this.mainMenu.show((mode) => this.enterMode(mode));
   }
@@ -224,6 +250,7 @@ export class App {
     this.input.releasePointerLock();
     this.startOverlay.classList.add('hidden');
     this.hudEl.classList.add('hidden');
+    this.game?.setHudVisible(false);
     this.scene.fog = null;
 
     if (!this.editor) {
@@ -297,15 +324,27 @@ export class App {
     } else {
       this.game.setCourse(course);
     }
+    // After the Game exists: the crosshair and the ultimate arc live outside
+    // `#hud` (they are centre-screen) and it owns them.
+    this.game.setHudVisible(true);
     // Suspended until the click that takes pointer lock, so drones don't spawn
     // and the player doesn't slide off a ramp behind the start overlay.
     this.game.setPaused(true);
+    this.hasStartedRun = false;
+    this.settingsPanel.hide();
     this.startOverlay.classList.remove('hidden');
+  }
+
+  private closeSettings(): void {
+    this.settingsPanel.hide();
+    if (this.mode === 'play') this.input.requestPointerLock();
   }
 
   /** `M` during a run: back to wherever the run came from. */
   private leaveRun(): void {
     if (this.mode !== 'play') return;
+    this.hasStartedRun = false;
+    this.settingsPanel.hide();
     this.game?.setPaused(true);
     this.input.releasePointerLock();
     if (this.playMode === 'free') this.openEditor();
@@ -321,13 +360,40 @@ export class App {
     this.canvas.addEventListener('click', requestStart);
     this.startOverlay.addEventListener('click', requestStart);
 
+    // Chrome refuses a re-lock for about a second after the user escaped out of
+    // one. Without this the player would close settings, silently fail to
+    // re-lock, and be left staring at a paused world with no prompt on it —
+    // the panel is the way back in, so it has to come back.
+    document.addEventListener('pointerlockerror', () => {
+      if (this.mode !== 'play' || this.input.isLocked()) return;
+      if (this.game?.isMenuOpen || this.movementPanel.isOpen) return;
+      this.settingsPanel.show();
+    });
+
     document.addEventListener('pointerlockchange', () => {
       if (this.mode !== 'play') return;
       const locked = this.input.isLocked();
-      // Never surface "click to start" on top of the game-over panel.
+      if (locked) {
+        this.hasStartedRun = true;
+        this.settingsPanel.hide();
+      } else if (
+        this.hasStartedRun &&
+        !this.game?.isMenuOpen &&
+        !this.movementPanel.isOpen
+      ) {
+        // This is the Escape path. Under pointer lock the browser consumes the
+        // Escape keydown and only releases the lock, so a key handler can never
+        // see it — but this event always fires, and the pause it already caused
+        // now opens a screen worth looking at.
+        this.settingsPanel.show();
+      }
+      // Never surface "click to start" on top of another panel.
       this.startOverlay.classList.toggle(
         'hidden',
-        locked || !!this.game?.isMenuOpen || this.movementPanel.isOpen,
+        locked ||
+          !!this.game?.isMenuOpen ||
+          this.movementPanel.isOpen ||
+          this.settingsPanel.isOpen,
       );
       this.game?.setPaused(!locked);
     });
@@ -347,6 +413,13 @@ export class App {
         if (opened) this.input.releasePointerLock();
         else if (this.mode === 'play') this.input.requestPointerLock();
         this.startOverlay.classList.toggle('hidden', opened || this.input.isLocked());
+        return;
+      }
+      if (event.code === 'Escape' && this.mode === 'play') {
+        event.preventDefault();
+        // Only ever a *close*: opening happens on the pointer-lock loss that
+        // this same keypress caused, one handler up.
+        if (this.settingsPanel.isOpen) this.closeSettings();
         return;
       }
       if (event.code === 'KeyM' && this.mode === 'play') {
@@ -395,7 +468,10 @@ export class App {
       // cursor is handed back the moment one appears — under pointer lock it is
       // hidden and every click goes to the canvas, so the restart button would
       // be unreachable and the run would dead-end.
-      if ((this.game.isMenuOpen || this.movementPanel.isOpen) && this.input.isLocked()) {
+      if (
+        (this.game.isMenuOpen || this.movementPanel.isOpen || this.settingsPanel.isOpen) &&
+        this.input.isLocked()
+      ) {
         this.input.releasePointerLock();
       }
     } else if (this.mode === 'editor') {

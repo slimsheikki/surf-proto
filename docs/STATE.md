@@ -81,6 +81,45 @@ position drift 0.000, and the scene child count comes back exactly, so nothing
 leaks. Browser pass: charge → ready flames → activation → countdown → resume,
 no console errors.
 
+## Blessings respawn (new)
+
+A collected blessing vanishes rather than dimming in place, and 30 s later
+(`SHRINE_RESPAWN_SECONDS`) returns at a random point on the endless ring.
+
+`ShrineRespawn.ts` answers "reachable" **by construction** rather than by testing
+a candidate: every draw lands in the envelope the course's own hand-placed ring
+shrines occupy (track radius −3..+8, 11..17 above the track plane). If a point
+there were unreachable, the authored shrines would be too. Candidates only ever
+come from the ring, never the approach — the approach is one-way, so a blessing
+respawned there is gone for the run. Additional rules: at least 70 u from the
+player (about an eighth of a lap), at least 25 u from any standing blessing, and
+a furthest-of-24-draws fallback so a cornered player cannot hang the loop.
+
+The countdown runs inside `updateGameplay`, so it obeys the same pause the rest
+of the sim does — time spent in the upgrade menu is not time waiting for a
+shrine. A shrine's position is mutable now, which means it travels in `Rewind`'s
+`Frame` alongside the collected flag: rewinding across a pickup has to put the
+blessing back *where it was taken from*.
+
+Verified in the live game loop: an approach shrine at radius 630 / +159 was
+collected, vanished, and came back exactly 30.00 s later at radius 93 / +16 — off
+the one-way start and onto the ring.
+
+## Settings and HUD layout (new)
+
+`Escape` opens `SettingsPanel` (FOV, sensitivity; slider and number field over
+each value, persisted to `localStorage`). It doubles as the pause screen, and
+that is forced rather than chosen — see the pointer-lock gotcha in `CLAUDE.md`.
+Sensitivity was removed from the `O` tuning panel so there is one owner.
+
+The HUD is bottom-centre and 25% wider (260 → 325). XP leads the column at a
+further 25% (406) and 16px tall; level/clock/speed/trophies share one row. The
+ultimate meter left the column entirely: it is now a half-ring around the **left**
+of the crosshair (`UltimateArc`), filling bottom-to-top, growing flames and a
+`HOLD R` label when full. The crosshair is a purple dot with a hairline black
+ring — the ring is what keeps it visible against both the bright sky and the
+dark ramps.
+
 ## Known bugs
 
 None blocking. The approach entry is fixed — see below.

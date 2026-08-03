@@ -82,6 +82,15 @@ movement.
 - No `Date.now()` / `Math.random()` in Workflow scripts.
 - `sleep` chains are blocked; use `until <check>; do sleep 2; done`.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
+- **Under pointer lock the browser owns `Escape`** — it releases the lock and never delivers
+  the keydown, so a key handler cannot open anything with it. `pointerlockchange` always
+  fires, so that is what opens the settings/pause screen; `Escape` only ever *closes* it.
+  Chrome also refuses a re-lock for ~1 s afterwards, so `pointerlockerror` has to put the
+  panel back or the player is left on a paused world with no prompt.
+- Playwright's synthetic `Escape` does **not** trigger the native pointer-lock exit. Test
+  that path with `document.exitPointerLock()`.
+- `UpgradeMenu` reads `e.key`, not `e.code` — a synthetic `{code:'Digit1'}` is ignored, and a
+  headless test that "picks an upgrade" that way silently sits in the paused state forever.
 
 ## Endless runs
 
@@ -104,6 +113,13 @@ is an arbitrary mutation and the pool cannot be asked to invert one. **A new
 upgrade is only rewound if the field it writes is listed in `Frame`.**
 `Ultimate.LEVEL_GROWTH` is deliberately the same 0.07 that `difficultyAt`
 divides the spawn interval by; move them together. See `docs/STATE.md`.
+
+## Blessings
+
+Collecting one removes it; 30 s later it comes back at a random point on the **endless ring**
+(`ShrineRespawn.ts`). "Reachable" is answered by construction — candidates are drawn from the
+same envelope the authored ring shrines occupy — and never from the approach, which is
+one-way. A shrine's position is mutable now, so it is part of `Rewind`'s `Frame`.
 
 ## Free mode
 
