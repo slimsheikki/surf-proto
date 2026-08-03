@@ -142,6 +142,34 @@ const HALFPIPE_STRIPS_PER_WALL = 12;
  */
 const HALFPIPE_SHELL_DROP = 1.6;
 /**
+ * Degrees of pitch per segment *along* a curved pipe, against the kit's usual 2.
+ *
+ * Every other family carries one or two strips, so subdividing its length every
+ * 2° costs two prisms a step. A pipe carries 24, so the same step would put
+ * **1296 prisms on a single descending piece** — 38% again on top of the whole
+ * default course, and the collider broadphase is a linear scan. At 6° it is
+ * 432.
+ *
+ * Free to look at and free to ride. The along-length sagitta at 6° is 0.09
+ * units against a 0.4 player radius, and 6° is under the same
+ * `acos(0.99) = 8.11°` the cross-section is cut to — so the movement clip loop
+ * still reads consecutive segments as one surface and nothing catches.
+ */
+const HALFPIPE_ANGLE_STEP_DEG = 6;
+/**
+ * The descending pipe's profile. Positive pitch descends, so this drops
+ * steeply, eases through level and finishes tilted *back up* by
+ * `EXIT_PITCH` — a slight ramp off the end rather than a nose into the floor.
+ *
+ * 53° of total swing at `HALFPIPE_ANGLE_STEP_DEG` is 9 segments, so the piece
+ * costs 432 prisms against a straight pipe's 48. That is the most expensive
+ * thing in the kit by some way (a curved A-frame is 92) — worth knowing before
+ * a map is paved with them.
+ */
+const HALFPIPE_DESCENT_LENGTH = 60;
+const HALFPIPE_DESCENT_PITCH_DEG = 45;
+const HALFPIPE_DESCENT_EXIT_PITCH_DEG = -8;
+/**
  * Mouth opening across, which fixes the radius at `width / (2·sin θmax)`. The
  * kit's standard face width, so a pipe reads as the same gauge of piece as the
  * ramps it chains with. Depth follows at 0.450 × this.
@@ -244,10 +272,10 @@ export const RAMP_LIBRARY: RampDefinition[] = [
   // `Thumbnails` frames each definition to its own bounds, so all three render
   // identically.
   {
-    id: 'halfpipe-small',
+    id: 'halfpipe-short',
     family: 'halfpipe',
     variant: 'inverted',
-    label: 'Halfpipe · small',
+    label: 'Halfpipe · short',
     hint: '30 long · half-round pipe',
     defaults: { length: 30, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
@@ -260,12 +288,35 @@ export const RAMP_LIBRARY: RampDefinition[] = [
     defaults: { length: RAMP_LENGTH, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
   },
   {
-    id: 'halfpipe-large',
+    id: 'halfpipe-long',
     family: 'halfpipe',
     variant: 'inverted',
-    label: 'Halfpipe · large',
+    label: 'Halfpipe · long',
     hint: '80 long · half-round pipe',
     defaults: { length: 80, width: HALFPIPE_WIDTH, rollDeg: 0, pitchDeg: 0 },
+  },
+  {
+    id: 'halfpipe-descent',
+    family: 'halfpipe',
+    variant: 'inverted',
+    label: 'Halfpipe · descent',
+    hint: 'Drops steeply, eases out, kicks up at the exit',
+    // Same section as the straight pipes; only the *path* curves. The pitch
+    // runs from a steep drop to a shallow climb, and `computeRampFrames`
+    // interpolates it linearly along the length — so the profile is a steep
+    // entry that keeps easing, passes through level, and finishes tilted back
+    // up. The exit kick is what hands a rider air off the end instead of
+    // spitting them at the floor.
+    //
+    // 45° of entry rather than the editor's 50° clamp so there is somewhere
+    // left to nudge it with `T`.
+    defaults: {
+      length: HALFPIPE_DESCENT_LENGTH,
+      width: HALFPIPE_WIDTH,
+      rollDeg: 0,
+      pitchDeg: HALFPIPE_DESCENT_PITCH_DEG,
+      endPitchDeg: HALFPIPE_DESCENT_EXIT_PITCH_DEG,
+    },
   },
   {
     id: 'vertical-curved-half',
@@ -374,10 +425,20 @@ export function pieceMode(piece: FreePiece): RampCurveMode {
   return 'straight';
 }
 
-/** Centre-path curve params for a piece whose entry point is `start`. */
+/**
+ * Centre-path curve params for a piece whose entry point is `start`.
+ *
+ * The segment step is decided here rather than at any one call site because
+ * `piecePath` and the mesh/collider walk both go through this: hand them
+ * different steps and a curved piece discretises two different ways, its
+ * midpoint lands somewhere else, and the geometry sits off the position the
+ * editor is showing you.
+ */
 function centreParams(piece: FreePiece, start: Vector3): RampCurveParams {
   return {
     start,
+    angleStepDeg:
+      defFor(piece.def).family === 'halfpipe' ? HALFPIPE_ANGLE_STEP_DEG : undefined,
     startYawDeg: piece.yawDeg,
     startPitchDeg: piece.pitchDeg,
     endPitchDeg: piece.endPitchDeg,

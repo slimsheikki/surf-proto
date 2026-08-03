@@ -342,10 +342,17 @@ own. `O` still works and opens Settings with that section already expanded.
 
 ## Half-pipe pieces (new)
 
-Three palette entries — `halfpipe-small` / `-medium` / `-large`, lengths **30 / 50 / 80** —
-differing in length and nothing else. Medium is `RAMP_LENGTH`, so it socket-chains against
-the rest of the kit. The length is in the **label**, because it cannot be in the tile:
-`Thumbnails` frames every definition to its own bounds, so all three render identically.
+Four palette entries. Three straight — `halfpipe-short` / `-medium` / `-long`, lengths
+**30 / 50 / 80** — differing in length and nothing else; medium is `RAMP_LENGTH`, so it
+socket-chains against the rest of the kit. The length is in the **label**, because it cannot
+be in the tile: `Thumbnails` frames every definition to its own bounds, so all three render
+identically.
+
+The fourth is **`halfpipe-descent`**: the same section on a curved path. Pitch runs 45° (a
+steep drop) to −8° (tilted back up), interpolated linearly along 60 units, so the profile is a
+steep entry that keeps easing, passes through level, and finishes as a slight ramp — it hands
+a rider air off the end instead of pointing them at the floor. It drops **18.4 units** over
+its run. 45° rather than the editor's 50° clamp so there is somewhere left to nudge it.
 
 **The cross-section is a half-round pipe** — the concrete drainage kind, laid on its back:
 two mirrored arcs meeting at the bottom of the centre path, sweeping θ = 0° → 84°, mouth
@@ -384,12 +391,27 @@ drop for the whole section keeps them flush and makes those quads exactly coinci
 between two solids. Purely additive with a `??` fallback; the default course still emits
 **3412** prisms, byte for byte what it did before (checked by stashing the patch, not assumed).
 
-48 prisms per piece, all three sizes — a straight piece is one segment whatever its length.
-Context: the V channel is 4, a curved A-frame 92, the whole default course 3412.
+**48 prisms** for a straight pipe of any length (a straight path is one segment whatever its
+length); **432** for the descent. Context: the V channel is 4, a curved A-frame 92, the whole
+default course 3412 — so a descent is the most expensive piece in the kit by a distance, and
+the collider broadphase is a **linear scan with no spatial index**. Worth knowing before a map
+is paved with them.
 
-Straight only. A swept variant would put each strip at a different turn radius, drifting the
-UV `along` axis so the grid's cross-lines fan out down the piece, and would take the segment
-count 1 → 23, i.e. ~1100 prisms per piece.
+That 432 is already capped. `HALFPIPE_ANGLE_STEP_DEG` subdivides a curved pipe's length every
+6° of pitch instead of the kit's 2°, because every other family carries one or two strips
+where a pipe carries 24 — at 2° a single descent would emit **1296 prisms**, 38% again on top
+of the entire default course. 6° is free both ways: the along-length sagitta is 0.09 units
+against a 0.4 player radius, and it is under the same `acos(0.99) = 8.11°` the cross-section
+is cut to, so consecutive segments still read as one surface to the clip loop.
+
+**The step lives in `centreParams`, not at the call site**, and that is load-bearing:
+`piecePath` and the mesh/collider walk both go through it, and handing them different steps
+discretises a curved piece two different ways — its midpoint lands elsewhere and the geometry
+sits off the position the editor is showing. Caught while writing it, not in play.
+
+No *horizontally* swept variant ships. That one would put each strip at a different turn
+radius, drifting the UV `along` axis so the grid's cross-lines fan down the piece, and would
+take the segment count to ~23.
 
 Verified by `.probe-halfpipe.ts` (27 assertions: every vertex on the analytic arc, depth/mouth,
 the walls meeting on the path, the walkable band measured at 12.9, the rim past 80°, 48 prisms
