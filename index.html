@@ -66,16 +66,121 @@
         <div id="ult-countdown" class="hidden"></div>
       </div>
     </div>
+    <!-- Start screen. Three bands, and the order is the order they are read in:
+         the turning wordmark up top, the one instruction that has to land in the
+         centre under the crosshair, and the controls along the bottom — parked
+         directly above the XP bar, because the HUD is already up behind this
+         overlay and the guide has to sit on top of the world, not on top of it.
+
+         The wordmark is the same rotating logo the front menu uses, `src` set
+         from BASE_URL by `ui/Logo.ts` for the reason given on the menu's copy
+         below; the <span> beside it is the text fallback. -->
     <div id="start-overlay" class="overlay hidden">
-      <h1>MEGAFLOW</h1>
-      <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
-      <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
-      <p>Press <kbd>ESC</kbd> mid-run to pause &mdash; continue, restart, quit to the menu, or open settings for field of view, mouse sensitivity, and music volume.</p>
-      <p>Hold <kbd>R</kbd> when the purple arc beside the crosshair is full to <strong>ReWind</strong> &mdash; up to 15 seconds of the run play backwards, XP and powerups included. Let go anywhere to resume from there after a 3-2-1 countdown.</p>
-      <p>SHIFT to dash &mdash; a shove in the direction you are facing, spending one of your dash charges. Charges refill over time.</p>
-      <p>Golden shrines float off the surf line &mdash; carry enough speed to fly through one and choose a free powerup.</p>
-      <p>Falling is death: there are no mid-course respawns. The run restarts from the top.</p>
-      <p>Click to start &mdash; <kbd>ESC</kbd> pauses, <kbd>M</kbd> goes back, <kbd>O</kbd> tunes the movement</p>
+      <h1 class="menu-title menu-logo start-logo">
+        <img id="start-logo-img" alt="MEGAFLOW" />
+        <span id="start-logo-fallback" class="hidden">MEGAFLOW</span>
+      </h1>
+
+      <p id="start-cta"><span>Click to start</span></p>
+
+      <ul id="start-guide">
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M2 15c3 0 4-7 7-7s4 7 7 7 3-4 6-4" /><path d="M2 20h20" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Surf</span>
+            <span class="guide-line">
+              <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and the mouse &middot;
+              <kbd>Space</kbd> to jump and bunnyhop. Speed is the game.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M14.5 17.5 3 6V3h3l11.5 11.5" /><path d="m13 19 6-6" /><path d="m16 16 4 4" /><path d="m19 21 2-2" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Slash</span>
+            <span class="guide-line">
+              <kbd>Left&nbsp;click</kbd> &middot; hits everything in front of you, and hits
+              harder the faster you are going.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Dash</span>
+            <span class="guide-line">
+              <kbd>Shift</kbd> &middot; a shove where you are facing, spending a charge.
+              Charges refill over time.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M11 19 2 12l9-7v14z" /><path d="M22 19l-9-7 9-7v14z" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">ReWind</span>
+            <span class="guide-line">
+              Hold <kbd>R</kbd> at a full arc &middot; 15 s of the run plays backwards,
+              XP and powers with it.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9z" /><path d="M2 9h20" /><path d="m11 3-3 6 4 12 4-12-3-6" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Shrines</span>
+            <span class="guide-line">
+              Golden shrines float off the surf line &mdash; carry speed through one for a
+              free power.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m12 3 2.4 5.2 5.6.7-4.2 3.9 1.1 5.6L12 15.7 7.1 18.4l1.1-5.6L4 8.9l5.6-.7z" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Level up</span>
+            <span class="guide-line">
+              Fill the XP bar and pick a new power with
+              <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Do not fall</span>
+            <span class="guide-line">
+              There are no mid-course respawns. Falling ends the run and it restarts from
+              the top.
+            </span>
+          </span>
+        </li>
+        <li class="guide-card">
+          <span class="guide-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 14h10" /></svg>
+          </span>
+          <span class="guide-body">
+            <span class="guide-title">Keys</span>
+            <span class="guide-line">
+              <kbd>Esc</kbd> pause &middot; <kbd>V</kbd> camera &middot;
+              <kbd>M</kbd> back &middot; <kbd>O</kbd> movement tuning
+            </span>
+          </span>
+        </li>
+      </ul>
     </div>
     <!-- Movement build stamp. The movement is being tuned against a person's
          judgement, so every note has to be attachable to a specific build. -->
@@ -88,12 +193,12 @@
         <!-- The wordmark is the logo image; the <span> beside it is the text
              fallback and only appears if the file is missing or fails to
              decode, so the menu never renders a broken-image icon where the
-             game's name should be. MainMenu.ts owns that swap.
+             game's name should be. `ui/Logo.ts` owns that swap.
 
              No `src` here on purpose: Vite rewrites `url()` inside CSS with the
              deploy's base path but leaves an absolute `src` in the HTML alone,
              so a hard-coded `/images/...` would 404 on Pages and work only on
-             localhost. MainMenu.ts sets it from `import.meta.env.BASE_URL`. -->
+             localhost. `ui/Logo.ts` sets it from `import.meta.env.BASE_URL`. -->
         <h1 class="menu-title menu-logo">
           <img id="menu-logo-img" alt="MEGAFLOW" />
           <span id="menu-logo-fallback" class="hidden">MEGAFLOW</span>

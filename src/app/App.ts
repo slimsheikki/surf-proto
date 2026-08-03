@@ -21,6 +21,7 @@ import { createStarterMap, FreeMap } from '../editor/MapData';
 import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/MapStorage';
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
+import { mountLogo } from '../ui/Logo';
 import { MainMenu } from '../ui/MainMenu';
 import { PauseMenu } from '../ui/PauseMenu';
 import { renderWorldThumbnail } from '../ui/MapThumbnails';
@@ -167,6 +168,13 @@ export class App {
     this.input = new InputSystem(canvas);
 
     document.getElementById('movement-tag')!.textContent = MOVEMENT_VERSION_LABEL;
+    // The start screen's wordmark. Mounted at boot rather than when the overlay
+    // first shows, so the image is decoded and turning by the time a run opens
+    // on it instead of popping in a frame late.
+    mountLogo(
+      document.getElementById('start-logo-img') as HTMLImageElement,
+      document.getElementById('start-logo-fallback')!,
+    );
     // Camera FOV follows the setting, including the one restored from storage
     // by `loadSettings` below — which is why the listener is registered first.
     onSettingsChanged(({ fov, musicVolume, musicMuted }) => {
@@ -405,8 +413,11 @@ export class App {
       this.game.setCourse(course);
     }
     // After the Game exists: the crosshair and the ultimate arc live outside
-    // `#hud` (they are centre-screen) and it owns them.
-    this.game.setHudVisible(true);
+    // `#hud` (they are centre-screen) and it owns them. Held back until the
+    // click that takes pointer lock — they are aiming aids for a run that has
+    // not started, and dead centre is where the start screen's own prompt is.
+    // The `pointerlockchange` handler is what brings them in.
+    this.game.setHudVisible(false);
     // Suspended until the click that takes pointer lock, so drones don't spawn
     // and the player doesn't slide off a ramp behind the start overlay.
     this.game.setPaused(true);
@@ -499,6 +510,10 @@ export class App {
         'hidden',
         locked || !!this.game?.isMenuOpen || this.settingsPanel.isOpen || this.pauseMenu.isOpen,
       );
+      // Crosshair and ultimate arc follow the lock: they only mean anything
+      // while the sim is running, and they sit exactly where the start screen
+      // puts "Click to start".
+      this.game?.setHudVisible(locked);
       this.game?.setPaused(!locked);
     });
 

@@ -387,7 +387,8 @@ h2,
   opacity: 0.75;
 }
 
-.overlay-hint kbd {
+.overlay-hint kbd,
+.guide-line kbd {
   display: inline-block;
   min-width: 20px;
   padding: 1px 5px;
@@ -396,6 +397,221 @@ h2,
   border: 1px solid rgba(255, 255, 255, 0.28);
   font: inherit;
   font-weight: 700;
+}
+
+/* ---------------------------------------------------------- the start screen
+ *
+ * Three bands, not one column: the wordmark at the top, one instruction dead
+ * centre, and the controls along the bottom. It used to be nine paragraphs
+ * stacked down the middle of the screen — a page you read rather than a screen
+ * you glance at, and it grew by a paragraph every time the game grew a feature.
+ *
+ * `space-between` rather than the overlay's default centring, with the CTA
+ * lifted out of the flow (see below) so it lands in the true centre of the
+ * viewport regardless of how tall the other two bands are.
+ *
+ * The bottom padding is the whole reason the guide clears the HUD: this overlay
+ * is shown with `#hud` already visible behind it, and the guide is parked just
+ * above the XP bar. 132px is the HUD's own stack (~96px) plus its 18px offset
+ * plus a little air; if the HUD grows another row, this grows with it.
+ */
+#start-overlay {
+  justify-content: space-between;
+  gap: 0;
+  padding: clamp(12px, 3vh, 32px) clamp(16px, 3vw, 40px) 132px;
+  /* The entire scrim is the click target that takes pointer lock, so it says so. */
+  cursor: pointer;
+}
+
+/* Smaller than the front menu's hero treatment — here the wordmark is a header
+   over a screen that has a call to action and a guide to fit under it. Both
+   caps move together, and `.menu-logo`'s reserved min-height with them. */
+.menu-logo.start-logo,
+.menu-logo.start-logo img {
+  max-height: min(200px, 24vh);
+}
+
+.menu-logo.start-logo {
+  min-height: min(200px, 24vh);
+  margin: 0;
+}
+
+.menu-logo.start-logo img {
+  max-width: min(420px, 62vw);
+}
+
+/*
+ * "Click to start", hovering in the middle of the screen.
+ *
+ * Taken out of the flex flow and pinned to the viewport instead: with the
+ * wordmark and the guide sized by their own content, `space-between` would put
+ * this at whatever point happens to fall between them, which is not the centre
+ * and moves as the guide changes. `inset: 0` + `place-items: center` is the
+ * centre of the screen, which is also where the crosshair the player is about
+ * to be looking through will be.
+ *
+ * The float lives on the inner <span> rather than here, so the animation's
+ * `transform` never fights the centring.
+ */
+#start-cta {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  /* Decoration over a scrim that is itself the button — clicks belong to it. */
+  pointer-events: none;
+}
+
+#start-cta span {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 3.4vw, 36px);
+  letter-spacing: 0.2em;
+  /* The trailing letter-space would otherwise push the word off-centre. */
+  text-indent: 0.2em;
+  text-transform: uppercase;
+  animation: cta-hover 2.8s ease-in-out infinite;
+}
+
+/* Rises and falls about its resting point while the glow breathes with it —
+   one motion, so it reads as hovering rather than as two effects. */
+@keyframes cta-hover {
+  0%,
+  100% {
+    transform: translateY(-6px);
+    opacity: 0.9;
+    text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
+  }
+  50% {
+    transform: translateY(6px);
+    opacity: 1;
+    text-shadow: 0 0 28px rgba(var(--accent-rgb), 0.85);
+  }
+}
+
+/*
+ * The controls, as a grid of cards instead of a wall of sentences. Four columns
+ * of two lines each: an icon and a title to find the card by, and one line of
+ * body text under it. Anything that needs more than that line belongs in the
+ * game, not on this screen.
+ */
+#start-guide {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: min(1160px, 96vw);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 1000px) {
+  #start-guide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
+ * No `backdrop-filter` on the cards, deliberately: the `.overlay` scrim under
+ * them already blurs the world once, and eight more blur passes stacked on top
+ * of it buy nothing that this flat violet fill does not.
+ */
+.guide-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(26, 13, 46, 0.5);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  box-shadow: var(--glass-highlight);
+  text-align: left;
+}
+
+/* Stroke-drawn, sized in `em` off the icon box, and inheriting `currentColor`,
+   so the set stays one weight and one colour with the type beside it. */
+.guide-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent-bright);
+}
+
+.guide-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.guide-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+}
+
+.guide-line {
+  font-size: 11.5px;
+  line-height: 1.45;
+  opacity: 0.82;
+}
+
+.guide-line kbd {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+/* The band that has to give on a laptop screen is the guide: the prompt is
+   pinned to the centre and the HUD clearance below is fixed, so a shorter
+   viewport eats the gap between them. Trimming the cards here keeps that gap
+   open rather than letting the top row creep up under "Click to start". */
+@media (max-height: 780px) {
+  .menu-logo.start-logo,
+  .menu-logo.start-logo img {
+    max-height: min(160px, 21vh);
+  }
+
+  .menu-logo.start-logo {
+    min-height: min(160px, 21vh);
+  }
+
+  #start-guide {
+    gap: 6px;
+  }
+
+  .guide-card {
+    padding: 7px 9px;
+  }
+
+  .guide-line {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+}
+
+/* Same reasoning as the turning wordmark: this hovers forever, which is exactly
+   what the setting is asking to be spared. It still reads as the prompt, held. */
+@media (prefers-reduced-motion: reduce) {
+  #start-cta span {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------- main menu */
