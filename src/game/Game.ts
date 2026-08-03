@@ -639,6 +639,15 @@ export class Game {
    * whether the cursor should be handed back, and to keep the "click to start"
    * overlay from appearing on top of one of these.
    */
+  /**
+   * Restarts the run from the top. Public because the pause menu offers it as
+   * well as the game-over screen — the same teardown either way, so there is
+   * one path rather than two that must agree.
+   */
+  restartRun(): void {
+    this.restart();
+  }
+
   /** The crosshair and the ultimate arc are centre-screen, so `#hud` cannot own them. */
   setHudVisible(visible: boolean): void {
     this.hud.setVisible(visible);

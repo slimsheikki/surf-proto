@@ -148,7 +148,29 @@ The standard tile is photographed once at boot, which is the only moment that
 world is guaranteed live (`setWorld` disposes what it replaces). Map tiles are
 re-rendered per visit, because the editor can change one between two trips.
 
-**Settings** is reachable from the menu as well as from `Escape` in a run; the
+**`Escape` mid-run opens the pause menu** (`ui/PauseMenu.ts`) — CONTINUE /
+RESTART / QUIT — not the settings screen. Same stacked list and same number keys
+as the front menu, deliberately: a player who has read one has learned the other.
+The pause itself was already there (losing pointer lock pauses the sim); this
+gives it a menu.
+
+- **CONTINUE** re-takes pointer lock. `Escape` pressed *on* the pause menu means
+  this, and that one is a plain key handler — the lock is already gone by then,
+  so the page gets the key normally.
+- **RESTART** is `Game.restartRun()`, the same teardown the game-over screen
+  uses. `Shrine.reset()` now returns each blessing to its **authored** position,
+  not just un-collects it in place: positions are mutable since blessings
+  respawn, so without an `origin` a restart left every shrine wherever the
+  previous run had scattered it.
+- **QUIT** always goes to the front menu, including from a free-mode run. `M`
+  still goes back to the *editor*, because that is the useful exit while
+  iterating on a map; Quit is the one that leaves.
+
+Settings mid-run is on `O`, which also works from the pause menu. Closing it
+returns wherever it was opened from — the pause menu, or straight into the run
+(`App.settingsFromPause`); the two entry points want different exits.
+
+**Settings** is reachable from the front menu as well; the
 only difference is the close button's wording. The movement convar bench is no
 longer a floating panel of its own — it is embedded under a collapsible
 **Advanced Settings** section on that screen, and `MovementPanel` is now a

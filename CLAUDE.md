@@ -84,7 +84,8 @@ movement.
 - The sandbox proxy blocks `github.io`, so the live Pages URL can't be verified from here.
 - **Under pointer lock the browser owns `Escape`** — it releases the lock and never delivers
   the keydown, so a key handler cannot open anything with it. `pointerlockchange` always
-  fires, so that is what opens the settings/pause screen; `Escape` only ever *closes* it.
+  fires, so that is what opens the pause menu; `Escape` only ever *closes* a screen (and
+  once the lock is gone the page gets the key normally, which is why closing works).
   Chrome also refuses a re-lock for ~1 s afterwards, so `pointerlockerror` has to put the
   panel back or the player is left on a paused world with no prompt.
 - Playwright's synthetic `Escape` does **not** trigger the native pointer-lock exit. Test
