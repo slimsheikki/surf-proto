@@ -1,11 +1,17 @@
 import { Vector3 } from 'three';
-import { ColliderBox, getColliders } from '../world/Colliders';
+import {
+  ColliderBox,
+  ColliderConvex,
+  getColliders,
+  getConvexColliders,
+} from '../world/Colliders';
 
 export interface RayHit {
   distance: number;
   point: Vector3;
   normal: Vector3;
-  collider: ColliderBox;
+  /** Boxes are level slabs and pads; convex wedges are welded ramp surfaces. */
+  collider: ColliderBox | ColliderConvex;
 }
 
 const EPS = 1e-9;
@@ -24,6 +30,8 @@ const rayDir = new Vector3();
 const bestNormal = new Vector3();
 const rayOrigin = new Vector3();
 const sweepDir = new Vector3();
+const insideLocal = new Vector3();
+const convexTmp = new Vector3();
 
 /**
  * Ray-vs-oriented-box intersection via the slab method in the box's local space.
@@ -75,17 +83,72 @@ function rayIntersectBox(origin: Vector3, direction: Vector3, box: ColliderBox):
   return tMin;
 }
 
+/**
+ * Ray vs convex volume: clip the ray's travel interval against every
+ * half-space. Structurally the same as the slab test above, but with
+ * arbitrary planes instead of three axis-aligned pairs — which is what lets a
+ * collider be a welded wedge of the visible surface rather than a box.
+ *
+ * Returns the entry distance, or MISS. As with boxes, a ray that begins
+ * inside reports MISS: a sample buried in solid geometry describes no
+ * free-space motion (see `isInsideAnyCollider`).
+ */
+function rayIntersectConvex(origin: Vector3, direction: Vector3, convex: ColliderConvex): number {
+  // Broadphase: reject when the ray's line passes outside the bounding sphere.
+  const toCentre = convexTmp.copy(convex.bound).sub(origin);
+  const along = toCentre.dot(direction);
+  const perpSq = toCentre.lengthSq() - along * along;
+  if (perpSq > convex.boundRadius * convex.boundRadius) return MISS;
+
+  let tMin = 0;
+  let tMax = Infinity;
+  let entryPlane = -1;
+
+  for (let i = 0; i < convex.planes.length; i++) {
+    const plane = convex.planes[i];
+    const denom = plane.normal.dot(direction);
+    const dist = plane.normal.dot(origin) + plane.offset;
+    if (Math.abs(denom) < EPS) {
+      // Parallel to this plane: outside it means the ray can never enter.
+      if (dist > 0) return MISS;
+      continue;
+    }
+    const t = -dist / denom;
+    if (denom < 0) {
+      if (t > tMin) {
+        tMin = t;
+        entryPlane = i;
+      }
+    } else if (t < tMax) {
+      tMax = t;
+    }
+    if (tMin > tMax) return MISS;
+  }
+
+  if (entryPlane === -1) return MISS; // origin started inside; ignore
+  boxHitNormal.copy(convex.planes[entryPlane].normal);
+  return tMin;
+}
+
 /** Nearest collider hit along a ray, within maxDistance. */
 export function raycast(origin: Vector3, direction: Vector3, maxDistance: number): RayHit | null {
   const dir = rayDir.copy(direction).normalize();
   let bestDistance = Infinity;
-  let bestCollider: ColliderBox | null = null;
+  let bestCollider: ColliderBox | ColliderConvex | null = null;
 
   for (const collider of getColliders()) {
     const distance = rayIntersectBox(origin, dir, collider);
     if (distance === MISS || distance > maxDistance || distance >= bestDistance) continue;
     bestDistance = distance;
     bestCollider = collider;
+    bestNormal.copy(boxHitNormal);
+  }
+
+  for (const convex of getConvexColliders()) {
+    const distance = rayIntersectConvex(origin, dir, convex);
+    if (distance === MISS || distance > maxDistance || distance >= bestDistance) continue;
+    bestDistance = distance;
+    bestCollider = convex;
     bestNormal.copy(boxHitNormal);
   }
 
@@ -96,6 +159,49 @@ export function raycast(origin: Vector3, direction: Vector3, maxDistance: number
     normal: bestNormal.clone(),
     collider: bestCollider,
   };
+}
+
+/**
+ * Whether a point is inside any collider.
+ *
+ * `sweep` needs this because its sample ring is spread **horizontally** around
+ * the player, while a surf face is banked: at a 51 deg bank, a sample 0.4 out
+ * to the side sits 0.31 *into* the slab it is riding on. `rayIntersectBox`
+ * already declines to report the box a ray starts inside — but such a ray then
+ * flew on and struck the *next* segment's leading end-cap from within the
+ * material, and clipping against that cap's backward-facing normal deleted the
+ * player's entire forward velocity. That is the "stuck partway along a curved
+ * ramp" bug: it needed a multi-segment collision run to appear, so single-box
+ * pieces and the standard course's ring (one box per ramp, gaps between) never
+ * showed it.
+ *
+ * Ignoring buried samples outright is the consistent form of the rule
+ * `rayIntersectBox` already applies: a sample point inside solid geometry
+ * describes no free-space motion, so it must not veto the samples that do.
+ */
+export function isInsideAnyCollider(point: Vector3): boolean {
+  for (const box of getColliders()) {
+    insideLocal.copy(point).sub(box.position).applyQuaternion(box.invQuaternion);
+    if (
+      Math.abs(insideLocal.x) <= box.halfExtents.x &&
+      Math.abs(insideLocal.y) <= box.halfExtents.y &&
+      Math.abs(insideLocal.z) <= box.halfExtents.z
+    ) {
+      return true;
+    }
+  }
+  for (const convex of getConvexColliders()) {
+    if (point.distanceToSquared(convex.bound) > convex.boundRadius * convex.boundRadius) continue;
+    let inside = true;
+    for (const plane of convex.planes) {
+      if (plane.normal.dot(point) + plane.offset > 0) {
+        inside = false;
+        break;
+      }
+    }
+    if (inside) return true;
+  }
+  return false;
 }
 
 const GROUND_SAMPLE_OFFSETS = [
@@ -152,6 +258,10 @@ export function sweep(position: Vector3, displacement: Vector3, radius: number):
   let best: RayHit | null = null;
   for (const offset of GROUND_SAMPLE_OFFSETS) {
     rayOrigin.copy(position).addScaledVector(offset, radius);
+    // Samples buried in geometry are skipped rather than trusted — see
+    // `isInsideAnyCollider`. Without this, riding a banked multi-segment ramp
+    // stops the player dead at the first seam.
+    if (isInsideAnyCollider(rayOrigin)) continue;
     const hit = raycast(rayOrigin, direction, distance);
     if (hit && (!best || hit.distance < best.distance)) best = hit;
   }

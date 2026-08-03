@@ -27,7 +27,7 @@
       <div id="boss-hp" class="bar"><div id="boss-hp-fill" class="bar-fill boss"></div></div>
     </div>
     <div id="upgrade-menu" class="overlay hidden">
-      <h1>Level Up!</h1>
+      <h1>Choose a Power</h1>
       <div id="upgrade-choices"></div>
       <p class="overlay-hint">Press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> to choose</p>
     </div>
@@ -42,20 +42,19 @@
     </div>
     <div id="dash-fx" class="hidden">
       <div class="dash-lines"></div>
-      <div class="dash-puffs">
-        <span class="dash-puff"></span>
-        <span class="dash-puff"></span>
-        <span class="dash-puff"></span>
-        <span class="dash-puff"></span>
-      </div>
     </div>
     <div id="start-overlay" class="overlay hidden">
       <h1>surf-proto</h1>
       <p>WASD to move, mouse to look, SPACE to jump/bunnyhop, V to toggle camera.</p>
       <p>LEFT CLICK to slash with the knife &mdash; it hits everything in front of you, and hits harder the faster you are going.</p>
-      <p>SHIFT to dash &mdash; a burst of speed, spending one of your dash charges. Charges refill over time.</p>
-      <p>Click to start &mdash; press <kbd>M</kbd> to go back</p>
+      <p>SHIFT to dash &mdash; a shove in the direction you are facing, spending one of your dash charges. Charges refill over time.</p>
+      <p>Golden shrines float off the surf line &mdash; carry enough speed to fly through one and choose a free powerup.</p>
+      <p>Falling is death: there are no mid-course respawns. The run restarts from the top.</p>
+      <p>Click to start &mdash; press <kbd>M</kbd> to go back, <kbd>O</kbd> to tune the movement</p>
     </div>
+    <!-- Movement build stamp. The movement is being tuned against a person's
+         judgement, so every note has to be attachable to a specific build. -->
+    <div id="movement-tag"></div>
 
     <div id="main-menu" class="overlay hidden">
       <h1>surf-proto</h1>
@@ -80,21 +79,34 @@
       <div id="editor-palette">
         <h2>Pieces</h2>
         <div id="editor-palette-items"></div>
-        <p class="palette-hint">Drag a piece into the world.</p>
+        <p class="palette-hint">Drag a piece into the world &mdash; it snaps onto nearby ramp ends.</p>
         <button id="editor-delete-piece" class="danger" disabled>Delete selected piece</button>
-        <div id="editor-help">
+        <div id="editor-spline-tools">
+          <button id="editor-spline">Spline (P)</button>
+          <button id="editor-spline-clear" disabled>Clear</button>
+        </div>
+        <details id="editor-help">
+          <summary>Controls</summary>
           <h3>Camera</h3>
           <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly &middot; <kbd>Space</kbd>/<kbd>C</kbd> up &amp; down
           &middot; <kbd>Shift</kbd> faster &middot; hold <kbd>right&nbsp;mouse</kbd> to look</p>
           <h3>Pieces</h3>
-          <p><kbd>click</kbd> select &middot; <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down</p>
+          <p><kbd>click</kbd> select &middot; <kbd>Shift</kbd>+click multi-select &middot;
+          <kbd>drag</kbd> move &middot; <kbd>Alt</kbd>+drag move up &amp; down &middot;
+          drag an <span class="axis-x">X</span>/<span class="axis-y">Y</span>/<span class="axis-z">Z</span>
+          arrow to move along one axis</p>
           <p><kbd>Q</kbd><kbd>E</kbd> rotate &middot; <kbd>R</kbd><kbd>F</kbd> raise/lower &middot;
           <kbd>T</kbd><kbd>Y</kbd> pitch &middot; <kbd>B</kbd> flip bank</p>
           <p><kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate &middot; <kbd>Del</kbd> delete &middot;
-          <kbd>N</kbd> grid snap</p>
+          <kbd>N</kbd> snapping</p>
+          <p><kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undo &middot;
+          <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>X</kbd> redo</p>
+          <h3>Spline</h3>
+          <p><kbd>P</kbd> spline mode &middot; <kbd>click</kbd> lay a point &middot; ramps generate along
+          the curve &middot; <kbd>Del</kbd> remove a point</p>
           <h3>Mode</h3>
           <p><kbd>Enter</kbd> play &middot; <kbd>M</kbd> back to the editor &middot; <kbd>Esc</kbd> main menu</p>
-        </div>
+        </details>
       </div>
 
       <div id="editor-toolbar">

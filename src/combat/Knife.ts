@@ -107,8 +107,16 @@ export interface KnifeSwing {
  * it must be timed, it hits everything in front of you, and it rewards speed.
  */
 export class Knife {
-  readonly range = KNIFE_RANGE;
   readonly coneHalfAngleDeg = KNIFE_CONE_HALF_ANGLE_DEG;
+
+  /** Flat damage added on top of the speed-scaled base, from upgrades. */
+  bonusDamage = 0;
+  /** Extra reach, from upgrades. */
+  bonusRange = 0;
+
+  get range(): number {
+    return KNIFE_RANGE + this.bonusRange;
+  }
 
   private cooldown = 0;
   /**
@@ -138,7 +146,7 @@ export class Knife {
   }
 
   private swing(wielder: KnifeWielder, targets: readonly KnifeTarget[]): KnifeSwing {
-    const damage = knifeDamageAtSpeed(wielder.speed);
+    const damage = knifeDamageAtSpeed(wielder.speed) + this.bonusDamage;
     let hitCount = 0;
     for (const target of targets) {
       if (!this.isInCone(wielder, target)) continue;
@@ -188,6 +196,8 @@ export class Knife {
   reset(): void {
     this.cooldown = 0;
     this.queued = false;
+    this.bonusDamage = 0;
+    this.bonusRange = 0;
   }
 }
 

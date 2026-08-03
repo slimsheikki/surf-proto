@@ -12,39 +12,41 @@ import {
   RAMP_LENGTH,
 } from '../world/SurfCourse';
 import { degToRad } from '../engine/MathUtils';
+import { defFor } from './RampLibrary';
 
 /**
  * Free-mode map format.
  *
- * Bumped whenever a stored map would be misread by the current loader; the
- * loader drops anything it does not recognise rather than guessing, because a
- * half-understood map is a map the player falls out of.
+ * Version 2 is the modular-library format: pieces reference a `RampDefinition`
+ * id and may carry curve/taper parameters, and a map may carry the spline its
+ * ramps were generated from. Version 1 maps (pre-library) are still parsed —
+ * every v1 piece was a single straight banked face, which is exactly the
+ * library's `straight-half`, so the upgrade is lossless.
  */
-export const FREE_MAP_VERSION = 1;
-
-/**
- * Palette entry a piece was spawned from. Purely a template identifier — every
- * dimension is stored on the piece itself, so editing a palette preset later
- * never silently reshapes maps already saved.
- */
-export type PieceKind = 'surf' | 'descent' | 'short' | 'platform';
+export const FREE_MAP_VERSION = 2;
 
 /**
  * One placed piece.
  *
- * `x/y/z` is the **centre of the surfable face's centreline**, not the leading
- * edge `RampCurve` takes and not the box centre. That choice is what makes the
+ * `def` names the `RampDefinition` this piece was spawned from; the family and
+ * variant (half face, A-frame, channel...) live there. Every dimension is
+ * stored on the piece itself, so editing a library default later never
+ * silently reshapes maps already saved.
+ *
+ * `x/y/z` is the **midpoint of the piece's centre path**, not the leading edge
+ * `RampCurve` takes and not a box centre. That choice is what makes the
  * editor's drag behave: a user dragging a ramp expects it to pivot and settle
  * about the middle of the thing they can see, and rotation about any other
- * anchor swings the piece out from under the cursor. `FreeCourse` steps back
- * half a length along travel to recover the leading edge at build time.
+ * anchor swings the piece out from under the cursor. `RampLibrary.piecePath`
+ * walks the path to recover the entry point at build time.
  *
  * For a `platform` the same point is the centre of its *top* surface, so a pad
  * and a ramp both sit at the height you can see them at.
  */
 export interface FreePiece {
   id: string;
-  kind: PieceKind;
+  /** `RampDefinition` id, or `platform`. */
+  def: string;
   x: number;
   y: number;
   z: number;
@@ -54,11 +56,18 @@ export interface FreePiece {
   pitchDeg: number;
   /**
    * Bank about the direction of travel. The sign is what makes a channel: two
-   * facing pieces need opposite signs. 0 is a floor, not a surf ramp.
+   * facing pieces need opposite signs. 0 is a floor, not a surf ramp. For
+   * full/inverted composites the sign is ignored — they are symmetric.
    */
   rollDeg: number;
   length: number;
   width: number;
+  /** Width at the far end (trapezoid/pyramid taper). Constant when absent. */
+  endWidth?: number;
+  /** Total yaw swept along the piece (horizontal curve). Straight when absent. */
+  yawSweepDeg?: number;
+  /** Pitch at the far end (vertical curve). Constant pitch when absent. */
+  endPitchDeg?: number;
 }
 
 export interface FreeMap {
@@ -69,95 +78,12 @@ export interface FreeMap {
   /** Top-surface centre of the boss cylinder: the goal every free map runs toward. */
   boss: { x: number; y: number; z: number };
   pieces: FreePiece[];
-}
-
-export interface PalettePreset {
-  kind: PieceKind;
-  /** Stable id used as the drag payload and the palette element's `data-preset`. */
-  id: string;
-  label: string;
-  hint: string;
-  pitchDeg: number;
-  rollDeg: number;
-  length: number;
-  width: number;
-}
-
-/**
- * What the side panel offers. Deliberately short: every preset here is a shape
- * that already works in the standard course, so a map assembled purely by
- * dragging is a map made of known-rideable parts. Anything finer — bank, pitch,
- * heading — is a keyboard nudge on the selected piece.
- *
- * Both banks of the plain surf ramp are offered even though `B` flips one into
- * the other, because a channel is the first thing anyone builds and having to
- * discover a key to make one is a bad first minute.
- */
-export const PALETTE: PalettePreset[] = [
-  {
-    kind: 'surf',
-    id: 'surf-left',
-    label: 'Surf ramp ◤',
-    hint: `${RAMP_LENGTH} long · banks left`,
-    pitchDeg: 0,
-    rollDeg: FACE_ANGLE_DEG,
-    length: RAMP_LENGTH,
-    width: RAMP_FACE_WIDTH,
-  },
-  {
-    kind: 'surf',
-    id: 'surf-right',
-    label: 'Surf ramp ◥',
-    hint: `${RAMP_LENGTH} long · banks right`,
-    pitchDeg: 0,
-    rollDeg: -FACE_ANGLE_DEG,
-    length: RAMP_LENGTH,
-    width: RAMP_FACE_WIDTH,
-  },
-  {
-    kind: 'descent',
-    id: 'descent-left',
-    label: 'Descent ◤',
-    hint: `${APPROACH_DESCENT_PITCH_DEG}° drop · gains speed`,
-    pitchDeg: APPROACH_DESCENT_PITCH_DEG,
-    rollDeg: FACE_ANGLE_DEG,
-    length: 33,
-    width: RAMP_FACE_WIDTH,
-  },
-  {
-    kind: 'descent',
-    id: 'descent-right',
-    label: 'Descent ◥',
-    hint: `${APPROACH_DESCENT_PITCH_DEG}° drop · gains speed`,
-    pitchDeg: APPROACH_DESCENT_PITCH_DEG,
-    rollDeg: -FACE_ANGLE_DEG,
-    length: 33,
-    width: RAMP_FACE_WIDTH,
-  },
-  {
-    kind: 'short',
-    id: 'short-left',
-    label: 'Short ramp ◤',
-    hint: '26 long · tight corners',
-    pitchDeg: 0,
-    rollDeg: FACE_ANGLE_DEG,
-    length: 26,
-    width: RAMP_FACE_WIDTH,
-  },
-  {
-    kind: 'platform',
-    id: 'platform',
-    label: 'Checkpoint pad',
-    hint: 'Flat · respawn point',
-    pitchDeg: 0,
-    rollDeg: 0,
-    length: PLATFORM_DEPTH,
-    width: 14,
-  },
-];
-
-export function findPreset(id: string): PalettePreset | undefined {
-  return PALETTE.find((preset) => preset.id === id);
+  /**
+   * Control points of the design spline, if the map has one. The spline is a
+   * guide, not geometry — it generates and regenerates library pieces in the
+   * editor and is ignored entirely by the play-mode builder.
+   */
+  spline?: { x: number; y: number; z: number }[];
 }
 
 /**
@@ -171,21 +97,6 @@ export function newPieceId(): string {
   return `p${nextPieceId++}`;
 }
 
-export function pieceFromPreset(preset: PalettePreset, x: number, y: number, z: number, yawDeg = 0): FreePiece {
-  return {
-    id: newPieceId(),
-    kind: preset.kind,
-    x,
-    y,
-    z,
-    yawDeg,
-    pitchDeg: preset.pitchDeg,
-    rollDeg: preset.rollDeg,
-    length: preset.length,
-    width: preset.width,
-  };
-}
-
 /** Deep copy, so an edit to the live map can never write through to a stored one. */
 export function cloneMap(map: FreeMap): FreeMap {
   return {
@@ -194,12 +105,26 @@ export function cloneMap(map: FreeMap): FreeMap {
     spawn: { ...map.spawn },
     boss: { ...map.boss },
     pieces: map.pieces.map((piece) => ({ ...piece })),
+    spline: map.spline?.map((point) => ({ ...point })),
   };
 }
 
 function num(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
+
+/** Optional numeric field: absent stays absent, anything non-finite is dropped. */
+function optNum(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** v1 stored a `kind` per piece; each maps onto exactly one library definition. */
+const V1_KIND_TO_DEF: Record<string, string> = {
+  surf: 'straight-half',
+  descent: 'straight-descent',
+  short: 'straight-half',
+  platform: 'platform',
+};
 
 /**
  * Rebuilds a map from whatever came out of storage, field by field.
@@ -213,7 +138,8 @@ function num(value: unknown, fallback: number): number {
 export function parseMap(raw: unknown): FreeMap | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const data = raw as Record<string, unknown>;
-  if (num(data.version, 0) !== FREE_MAP_VERSION) return null;
+  const version = num(data.version, 0);
+  if (version !== 1 && version !== FREE_MAP_VERSION) return null;
   if (!Array.isArray(data.pieces)) return null;
 
   const spawn = (data.spawn ?? {}) as Record<string, unknown>;
@@ -223,11 +149,23 @@ export function parseMap(raw: unknown): FreeMap | null {
   for (const entry of data.pieces) {
     if (typeof entry !== 'object' || entry === null) continue;
     const piece = entry as Record<string, unknown>;
-    const kind = piece.kind;
-    if (kind !== 'surf' && kind !== 'descent' && kind !== 'short' && kind !== 'platform') continue;
+
+    // v1 pieces name a kind; v2 pieces name a definition. Either way the id is
+    // validated against the live library — `defFor` falls back to the basic
+    // straight face rather than dropping the piece, so a map from a newer build
+    // with an unknown family degrades to something rideable instead of a hole.
+    let defId: string;
+    if (version === 1) {
+      const mapped = typeof piece.kind === 'string' ? V1_KIND_TO_DEF[piece.kind] : undefined;
+      if (!mapped) continue;
+      defId = mapped;
+    } else {
+      defId = typeof piece.def === 'string' ? defFor(piece.def).id : 'straight-half';
+    }
+
     pieces.push({
       id: newPieceId(),
-      kind,
+      def: defId,
       x: num(piece.x, 0),
       y: num(piece.y, 0),
       z: num(piece.z, 0),
@@ -238,7 +176,21 @@ export function parseMap(raw: unknown): FreeMap | null {
       // the piece, so a corrupted number costs the player a resize and not a ramp.
       length: Math.max(2, num(piece.length, RAMP_LENGTH)),
       width: Math.max(2, num(piece.width, RAMP_FACE_WIDTH)),
+      endWidth: optNum(piece.endWidth),
+      yawSweepDeg: optNum(piece.yawSweepDeg),
+      endPitchDeg: optNum(piece.endPitchDeg),
     });
+  }
+
+  let spline: FreeMap['spline'];
+  if (Array.isArray(data.spline)) {
+    spline = [];
+    for (const entry of data.spline) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const point = entry as Record<string, unknown>;
+      spline.push({ x: num(point.x, 0), y: num(point.y, 0), z: num(point.z, 0) });
+    }
+    if (spline.length === 0) spline = undefined;
   }
 
   return {
@@ -252,6 +204,7 @@ export function parseMap(raw: unknown): FreeMap | null {
     },
     boss: { x: num(boss.x, 0), y: num(boss.y, 0), z: num(boss.z, 0) },
     pieces,
+    spline,
   };
 }
 
@@ -285,7 +238,7 @@ export function createStarterMap(): FreeMap {
   for (let face = 0; face < 2; face++) {
     pieces.push({
       id: newPieceId(),
-      kind: 'descent',
+      def: 'straight-descent',
       // Centre, not leading edge — see `FreePiece`.
       x,
       y: y - descentDrop / 2,
@@ -308,7 +261,7 @@ export function createStarterMap(): FreeMap {
   const straightLength = 70;
   pieces.push({
     id: newPieceId(),
-    kind: 'surf',
+    def: 'straight-half',
     x,
     y,
     z: z - straightLength / 2,

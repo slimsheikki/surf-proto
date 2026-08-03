@@ -11,7 +11,7 @@ import {
 } from 'three';
 import { FixedStepLoop } from '../engine/Clock';
 import { disposeObject } from '../engine/Dispose';
-import { InputSystem } from '../engine/Input';
+import { InputSystem, isTextEntryTarget } from '../engine/Input';
 import { Editor } from '../editor/Editor';
 import { EditorUi } from '../editor/EditorUi';
 import { buildFreeWorld } from '../editor/FreeCourse';
@@ -21,10 +21,17 @@ import { lastMapName, loadMap, rememberLastMap, uniqueMapName } from '../editor/
 import { Game, GameCourse } from '../game/Game';
 import { ViewModel } from '../player/ViewModel';
 import { GameMode, MainMenu } from '../ui/MainMenu';
+import { MovementPanel } from '../ui/MovementPanel';
+import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
+import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
 import { buildSurfCourse } from '../world/SurfCourse';
 import { clearColliders } from '../world/Colliders';
 
-const SKY_COLOR = 0x9fc8e8;
+/**
+ * Fog and clear colour match the painted dome's horizon, so distant geometry
+ * fades into the *sky's* colour rather than a mismatched flat blue.
+ */
+const SKY_COLOR = SKY_HORIZON_COLOR;
 
 /** Menu backdrop orbit: slow enough to read as a held shot rather than a spin. */
 const MENU_ORBIT_RADIUS = 165;
@@ -58,6 +65,12 @@ export class App {
   private readonly loop = new FixedStepLoop();
   private readonly mainMenu = new MainMenu();
   /**
+   * Live movement tuning, on `O`. Opening it drops pointer lock, which the
+   * existing `pointerlockchange` handler already turns into a pause — so the
+   * panel never has to reach into `Game` to stop the sim.
+   */
+  private readonly movementPanel = new MovementPanel();
+  /**
    * Distance fog, applied only while a run is in progress.
    *
    * During play it is part of the look and part of the read — it tells the
@@ -66,6 +79,7 @@ export class App {
    * the overview would disappear exactly when the player pulled back to see it.
    */
   private readonly playFog = new Fog(SKY_COLOR, 40, 220);
+  private readonly skyDome: ReturnType<typeof buildSkyDome>;
 
   private readonly startOverlay = document.getElementById('start-overlay')!;
   private readonly hudEl = document.getElementById('hud')!;
@@ -93,6 +107,10 @@ export class App {
     this.renderer.autoClear = false;
 
     this.scene.background = new Color(SKY_COLOR);
+    // The painted sky. Mesh-only (no collider), fog-exempt, re-centred on the
+    // camera every frame in `frame()` — a skybox, not a place.
+    this.skyDome = buildSkyDome();
+    this.scene.add(this.skyDome);
     this.scene.add(new AmbientLight(0xffffff, 0.55));
     const sun = new DirectionalLight(0xffffff, 1.1);
     sun.position.set(40, 60, 20);
@@ -104,6 +122,7 @@ export class App {
     this.camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
     this.input = new InputSystem(canvas);
 
+    document.getElementById('movement-tag')!.textContent = MOVEMENT_VERSION_LABEL;
     this.installListeners();
     this.loadStandardWorld();
     void this.bootFromUrl();
@@ -306,19 +325,30 @@ export class App {
       if (this.mode !== 'play') return;
       const locked = this.input.isLocked();
       // Never surface "click to start" on top of the game-over panel.
-      this.startOverlay.classList.toggle('hidden', locked || !!this.game?.isMenuOpen);
+      this.startOverlay.classList.toggle(
+        'hidden',
+        locked || !!this.game?.isMenuOpen || this.movementPanel.isOpen,
+      );
       this.game?.setPaused(!locked);
     });
 
     window.addEventListener('keydown', (event) => {
-      const target = event.target;
-      if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.isContentEditable)) {
-        return;
-      }
+      // The shared rule rather than a local INPUT-only check: the editor's
+      // share panel is a <textarea>, and typing an `o` into a pasted map code
+      // must not open the movement panel.
+      if (isTextEntryTarget(event.target)) return;
       // `M` rather than `Escape` for leaving a run: Escape is what the browser
       // uses to drop pointer lock, and the keydown for it is not reliably
       // delivered to the page, so binding it here would work on some browsers
       // and silently do nothing on others.
+      if (event.code === 'KeyO') {
+        event.preventDefault();
+        const opened = this.movementPanel.toggle();
+        if (opened) this.input.releasePointerLock();
+        else if (this.mode === 'play') this.input.requestPointerLock();
+        this.startOverlay.classList.toggle('hidden', opened || this.input.isLocked());
+        return;
+      }
       if (event.code === 'KeyM' && this.mode === 'play') {
         event.preventDefault();
         this.leaveRun();
@@ -350,21 +380,33 @@ export class App {
     // current; the callback is what is gated. Skipping the call entirely would
     // bank the whole time spent in the editor and burn it as a burst of ticks
     // on the first frame of the next run.
-    this.loop.step(now, (dt) => {
-      if (this.mode === 'play' && this.game) this.game.tick(dt, this.input.consumeFrame());
-    });
+    this.loop.step(
+      now,
+      (dt) => {
+        if (this.mode === 'play' && this.game) this.game.tick(dt, this.input.consumeFrame());
+      },
+      // Told up front how many ticks this frame will run so the frame's mouse
+      // motion is split evenly across them instead of all landing on the first.
+      (steps) => this.input.beginFrame(steps),
+    );
 
     if (this.mode === 'play' && this.game) {
       // Game-over and victory are the only panels the player must click, so the
       // cursor is handed back the moment one appears — under pointer lock it is
       // hidden and every click goes to the canvas, so the restart button would
       // be unreachable and the run would dead-end.
-      if (this.game.isMenuOpen && this.input.isLocked()) this.input.releasePointerLock();
+      if ((this.game.isMenuOpen || this.movementPanel.isOpen) && this.input.isLocked()) {
+        this.input.releasePointerLock();
+      }
     } else if (this.mode === 'editor') {
       this.editor?.update(renderDt);
     } else {
       this.updateMenuCamera(renderDt);
     }
+
+    // Skybox behaviour: the dome travels with the camera, so it reads as
+    // infinitely far and can never be reached, clipped into, or parallaxed.
+    this.skyDome.position.copy(this.camera.position);
 
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);

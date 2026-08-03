@@ -303,24 +303,36 @@ html, body {
   opacity: 0.7;
 }
 
+/* Content-browser grid: two columns of square thumbnail tiles. */
 #editor-palette-items {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
 .palette-item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 9px 11px;
+  gap: 3px;
+  padding: 5px 5px 6px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.16);
+  text-align: center;
   /* The whole point of the panel: these are dragged, never clicked. `grab`
      advertises that before the player has to guess. */
   cursor: grab;
   user-select: none;
+}
+
+.palette-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  background: rgba(127, 168, 200, 0.18);
+  /* The tile is the drag target, not its image — a dragged <img> ghosts the
+     browser's own image-drag instead of the piece drop. */
+  pointer-events: none;
 }
 
 .palette-item:hover {
@@ -332,8 +344,35 @@ html, body {
 }
 
 .palette-item span {
+  font-size: 10px;
+  line-height: 1.25;
+  opacity: 0.8;
+}
+
+/* Family headers inside the palette — the library is grouped, not flat.
+   They span the whole grid row so tiles never sit beside a heading. */
+.palette-family {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.palette-family:first-child {
+  margin-top: 0;
+}
+
+/* Collapsed by default: the controls list is reference material, and screen
+   height belongs to the content browser. */
+#editor-help summary {
+  cursor: pointer;
   font-size: 11px;
-  opacity: 0.65;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  user-select: none;
 }
 
 .palette-hint {
@@ -341,6 +380,27 @@ html, body {
   font-size: 11px;
   opacity: 0.6;
 }
+
+#editor-spline-tools {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+#editor-spline-tools button {
+  flex: 1;
+}
+
+/* The spline toggle reads as a mode, so its on state has to look latched. */
+#editor-spline.active {
+  background: rgba(127, 232, 255, 0.25);
+  border-color: rgba(127, 232, 255, 0.7);
+}
+
+/* Help-text swatches matching the translate gizmo's arm colours. */
+.axis-x { color: #e5484d; font-weight: 600; }
+.axis-y { color: #46a758; font-weight: 600; }
+.axis-z { color: #6ba6ff; font-weight: 600; }
 
 #editor-help {
   margin-top: 16px;
@@ -539,9 +599,9 @@ html, body {
 
 /**
  * Full-screen, pointer-events-off overlay for the dash's anime-style speed
- * lines and puff clouds. Kept as a sibling of #hud rather than nested inside
- * it, because it needs to cover the whole viewport rather than sit in the
- * bottom-left HUD column.
+ * lines. Kept as a sibling of #hud rather than nested inside it, because it
+ * needs to cover the whole viewport rather than sit in the bottom-left HUD
+ * column.
  */
 #dash-fx {
   position: fixed;
@@ -559,8 +619,8 @@ html, body {
  * spoke pattern, and masking out its centre keeps the crosshair clear so it
  * reads as a burst around the player rather than a blob over their aim.
  * Opacity is driven every tick from DashEffect via the --dash-line-opacity
- * custom property rather than a CSS transition/animation, matching how the
- * puffs below are driven — see DashEffect.ts for why.
+ * custom property rather than a CSS transition/animation — see DashEffect.ts
+ * for why.
  */
 .dash-lines {
   position: absolute;
@@ -574,34 +634,6 @@ html, body {
   mask-image: radial-gradient(circle at center, transparent 26%, black 60%, black 100%);
   opacity: var(--dash-line-opacity, 0);
 }
-
-.dash-puffs {
-  position: absolute;
-  left: 50%;
-  bottom: 24%;
-  width: 0;
-  height: 0;
-}
-
-.dash-puff {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(230, 238, 245, 0.75) 40%,
-    rgba(230, 238, 245, 0) 72%
-  );
-  filter: blur(1px);
-  opacity: 0;
-}
-
-.dash-puff:nth-child(1) { width: 90px; height: 90px; margin-left: -150px; }
-.dash-puff:nth-child(2) { width: 70px; height: 70px; margin-left: -40px; }
-.dash-puff:nth-child(3) { width: 110px; height: 110px; margin-left: 50px; }
-.dash-puff:nth-child(4) { width: 60px; height: 60px; margin-left: 10px; }
 
 /* -------------------------------------------------------------- share panel */
 
@@ -685,4 +717,121 @@ html, body {
   font-size: 12px;
   line-height: 1.5;
   opacity: 0.75;
+}
+
+/* ---------------------------------------------------- movement build + tuning */
+
+/*
+ * Build stamp, bottom-left, always visible. Deliberately not inside #hud: it
+ * has to be readable in the menu and the editor too, because "which build was
+ * that?" is the first question any feedback note has to answer.
+ */
+#movement-tag {
+  position: fixed;
+  left: 12px;
+  bottom: 10px;
+  z-index: 40;
+  pointer-events: none;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#movement-panel {
+  position: fixed;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  z-index: 60;
+  width: 360px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(12, 16, 22, 0.93);
+  color: #e8eef5;
+  font-size: 13px;
+}
+
+#movement-panel.hidden {
+  display: none;
+}
+
+#movement-panel h2 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #5cffb0;
+}
+
+.movement-panel-note {
+  margin: 0 0 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.6;
+}
+
+.movement-panel-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 10px;
+  margin-bottom: 11px;
+  cursor: pointer;
+}
+
+.movement-panel-row input[type='range'] {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #5cffb0;
+}
+
+.movement-panel-row-toggle {
+  grid-template-columns: 1fr auto;
+  margin-bottom: 9px;
+}
+
+.movement-panel-row-toggle input {
+  accent-color: #5cffb0;
+}
+
+.movement-panel-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.movement-panel-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  opacity: 0.6;
+  text-align: right;
+}
+
+/* A changed value has to be obvious at a glance, or a note reporting "feels
+   wrong" can be about a slider the reviewer forgot they had moved. */
+.movement-panel-value.is-changed {
+  color: #ffd166;
+  opacity: 1;
+}
+
+.movement-panel-reset {
+  margin-top: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.movement-panel-reset:hover {
+  background: rgba(255, 255, 255, 0.19);
 }

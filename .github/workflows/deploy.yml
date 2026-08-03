@@ -2,7 +2,18 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # The movement branch is listed on purpose: the movement is being judged by
+    # feel in the real build, and waiting for a merge to publish each version
+    # makes the review loop far too slow. It publishes to the same Pages site, so
+    # while this line is here the live URL is whatever was pushed most recently —
+    # drop it once the movement work lands on main.
+    #
+    # This alone is NOT enough. The `github-pages` environment has its own
+    # deployment-branch policy, and it currently allows only the default branch,
+    # so the build job runs green and the deploy job is refused before its first
+    # step. To let this work: Settings -> Environments -> github-pages ->
+    # Deployment branches -> add `claude/css-movement-alignment-j974gg`.
+    branches: [main, claude/css-movement-alignment-j974gg]
   workflow_dispatch:
 
 permissions:

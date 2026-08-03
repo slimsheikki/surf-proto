@@ -1,15 +1,23 @@
 import {
   Box3,
   BoxHelper,
+  BufferGeometry,
+  CatmullRomCurve3,
+  ConeGeometry,
+  CylinderGeometry,
   GridHelper,
   Group,
+  Line,
+  LineBasicMaterial,
   Material,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
   Raycaster,
   Sphere,
+  SphereGeometry,
   Vector2,
   Vector3,
 } from 'three';
@@ -17,7 +25,9 @@ import { disposeObject } from '../engine/Dispose';
 import { isTextEntryTarget } from '../engine/Input';
 import { degToRad, radToDeg } from '../engine/MathUtils';
 import { BOSS_ID, buildBossMarker, buildPiece, buildSpawnPad, SPAWN_ID } from './FreeCourse';
-import { cloneMap, findPreset, FreeMap, FreePiece, newPieceId, pieceFromPreset } from './MapData';
+import { cloneMap, FreeMap, FreePiece, newPieceId } from './MapData';
+import { defFor, pieceFromDef, piecePath, PiecePath } from './RampLibrary';
+import { generatePiecesFromSpline } from './SplineGen';
 
 /** Fly speed, and the multiplier `Shift` applies. Sized against the course, not the tick — this is a camera, not a player. */
 const FLY_SPEED = 45;
@@ -30,7 +40,18 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 const DROP_DISTANCE = 60;
 
 const POSITION_SNAP = 2;
-const YAW_SNAP = 15;
+/**
+ * Degrees per Q/E press, and the yaw grid rotations and drops snap to.
+ * Halved from the original 15 — a full step turned a piece too far to line a
+ * ramp up with its neighbour; Alt+Q/E still gives 1° for fine work.
+ */
+const YAW_SNAP = 7.5;
+/**
+ * How close a dragged piece's socket has to come to another piece's before it
+ * snaps on. In *piece-position* space, not socket space, so the feel is "the
+ * piece clicks into place when it is nearly there".
+ */
+const SOCKET_SNAP_RADIUS = 6;
 /** Vertical nudge per `R`/`F` press, and world units moved per pixel of an Alt-drag. */
 const HEIGHT_STEP = 2;
 const VERTICAL_DRAG_SCALE = 0.18;
@@ -41,6 +62,35 @@ const MAX_PITCH_DEG = 50;
 const SELECTION_COLOR = 0xffd166;
 const GHOST_COLOR = 0x7fe8ff;
 const GHOST_OPACITY = 0.45;
+
+const SPLINE_COLOR = 0x7fe8ff;
+const SPLINE_HANDLE_COLOR = 0x49b8d6;
+const SPLINE_HANDLE_SELECTED = 0xffd166;
+const SPLINE_HANDLE_RADIUS = 1.6;
+/** Shared by every handle — geometry is never per-instance here. */
+const SPLINE_HANDLE_GEOMETRY = new SphereGeometry(SPLINE_HANDLE_RADIUS, 12, 10);
+
+/**
+ * Translate-gizmo styling: the conventional DCC colouring (X red, Y green,
+ * Z blue), sized in local units and rescaled every frame against camera
+ * distance so the handles stay a constant, grabbable size on screen.
+ */
+const AXIS_COLORS = { x: 0xe5484d, y: 0x46a758, z: 0x3f7fd6 } as const;
+const GIZMO_ARM_LENGTH = 7;
+const GIZMO_SHAFT_RADIUS = 0.14;
+const GIZMO_TIP_LENGTH = 1.8;
+const GIZMO_TIP_RADIUS = 0.55;
+/** Invisible fat cylinder around each arm — the real hit target. A 0.14 shaft is unhittable. */
+const GIZMO_PICK_RADIUS = 1.1;
+/** World scale per unit of camera distance; ~1 at the editor's default framing. */
+const GIZMO_DISTANCE_SCALE = 1 / 90;
+
+type AxisKey = 'x' | 'y' | 'z';
+const AXIS_VECTORS: Record<AxisKey, Vector3> = {
+  x: new Vector3(1, 0, 0),
+  y: new Vector3(0, 1, 0),
+  z: new Vector3(0, 0, 1),
+};
 
 /**
  * The opening view: tilted down, swung off the map's own heading, and pulled
@@ -72,6 +122,7 @@ export interface EditorCallbacks {
 }
 
 interface DragState {
+  /** Primary — the piece under the cursor. The rest of the selection follows it. */
   id: string;
   /** True while `Alt` is held: the drag moves the piece up and down instead of across. */
   vertical: boolean;
@@ -79,11 +130,39 @@ interface DragState {
   planeY: number;
   /** Piece position minus the grabbed point, so the piece does not jump to centre under the cursor. */
   grabOffset: Vector3;
+  /** Where every selected thing was when the drag began, for group moves. */
+  startPositions: Map<string, Vector3>;
+  /** Exit/entry sockets of every *unselected* ramp, frozen at drag start. */
+  socketTargets: { id: string; path: PiecePath }[];
+  /** Whether the drag actually changed anything — a click-without-move discards its history entry. */
+  moved: boolean;
+}
+
+interface SplineDragState {
+  index: number;
+  vertical: boolean;
+  planeY: number;
+  grabOffset: Vector3;
+  moved: boolean;
+}
+
+interface AxisDragState {
+  axis: Vector3;
+  /** Parameter along the axis line where the grab started — deltas are measured from it. */
+  t0: number;
+  /** The axis line's anchor (the gizmo position at grab time). */
+  origin: Vector3;
+  /** Piece/fixture starting positions, or null when a spline point is the target. */
+  startPositions: Map<string, Vector3> | null;
+  splineIndex: number | null;
+  splineStart: Vector3 | null;
+  moved: boolean;
 }
 
 /**
- * The free-mode map editor: a free-flying camera over a live map, with pieces
- * dragged in from the palette and moved in place.
+ * The free-mode map editor: a free-flying camera over a live map, with modular
+ * library pieces dragged in from the palette, snapped socket-to-socket, and a
+ * design spline that assembles pieces automatically (see `SplineGen`).
  *
  * It deliberately does **not** use pointer lock. The standard game does, and
  * that is what makes a mouse-driven editor impossible there — under lock the
@@ -109,8 +188,9 @@ export class Editor {
   /** id → built group, for every piece plus the two fixtures. */
   private readonly built = new Map<string, Group>();
 
-  private selectedId: string | null = null;
-  private selectionHelper: BoxHelper | null = null;
+  /** Multi-selection, in click order. The first entry drives group operations. */
+  private selectedIds: string[] = [];
+  private selectionHelpers: BoxHelper[] = [];
 
   private readonly camPosition = new Vector3();
   private camYaw = 0;
@@ -120,10 +200,34 @@ export class Editor {
   private looking = false;
   private drag: DragState | null = null;
   /** Non-null between a palette `dragstart` and its `dragend`/`drop`. */
-  private pendingPreset: string | null = null;
+  private pendingDef: string | null = null;
   private ghost: Group | null = null;
 
   snapEnabled = true;
+
+  // ---- spline tool state
+  splineMode = false;
+  private splinePoints: Vector3[] = [];
+  /** Pieces owned by the current spline generation — replaced wholesale on regen. */
+  private splineGeneratedIds = new Set<string>();
+  private selectedHandle: number | null = null;
+  private splineDrag: SplineDragState | null = null;
+  private readonly splineGroup = new Group();
+  private splineLine: Line | null = null;
+  private splineHandles: Mesh[] = [];
+
+  /** XYZ translate gizmo, following whatever is selected. Built once. */
+  private readonly gizmo: Group;
+  private axisDrag: AxisDragState | null = null;
+
+  /**
+   * Undo/redo history: whole-map snapshots, one per completed gesture (a
+   * drag, a drop, a delete, a key nudge). Snapshots are a few KB of plain
+   * numbers, so depth is effectively unlimited; the cap exists only so a
+   * marathon session cannot grow without bound.
+   */
+  private undoStack: FreeMap[] = [];
+  private redoStack: FreeMap[] = [];
 
   private readonly raycaster = new Raycaster();
   private readonly pointer = new Vector2();
@@ -137,6 +241,7 @@ export class Editor {
   ) {
     this.map = cloneMap(map);
     this.root.add(this.world, this.helpers);
+    this.helpers.add(this.splineGroup);
 
     const grid = new GridHelper(GRID_EXTENT, GRID_DIVISIONS, 0x5a6672, 0x3c4550);
     // Transparent so the grid reads as a reference plane rather than a floor —
@@ -146,9 +251,161 @@ export class Editor {
     gridMaterial.opacity = 0.35;
     this.helpers.add(grid);
 
+    this.gizmo = this.buildAxisGizmo();
+    this.helpers.add(this.gizmo);
+
     this.installListeners();
+    this.adoptSplineFromMap();
     this.rebuildAll();
     this.frameOnMap();
+  }
+
+  /**
+   * The three-arm translate gizmo. Each arm is a shaft + cone tip along its
+   * world axis plus an invisible fat pick cylinder, all tagged with the axis
+   * key. Materials skip the depth test so the gizmo is never buried inside
+   * the piece it controls — being occluded by the thing you are trying to
+   * move is the classic way these become useless.
+   */
+  private buildAxisGizmo(): Group {
+    const gizmo = new Group();
+    gizmo.visible = false;
+
+    for (const key of ['x', 'y', 'z'] as AxisKey[]) {
+      const arm = new Group();
+      const material = new MeshBasicMaterial({
+        color: AXIS_COLORS[key],
+        depthTest: false,
+        transparent: true,
+        opacity: 0.95,
+      });
+
+      const shaft = new Mesh(
+        new CylinderGeometry(GIZMO_SHAFT_RADIUS, GIZMO_SHAFT_RADIUS, GIZMO_ARM_LENGTH, 6),
+        material,
+      );
+      shaft.position.y = GIZMO_ARM_LENGTH / 2;
+      const tip = new Mesh(new ConeGeometry(GIZMO_TIP_RADIUS, GIZMO_TIP_LENGTH, 10), material);
+      tip.position.y = GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH / 2;
+      const pick = new Mesh(
+        new CylinderGeometry(
+          GIZMO_PICK_RADIUS,
+          GIZMO_PICK_RADIUS,
+          GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH,
+          6,
+        ),
+        new MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }),
+      );
+      pick.position.y = (GIZMO_ARM_LENGTH + GIZMO_TIP_LENGTH) / 2;
+
+      for (const mesh of [shaft, tip, pick]) {
+        mesh.renderOrder = 1000;
+        mesh.userData.gizmoAxis = key;
+        arm.add(mesh);
+      }
+
+      // Arms are authored along +Y; rotate into place.
+      if (key === 'x') arm.rotation.z = -Math.PI / 2;
+      if (key === 'z') arm.rotation.x = Math.PI / 2;
+      gizmo.add(arm);
+    }
+    return gizmo;
+  }
+
+  /** What the gizmo is attached to right now, or null to hide it. */
+  private gizmoTargetPosition(): Vector3 | null {
+    if (this.splineMode) {
+      if (this.selectedHandle === null) return null;
+      const point = this.splinePoints[this.selectedHandle];
+      return point ? point.clone() : null;
+    }
+    if (this.selectedIds.length === 0) return null;
+    return this.positionOf(this.selectedIds[0]);
+  }
+
+  /** Axis key under the pointer, if the pointer is on a gizmo arm. */
+  private gizmoArmAt(event: PointerEvent): AxisKey | null {
+    if (!this.gizmo.visible) return null;
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    for (const hit of this.raycaster.intersectObject(this.gizmo, true)) {
+      const key = hit.object.userData.gizmoAxis;
+      if (key === 'x' || key === 'y' || key === 'z') return key;
+    }
+    return null;
+  }
+
+  /**
+   * Parameter along `origin + axis·t` closest to the current pointer ray —
+   * the line-line closest-point solve. Sampling the same formula at grab time
+   * and during the drag makes the handle track the cursor without ever
+   * needing a projection plane.
+   */
+  private axisParameter(origin: Vector3, axis: Vector3): number {
+    const ray = this.raycaster.ray;
+    const w0 = origin.clone().sub(ray.origin);
+    const b = axis.dot(ray.direction);
+    const denom = 1 - b * b;
+    // Ray nearly parallel to the axis: the solve blows up, so freeze instead.
+    if (Math.abs(denom) < 1e-6) return 0;
+    return (b * ray.direction.dot(w0) - axis.dot(w0)) / denom;
+  }
+
+  private beginAxisDrag(key: AxisKey, event: PointerEvent): void {
+    const origin = this.gizmoTargetPosition();
+    if (!origin) return;
+    const axis = AXIS_VECTORS[key].clone();
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+
+    this.snapshot(); // discarded on release if the drag never moved
+    if (this.splineMode && this.selectedHandle !== null) {
+      this.axisDrag = {
+        axis,
+        t0: this.axisParameter(origin, axis),
+        origin,
+        startPositions: null,
+        splineIndex: this.selectedHandle,
+        splineStart: this.splinePoints[this.selectedHandle].clone(),
+        moved: false,
+      };
+    } else {
+      const startPositions = new Map<string, Vector3>();
+      for (const id of this.selectedIds) {
+        const start = this.positionOf(id);
+        if (start) startPositions.set(id, start);
+      }
+      this.axisDrag = {
+        axis,
+        t0: this.axisParameter(origin, axis),
+        origin,
+        startPositions,
+        splineIndex: null,
+        splineStart: null,
+        moved: false,
+      };
+    }
+    this.canvas.setPointerCapture(event.pointerId);
+  }
+
+  private moveAxisDrag(event: PointerEvent): void {
+    const drag = this.axisDrag!;
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const delta = this.axisParameter(drag.origin, drag.axis) - drag.t0;
+    const offset = drag.axis.clone().multiplyScalar(delta);
+    drag.moved = true;
+
+    if (drag.splineIndex !== null && drag.splineStart) {
+      const point = this.splinePoints[drag.splineIndex];
+      if (!point) return;
+      point.copy(this.snapVector(drag.splineStart.clone().add(offset)));
+      this.refreshSplineLive(drag.splineIndex);
+      return;
+    }
+    for (const [id, start] of drag.startPositions ?? []) {
+      this.setPosition(id, this.snapVector(start.clone().add(offset)));
+    }
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -166,19 +423,83 @@ export class Editor {
     this.keys.clear();
     this.looking = false;
     this.drag = null;
+    this.splineDrag = null;
+    this.axisDrag = null;
     this.clearGhost();
   }
 
   getMap(): FreeMap {
+    this.syncSplineIntoMap();
     return cloneMap(this.map);
   }
 
-  /** Replaces the whole map — loading a saved one, or starting a new one. */
+  /** Replaces the whole map — loading a saved one, or starting a new one. Undoable. */
   setMap(map: FreeMap): void {
+    this.snapshot();
     this.map = cloneMap(map);
-    this.selectedId = null;
+    this.selectedIds = [];
+    this.splineGeneratedIds.clear();
+    this.adoptSplineFromMap();
     this.rebuildAll();
     this.frameOnMap();
+    this.callbacks.onChange();
+  }
+
+  // ------------------------------------------------------------- undo / redo
+
+  private static readonly HISTORY_CAP = 500;
+
+  /**
+   * Records the current map as an undo point. Call **before** mutating —
+   * every gesture that changes the map starts with one of these, and taking
+   * any new snapshot invalidates the redo branch, exactly like every other
+   * editor's history.
+   */
+  private snapshot(): void {
+    this.syncSplineIntoMap();
+    this.undoStack.push(cloneMap(this.map));
+    if (this.undoStack.length > Editor.HISTORY_CAP) this.undoStack.shift();
+    this.redoStack.length = 0;
+  }
+
+  /** Discards the most recent undo point — a gesture that turned out to change nothing. */
+  private discardSnapshot(): void {
+    this.undoStack.pop();
+  }
+
+  undo(): void {
+    const previous = this.undoStack.pop();
+    if (!previous) return;
+    this.syncSplineIntoMap();
+    this.redoStack.push(cloneMap(this.map));
+    this.applyHistoryState(previous);
+  }
+
+  redo(): void {
+    const next = this.redoStack.pop();
+    if (!next) return;
+    this.syncSplineIntoMap();
+    this.undoStack.push(cloneMap(this.map));
+    this.applyHistoryState(next);
+  }
+
+  /**
+   * Restores a history snapshot. Selection and any in-flight drag are
+   * dropped — they may reference pieces that no longer exist — but the camera
+   * stays put: an undo that also teleports the view is disorienting.
+   * `splineGeneratedIds` is deliberately left alone; piece ids are unique for
+   * the whole session, so stale entries are harmless and surviving entries
+   * keep spline regeneration owning exactly the pieces it created.
+   */
+  private applyHistoryState(map: FreeMap): void {
+    this.map = cloneMap(map);
+    this.selectedIds = [];
+    this.selectedHandle = null;
+    this.drag = null;
+    this.splineDrag = null;
+    this.axisDrag = null;
+    this.adoptSplineFromMap();
+    this.rebuildAll();
     this.callbacks.onChange();
   }
 
@@ -194,24 +515,40 @@ export class Editor {
     return this.map.pieces.length;
   }
 
+  get splinePointCount(): number {
+    return this.splinePoints.length;
+  }
+
   /**
    * Whether `deleteSelected` would do anything. The start pad and the boss
    * cylinder are selectable and movable but never removable, so the toolbar
    * button greys out on them rather than looking broken when it is pressed.
    */
   get canDeleteSelection(): boolean {
-    return this.selectedId !== null && this.selectedId !== SPAWN_ID && this.selectedId !== BOSS_ID;
+    return this.selectedIds.some((id) => id !== SPAWN_ID && id !== BOSS_ID);
   }
 
   /** Human-readable description of what is selected, for the editor's status line. */
   get selectionSummary(): string {
-    if (!this.selectedId) return 'Nothing selected — click a piece to move it.';
-    if (this.selectedId === SPAWN_ID) return 'Start pad — the run begins here.';
-    if (this.selectedId === BOSS_ID) return 'Boss cylinder — the goal.';
-    const piece = this.findPiece(this.selectedId);
+    if (this.splineMode) {
+      return this.splinePoints.length < 2
+        ? 'Spline: click the world to lay guide points — ramps generate along them.'
+        : `Spline: ${this.splinePoints.length} points, ${this.splineGeneratedIds.size} generated pieces. Drag points to reshape; Delete removes one.`;
+    }
+    if (this.selectedIds.length === 0) return 'Nothing selected — click a piece, shift-click to add more.';
+    if (this.selectedIds.length > 1) return `${this.selectedIds.length} pieces selected — drag moves all, Q/E turns the group.`;
+    const id = this.selectedIds[0];
+    if (id === SPAWN_ID) return 'Start pad — the run begins here.';
+    if (id === BOSS_ID) return 'Boss cylinder — the goal.';
+    const piece = this.findPiece(id);
     if (!piece) return '';
+    const def = defFor(piece.def);
     const bank = piece.rollDeg === 0 ? 'flat' : `bank ${piece.rollDeg.toFixed(0)}°`;
-    return `${piece.kind} · yaw ${piece.yawDeg.toFixed(0)}° · pitch ${piece.pitchDeg.toFixed(0)}° · ${bank} · y ${piece.y.toFixed(1)}`;
+    const curve =
+      piece.yawSweepDeg !== undefined && piece.yawSweepDeg !== 0
+        ? ` · sweep ${piece.yawSweepDeg.toFixed(0)}°`
+        : '';
+    return `${def.label} · yaw ${piece.yawDeg.toFixed(0)}° · pitch ${piece.pitchDeg.toFixed(0)}°${curve} · ${bank} · y ${piece.y.toFixed(1)}`;
   }
 
   // ------------------------------------------------------------------- update
@@ -244,7 +581,20 @@ export class Editor {
 
     this.camera.position.copy(this.camPosition);
     this.camera.rotation.set(this.camPitch, this.camYaw, 0, 'YXZ');
-    this.selectionHelper?.update();
+    for (const helper of this.selectionHelpers) helper.update();
+
+    // Gizmo follows the selection every frame — cheaper than threading a
+    // refresh through every mutation path, and it can never go stale.
+    const gizmoTarget = this.gizmoTargetPosition();
+    if (gizmoTarget) {
+      this.gizmo.visible = true;
+      this.gizmo.position.copy(gizmoTarget);
+      const distance = this.camPosition.distanceTo(gizmoTarget);
+      const scale = Math.max(0.4, distance * GIZMO_DISTANCE_SCALE);
+      this.gizmo.scale.setScalar(scale);
+    } else {
+      this.gizmo.visible = false;
+    }
   }
 
   /** Same convention as `CameraRig.lookDirFromAngles`: forward at yaw 0 is -Z. */
@@ -303,7 +653,7 @@ export class Editor {
   private rebuildAll(): void {
     for (const group of this.built.values()) disposeObject(group);
     this.built.clear();
-    this.clearSelectionHelper();
+    this.clearSelectionHelpers();
 
     const spawn = buildSpawnPad(this.map.spawn, false);
     this.world.add(spawn.group);
@@ -314,7 +664,8 @@ export class Editor {
     this.built.set(BOSS_ID, boss);
 
     for (const piece of this.map.pieces) this.rebuildPiece(piece);
-    this.refreshSelectionHelper();
+    this.rebuildSplineVisuals();
+    this.refreshSelectionHelpers();
   }
 
   /** Disposes and re-emits one piece's meshes. Cheap: a straight run is a single box. */
@@ -324,7 +675,7 @@ export class Editor {
     const group = buildPiece(piece, { colliders: false });
     this.world.add(group);
     this.built.set(piece.id, group);
-    if (this.selectedId === piece.id) this.refreshSelectionHelper();
+    if (this.selectedIds.includes(piece.id)) this.refreshSelectionHelpers();
   }
 
   private rebuildFixture(id: string): void {
@@ -334,7 +685,7 @@ export class Editor {
       id === SPAWN_ID ? buildSpawnPad(this.map.spawn, false).group : buildBossMarker(this.map.boss, false);
     this.world.add(group);
     this.built.set(id, group);
-    if (this.selectedId === id) this.refreshSelectionHelper();
+    if (this.selectedIds.includes(id)) this.refreshSelectionHelpers();
   }
 
   private rebuildById(id: string): void {
@@ -362,58 +713,83 @@ export class Editor {
     this.rebuildById(id);
   }
 
-  select(id: string | null): void {
-    this.selectedId = id;
-    this.refreshSelectionHelper();
+  select(id: string | null, additive = false): void {
+    if (id === null) {
+      this.selectedIds = [];
+    } else if (additive) {
+      // Shift-click toggles membership, so an accidental add is undone the
+      // same way it was made.
+      const at = this.selectedIds.indexOf(id);
+      if (at === -1) this.selectedIds.push(id);
+      else this.selectedIds.splice(at, 1);
+    } else {
+      this.selectedIds = [id];
+    }
+    this.refreshSelectionHelpers();
     this.callbacks.onChange();
   }
 
-  private clearSelectionHelper(): void {
-    if (!this.selectionHelper) return;
-    this.selectionHelper.removeFromParent();
-    this.selectionHelper.dispose();
-    this.selectionHelper = null;
+  private clearSelectionHelpers(): void {
+    for (const helper of this.selectionHelpers) {
+      helper.removeFromParent();
+      helper.dispose();
+    }
+    this.selectionHelpers = [];
   }
 
-  private refreshSelectionHelper(): void {
-    this.clearSelectionHelper();
-    if (!this.selectedId) return;
-    const group = this.built.get(this.selectedId);
-    if (!group) return;
-    // A world-axis-aligned box around a banked ramp is looser than the ramp
-    // itself, which is fine and arguably better: it reads as a selection
-    // bracket rather than as an outline the player might mistake for geometry.
-    this.selectionHelper = new BoxHelper(group, SELECTION_COLOR);
-    this.helpers.add(this.selectionHelper);
+  private refreshSelectionHelpers(): void {
+    this.clearSelectionHelpers();
+    for (const id of this.selectedIds) {
+      const group = this.built.get(id);
+      if (!group) continue;
+      // A world-axis-aligned box around a banked ramp is looser than the ramp
+      // itself, which is fine and arguably better: it reads as a selection
+      // bracket rather than as an outline the player might mistake for geometry.
+      const helper = new BoxHelper(group, SELECTION_COLOR);
+      this.helpers.add(helper);
+      this.selectionHelpers.push(helper);
+    }
   }
 
   deleteSelected(): void {
-    if (!this.selectedId || this.selectedId === SPAWN_ID || this.selectedId === BOSS_ID) return;
-    const id = this.selectedId;
-    const group = this.built.get(id);
-    if (group) disposeObject(group);
-    this.built.delete(id);
-    this.map.pieces = this.map.pieces.filter((piece) => piece.id !== id);
+    const doomed = this.selectedIds.filter((id) => id !== SPAWN_ID && id !== BOSS_ID);
+    if (doomed.length === 0) return;
+    this.snapshot();
+    for (const id of doomed) {
+      const group = this.built.get(id);
+      if (group) disposeObject(group);
+      this.built.delete(id);
+      this.splineGeneratedIds.delete(id);
+    }
+    const gone = new Set(doomed);
+    this.map.pieces = this.map.pieces.filter((piece) => !gone.has(piece.id));
     this.select(null);
   }
 
   duplicateSelected(): void {
-    if (!this.selectedId) return;
-    const piece = this.findPiece(this.selectedId);
-    if (!piece) return;
-    // Offset along travel rather than sideways, so a duplicate lands where the
-    // next piece of a chain wants to be and one keypress extends a run.
-    const forward = this.travelDirection(piece);
-    const copy: FreePiece = {
+    const originals = this.selectedIds
+      .map((id) => this.findPiece(id))
+      .filter((piece): piece is FreePiece => piece !== undefined);
+    if (originals.length === 0) return;
+    this.snapshot();
+
+    // Offset along the first piece's travel rather than sideways, so a
+    // duplicate lands where the next piece of a chain wants to be and one
+    // keypress extends a run.
+    const forward = this.travelDirection(originals[0]);
+    const shift = originals[0].length + 6;
+    const copies: FreePiece[] = originals.map((piece) => ({
       ...piece,
       id: newPieceId(),
-      x: piece.x + forward.x * (piece.length + 6),
-      y: piece.y + forward.y * (piece.length + 6),
-      z: piece.z + forward.z * (piece.length + 6),
-    };
-    this.map.pieces.push(copy);
-    this.rebuildPiece(copy);
-    this.select(copy.id);
+      x: piece.x + forward.x * shift,
+      y: piece.y + forward.y * shift,
+      z: piece.z + forward.z * shift,
+    }));
+    this.map.pieces.push(...copies);
+    for (const copy of copies) this.rebuildPiece(copy);
+    this.selectedIds = copies.map((copy) => copy.id);
+    this.refreshSelectionHelpers();
+    this.callbacks.onChange();
   }
 
   private travelDirection(piece: FreePiece): Vector3 {
@@ -426,25 +802,72 @@ export class Editor {
     );
   }
 
+  /** Applies `mutate` to every selected ramp piece and rebuilds them. One undo step. */
   private nudgeSelected(mutate: (piece: FreePiece) => void): void {
-    if (!this.selectedId) return;
-    const piece = this.findPiece(this.selectedId);
-    if (!piece) return;
-    mutate(piece);
-    this.rebuildPiece(piece);
+    if (!this.selectedIds.some((id) => this.findPiece(id))) return;
+    this.snapshot();
+    for (const id of this.selectedIds) {
+      const piece = this.findPiece(id);
+      if (!piece) continue;
+      mutate(piece);
+      this.rebuildPiece(piece);
+    }
     this.callbacks.onChange();
   }
 
   private rotateSelected(deltaDeg: number): void {
-    if (this.selectedId === BOSS_ID) return; // A cylinder has no heading.
-    if (this.selectedId === SPAWN_ID) {
-      this.map.spawn.yawDeg = this.wrapYaw(this.map.spawn.yawDeg + deltaDeg);
-      this.rebuildById(SPAWN_ID);
+    if (this.selectedIds.length === 0) return;
+
+    // Single selection keeps the old behaviour: turn in place.
+    if (this.selectedIds.length === 1) {
+      const id = this.selectedIds[0];
+      if (id === BOSS_ID) return; // A cylinder has no heading.
+      if (id === SPAWN_ID) {
+        this.snapshot();
+        this.map.spawn.yawDeg = this.wrapYaw(this.map.spawn.yawDeg + deltaDeg);
+        this.rebuildById(SPAWN_ID);
+        return;
+      }
+      this.nudgeSelected((piece) => {
+        piece.yawDeg = this.wrapYaw(piece.yawDeg + deltaDeg);
+      });
       return;
     }
-    this.nudgeSelected((piece) => {
-      piece.yawDeg = this.wrapYaw(piece.yawDeg + deltaDeg);
-    });
+
+    // Group rotation: every selected thing orbits the selection's centroid and
+    // turns with it, so a chain stays a chain instead of shearing apart.
+    const positions = this.selectedIds
+      .map((id) => ({ id, position: this.positionOf(id) }))
+      .filter((entry): entry is { id: string; position: Vector3 } => entry.position !== null);
+    if (positions.length === 0) return;
+    this.snapshot();
+    const centroid = positions
+      .reduce((sum, entry) => sum.add(entry.position), new Vector3())
+      .divideScalar(positions.length);
+
+    // Positions must orbit by the same turn the headings make. In this yaw
+    // convention (yaw 0 = -Z, forwardXZ = (sin, -cos)) that comes out as the
+    // matrix below with a *positive* angle — verified against forwardXZ, since
+    // a sign slip here shears a chain apart instead of turning it.
+    const angle = degToRad(deltaDeg);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    for (const { id, position } of positions) {
+      const dx = position.x - centroid.x;
+      const dz = position.z - centroid.z;
+      const rotated = new Vector3(
+        centroid.x + dx * cos - dz * sin,
+        position.y,
+        centroid.z + dx * sin + dz * cos,
+      );
+      if (id === SPAWN_ID) {
+        this.map.spawn.yawDeg = this.wrapYaw(this.map.spawn.yawDeg + deltaDeg);
+      } else if (id !== BOSS_ID) {
+        const piece = this.findPiece(id);
+        if (piece) piece.yawDeg = this.wrapYaw(piece.yawDeg + deltaDeg);
+      }
+      this.setPosition(id, rotated);
+    }
   }
 
   private wrapYaw(yawDeg: number): number {
@@ -453,10 +876,12 @@ export class Editor {
   }
 
   private raiseSelected(delta: number): void {
-    if (!this.selectedId) return;
-    const position = this.positionOf(this.selectedId);
-    if (!position) return;
-    this.setPosition(this.selectedId, position.setY(position.y + delta));
+    if (this.selectedIds.length === 0) return;
+    this.snapshot();
+    for (const id of this.selectedIds) {
+      const position = this.positionOf(id);
+      if (position) this.setPosition(id, position.setY(position.y + delta));
+    }
   }
 
   private snapVector(position: Vector3): Vector3 {
@@ -468,29 +893,86 @@ export class Editor {
     );
   }
 
+  // ---------------------------------------------------------- socket snapping
+
+  /**
+   * Sockets of every ramp except `except` — frozen once per drag, because only
+   * the dragged piece moves and re-walking every path per pointer event is
+   * waste for nothing.
+   */
+  private collectSocketTargets(except: Set<string>): { id: string; path: PiecePath }[] {
+    const targets: { id: string; path: PiecePath }[] = [];
+    for (const piece of this.map.pieces) {
+      if (except.has(piece.id) || piece.def === 'platform') continue;
+      targets.push({ id: piece.id, path: piecePath(piece) });
+    }
+    return targets;
+  }
+
+  /**
+   * Tries to click the dragged piece onto a neighbour: its entry onto some
+   * exit (adopting that exit's heading, so chains stay tangent), or its exit
+   * onto some entry (keeping its own heading — there is no one yaw that solves
+   * that case in general). Returns the snapped placement, or null to leave the
+   * grid snap's answer alone.
+   */
+  private trySocketSnap(
+    piece: FreePiece,
+    desired: Vector3,
+    targets: { id: string; path: PiecePath }[],
+  ): { position: Vector3; yawDeg: number } | null {
+    let best: { position: Vector3; yawDeg: number; distSq: number } | null = null;
+
+    for (const target of targets) {
+      // Entry-to-exit: candidate heading is the exit's, so the piece has to be
+      // re-walked at that yaw before its entry offset is known.
+      const chained: FreePiece = { ...piece, yawDeg: target.path.endYawDeg };
+      const atOrigin = piecePath({ ...chained, x: 0, y: 0, z: 0 });
+      const entryPos = new Vector3(
+        target.path.end.x - atOrigin.entry.x,
+        target.path.end.y - atOrigin.entry.y,
+        target.path.end.z - atOrigin.entry.z,
+      );
+      const entryDistSq = entryPos.distanceToSquared(desired);
+      if (entryDistSq < SOCKET_SNAP_RADIUS * SOCKET_SNAP_RADIUS && (!best || entryDistSq < best.distSq)) {
+        best = { position: entryPos, yawDeg: target.path.endYawDeg, distSq: entryDistSq };
+      }
+
+      // Exit-to-entry: feed the chain from the front, own heading kept.
+      const own = piecePath({ ...piece, x: 0, y: 0, z: 0 });
+      const exitPos = new Vector3(
+        target.path.entry.x - own.end.x,
+        target.path.entry.y - own.end.y,
+        target.path.entry.z - own.end.z,
+      );
+      const exitDistSq = exitPos.distanceToSquared(desired);
+      if (exitDistSq < SOCKET_SNAP_RADIUS * SOCKET_SNAP_RADIUS && (!best || exitDistSq < best.distSq)) {
+        best = { position: exitPos, yawDeg: piece.yawDeg, distSq: exitDistSq };
+      }
+    }
+
+    return best ? { position: best.position, yawDeg: best.yawDeg } : null;
+  }
+
   // ---------------------------------------------------------- palette dragging
 
-  /** Called from the palette's `dragstart`. The payload is a preset id. */
-  beginPalettePlacement(presetId: string): void {
-    this.pendingPreset = presetId;
+  /** Called from the palette's `dragstart`. The payload is a `RampDefinition` id. */
+  beginPalettePlacement(defId: string): void {
+    this.pendingDef = defId;
   }
 
   /** Called from `dragend`, whether or not the drop landed in the world. */
   endPalettePlacement(): void {
-    this.pendingPreset = null;
+    this.pendingDef = null;
     this.clearGhost();
   }
 
   /** `dragover` on the canvas: shows a translucent preview where the drop would land. */
   previewDrop(event: DragEvent): void {
-    if (!this.pendingPreset) return;
-    const preset = findPreset(this.pendingPreset);
-    if (!preset) return;
-    const piece = pieceFromPreset(preset, 0, 0, 0, this.dropYawDeg());
+    if (!this.pendingDef) return;
+    const def = defFor(this.pendingDef);
     const target = this.snapVector(this.dropPoint(event));
-    piece.x = target.x;
-    piece.y = target.y;
-    piece.z = target.z;
+    const piece = pieceFromDef(def, newPieceId(), target.x, target.y, target.z, this.dropYawDeg());
 
     this.clearGhost();
     this.ghost = buildPiece(piece, { colliders: false, color: GHOST_COLOR });
@@ -505,15 +987,27 @@ export class Editor {
     this.helpers.add(this.ghost);
   }
 
-  /** `drop` on the canvas: commits the previewed piece. */
+  /** `drop` on the canvas: commits the previewed piece, snapping onto a socket when one is close. */
   completeDrop(event: DragEvent): void {
-    const presetId = this.pendingPreset ?? event.dataTransfer?.getData('text/plain') ?? '';
-    const preset = findPreset(presetId);
+    const defId = this.pendingDef ?? event.dataTransfer?.getData('text/plain') ?? '';
     this.endPalettePlacement();
-    if (!preset) return;
+    if (!defId) return;
+    const def = defFor(defId);
 
     const target = this.snapVector(this.dropPoint(event));
-    const piece = pieceFromPreset(preset, target.x, target.y, target.z, this.dropYawDeg());
+    const piece = pieceFromDef(def, newPieceId(), target.x, target.y, target.z, this.dropYawDeg());
+
+    if (def.family !== 'platform' && this.snapEnabled) {
+      const snapped = this.trySocketSnap(piece, target, this.collectSocketTargets(new Set()));
+      if (snapped) {
+        piece.x = snapped.position.x;
+        piece.y = snapped.position.y;
+        piece.z = snapped.position.z;
+        piece.yawDeg = snapped.yawDeg;
+      }
+    }
+
+    this.snapshot();
     this.map.pieces.push(piece);
     this.rebuildPiece(piece);
     this.select(piece.id);
@@ -576,6 +1070,147 @@ export class Editor {
     return null;
   }
 
+  // ------------------------------------------------------------- spline tool
+
+  setSplineMode(on: boolean): void {
+    this.splineMode = on;
+    this.selectedHandle = null;
+    this.splineDrag = null;
+    if (!on) this.select(null);
+    this.rebuildSplineVisuals();
+    this.callbacks.onChange();
+  }
+
+  /** Forgets the guide curve. The generated pieces stay — they are ordinary pieces. */
+  clearSpline(): void {
+    if (this.splinePoints.length === 0) return;
+    this.snapshot();
+    this.splinePoints = [];
+    this.splineGeneratedIds.clear();
+    this.selectedHandle = null;
+    this.syncSplineIntoMap();
+    this.rebuildSplineVisuals();
+    this.callbacks.onChange();
+  }
+
+  private adoptSplineFromMap(): void {
+    this.splinePoints = (this.map.spline ?? []).map((p) => new Vector3(p.x, p.y, p.z));
+  }
+
+  private syncSplineIntoMap(): void {
+    this.map.spline =
+      this.splinePoints.length > 0
+        ? this.splinePoints.map((p) => ({ x: p.x, y: p.y, z: p.z }))
+        : undefined;
+  }
+
+  /**
+   * Replaces the previous generation with pieces assembled along the current
+   * spline. Runs on every spline edit, per the spec — the guide moves, the
+   * ramps follow. Pieces the player has hand-placed are never touched: only
+   * ids this generator itself created are replaced.
+   */
+  private regenerateFromSpline(): void {
+    for (const id of this.splineGeneratedIds) {
+      const group = this.built.get(id);
+      if (group) disposeObject(group);
+      this.built.delete(id);
+    }
+    this.map.pieces = this.map.pieces.filter((piece) => !this.splineGeneratedIds.has(piece.id));
+    this.splineGeneratedIds.clear();
+
+    const generated = generatePiecesFromSpline(this.splinePoints);
+    for (const piece of generated) {
+      this.map.pieces.push(piece);
+      this.splineGeneratedIds.add(piece.id);
+      this.rebuildPiece(piece);
+    }
+    this.syncSplineIntoMap();
+    this.callbacks.onChange();
+  }
+
+  private rebuildSplineVisuals(): void {
+    if (this.splineLine) {
+      this.splineLine.geometry.dispose();
+      (this.splineLine.material as Material).dispose();
+      this.splineLine.removeFromParent();
+      this.splineLine = null;
+    }
+    for (const handle of this.splineHandles) {
+      (handle.material as Material).dispose();
+      handle.removeFromParent();
+    }
+    this.splineHandles = [];
+    this.splineGroup.visible = this.splineMode || this.splinePoints.length > 0;
+
+    if (this.splinePoints.length >= 2) {
+      const curve = new CatmullRomCurve3(this.splinePoints, false, 'catmullrom', 0.5);
+      const geometry = new BufferGeometry().setFromPoints(curve.getPoints(this.splinePoints.length * 24));
+      this.splineLine = new Line(geometry, new LineBasicMaterial({ color: SPLINE_COLOR }));
+      this.splineGroup.add(this.splineLine);
+    }
+
+    this.splinePoints.forEach((point, index) => {
+      const selected = index === this.selectedHandle;
+      const handle = new Mesh(
+        SPLINE_HANDLE_GEOMETRY,
+        new MeshBasicMaterial({ color: selected ? SPLINE_HANDLE_SELECTED : SPLINE_HANDLE_COLOR }),
+      );
+      handle.position.copy(point);
+      handle.userData.splineIndex = index;
+      this.splineGroup.add(handle);
+      this.splineHandles.push(handle);
+    });
+  }
+
+  private splineHandleAt(event: PointerEvent): number | null {
+    this.setPointer(event);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    for (const hit of this.raycaster.intersectObjects(this.splineHandles, false)) {
+      const index = hit.object.userData.splineIndex;
+      if (typeof index === 'number') return index;
+    }
+    return null;
+  }
+
+  private deleteSelectedSplinePoint(): void {
+    if (this.splinePoints.length === 0) return;
+    this.snapshot();
+    const index = this.selectedHandle ?? this.splinePoints.length - 1;
+    this.splinePoints.splice(index, 1);
+    this.selectedHandle = null;
+    this.rebuildSplineVisuals();
+    this.regenerateFromSpline();
+  }
+
+  private onSplinePointerDown(event: PointerEvent): void {
+    const handleIndex = this.splineHandleAt(event);
+    if (handleIndex !== null) {
+      this.selectedHandle = handleIndex;
+      const position = this.splinePoints[handleIndex];
+      this.snapshot(); // discarded on release if the handle never moved
+      this.splineDrag = {
+        index: handleIndex,
+        vertical: event.altKey,
+        planeY: position.y,
+        grabOffset: position.clone().sub(this.dropPoint(event)),
+        moved: false,
+      };
+      this.canvas.setPointerCapture(event.pointerId);
+      this.rebuildSplineVisuals();
+      this.callbacks.onChange();
+      return;
+    }
+
+    // Clicked the world: lay the next guide point there.
+    this.snapshot();
+    const point = this.snapVector(this.dropPoint(event));
+    this.splinePoints.push(point);
+    this.selectedHandle = this.splinePoints.length - 1;
+    this.rebuildSplineVisuals();
+    this.regenerateFromSpline();
+  }
+
   // ----------------------------------------------------------------- listeners
 
   private installListeners(): void {
@@ -590,7 +1225,7 @@ export class Editor {
     window.addEventListener('pointerup', (event) => this.onPointerUp(event));
 
     this.canvas.addEventListener('dragover', (event) => {
-      if (!this.active || !this.pendingPreset) return;
+      if (!this.active || !this.pendingDef) return;
       // Without preventDefault the browser refuses the drop outright.
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -622,18 +1257,48 @@ export class Editor {
     }
     if (event.button !== 0) return;
 
+    // The gizmo outranks everything: it draws on top, so it must pick on top,
+    // or clicking an arm in front of a piece would reselect the piece.
+    const axisKey = this.gizmoArmAt(event);
+    if (axisKey) {
+      this.beginAxisDrag(axisKey, event);
+      return;
+    }
+
+    if (this.splineMode) {
+      this.onSplinePointerDown(event);
+      return;
+    }
+
     const id = this.pieceIdAt(event);
-    this.select(id);
-    if (!id) return;
+    this.select(id, event.shiftKey);
+    if (!id || !this.selectedIds.includes(id)) return;
 
     const position = this.positionOf(id);
     if (!position) return;
     const grabbed = this.dropPoint(event);
+
+    const startPositions = new Map<string, Vector3>();
+    for (const selectedId of this.selectedIds) {
+      const start = this.positionOf(selectedId);
+      if (start) startPositions.set(selectedId, start);
+    }
+
+    const piece = this.findPiece(id);
+    this.snapshot(); // discarded on release if the drag never moved
     this.drag = {
       id,
       vertical: event.altKey,
       planeY: position.y,
       grabOffset: position.clone().sub(grabbed),
+      startPositions,
+      // Socket snap applies to a single dragged ramp; a group drag or a
+      // platform/fixture drag is pure translation.
+      socketTargets:
+        this.selectedIds.length === 1 && piece && piece.def !== 'platform'
+          ? this.collectSocketTargets(new Set(this.selectedIds))
+          : [],
+      moved: false,
     };
     this.canvas.setPointerCapture(event.pointerId);
   }
@@ -648,41 +1313,132 @@ export class Editor {
       return;
     }
 
+    if (this.axisDrag) {
+      this.moveAxisDrag(event);
+      return;
+    }
+
+    if (this.splineDrag) {
+      this.moveSplineHandle(event);
+      return;
+    }
+
     if (!this.drag) return;
-    const current = this.positionOf(this.drag.id);
-    if (!current) return;
+    const primaryStart = this.drag.startPositions.get(this.drag.id);
+    if (!primaryStart) return;
+
+    let primaryTarget: Vector3 | null = null;
 
     if (this.drag.vertical) {
       // Screen-space vertical drag. Distance-independent on purpose: the
       // alternative — scaling by depth so the piece tracks the cursor exactly —
       // makes the same wrist movement worth 2 units up close and 60 far away,
       // and a map is built from both distances.
+      const current = this.positionOf(this.drag.id);
+      if (!current) return;
       current.y -= event.movementY * VERTICAL_DRAG_SCALE;
-      this.setPosition(this.drag.id, this.snapVector(current));
-      return;
+      primaryTarget = this.snapVector(current);
+    } else {
+      // Horizontal drag: intersect the ray with the plane the piece was grabbed
+      // on, so it slides at its own height rather than sinking toward whatever
+      // is under the cursor.
+      this.setPointer(event);
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const ray = this.raycaster.ray;
+      const denominator = ray.direction.y;
+      // Near-parallel to the plane: the intersection runs off to infinity, so
+      // leave the piece where it is rather than flinging it over the horizon.
+      if (Math.abs(denominator) < 1e-4) return;
+      const t = (this.drag.planeY - ray.origin.y) / denominator;
+      if (t <= 0) return;
+
+      const point = ray.origin.clone().addScaledVector(ray.direction, t).add(this.drag.grabOffset);
+      point.y = this.drag.planeY;
+      primaryTarget = this.snapVector(point);
     }
 
-    // Horizontal drag: intersect the ray with the plane the piece was grabbed
-    // on, so it slides at its own height rather than sinking toward whatever is
-    // under the cursor.
-    this.setPointer(event);
-    this.raycaster.setFromCamera(this.pointer, this.camera);
-    const ray = this.raycaster.ray;
-    const denominator = ray.direction.y;
-    // Near-parallel to the plane: the intersection runs off to infinity, so
-    // leave the piece where it is rather than flinging it over the horizon.
-    if (Math.abs(denominator) < 1e-4) return;
-    const t = (this.drag.planeY - ray.origin.y) / denominator;
-    if (t <= 0) return;
+    // Socket snap: a lone ramp near a compatible socket clicks onto it,
+    // adopting the neighbour's exit heading so the chain stays tangent.
+    if (this.drag.socketTargets.length > 0 && this.snapEnabled) {
+      const piece = this.findPiece(this.drag.id);
+      if (piece) {
+        const snapped = this.trySocketSnap(piece, primaryTarget, this.drag.socketTargets);
+        if (snapped) {
+          primaryTarget = snapped.position;
+          if (piece.yawDeg !== snapped.yawDeg) {
+            piece.yawDeg = snapped.yawDeg;
+          }
+        }
+      }
+    }
 
-    const point = ray.origin.clone().addScaledVector(ray.direction, t).add(this.drag.grabOffset);
-    point.y = this.drag.planeY;
-    this.setPosition(this.drag.id, this.snapVector(point));
+    const delta = primaryTarget.clone().sub(primaryStart);
+    if (delta.lengthSq() > 1e-9) this.drag.moved = true;
+    for (const [selectedId, start] of this.drag.startPositions) {
+      this.setPosition(selectedId, start.clone().add(delta));
+    }
+  }
+
+  private moveSplineHandle(event: PointerEvent): void {
+    const drag = this.splineDrag!;
+    const point = this.splinePoints[drag.index];
+    if (!point) return;
+
+    if (drag.vertical) {
+      point.y -= event.movementY * VERTICAL_DRAG_SCALE;
+    } else {
+      this.setPointer(event);
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const ray = this.raycaster.ray;
+      if (Math.abs(ray.direction.y) < 1e-4) return;
+      const t = (drag.planeY - ray.origin.y) / ray.direction.y;
+      if (t <= 0) return;
+      const hit = ray.origin.clone().addScaledVector(ray.direction, t).add(drag.grabOffset);
+      hit.y = drag.planeY;
+      point.copy(this.snapVector(hit));
+    }
+    drag.moved = true;
+    this.refreshSplineLive(drag.index);
+  }
+
+  /**
+   * Cheap live feedback while a spline point moves — reposition its handle
+   * and redraw the guide line, leaving the (heavier) piece regeneration for
+   * pointerup. Shared by the plane drag and the axis-gizmo drag.
+   */
+  private refreshSplineLive(index: number): void {
+    const point = this.splinePoints[index];
+    const handle = this.splineHandles[index];
+    if (handle && point) handle.position.copy(point);
+    if (this.splineLine && this.splinePoints.length >= 2) {
+      const curve = new CatmullRomCurve3(this.splinePoints, false, 'catmullrom', 0.5);
+      this.splineLine.geometry.dispose();
+      this.splineLine.geometry = new BufferGeometry().setFromPoints(
+        curve.getPoints(this.splinePoints.length * 24),
+      );
+    }
   }
 
   private onPointerUp(event: PointerEvent): void {
     if (event.button === 2) this.looking = false;
-    if (event.button === 0) this.drag = null;
+    if (event.button === 0) {
+      if (this.drag) {
+        if (!this.drag.moved) this.discardSnapshot();
+        this.drag = null;
+      }
+      if (this.splineDrag) {
+        const moved = this.splineDrag.moved;
+        this.splineDrag = null;
+        if (moved) this.regenerateFromSpline();
+        else this.discardSnapshot();
+      }
+      if (this.axisDrag) {
+        const { moved, splineIndex } = this.axisDrag;
+        this.axisDrag = null;
+        if (!moved) this.discardSnapshot();
+        else if (splineIndex !== null) this.regenerateFromSpline();
+      }
+    }
     if (this.canvas.hasPointerCapture?.(event.pointerId)) {
       this.canvas.releasePointerCapture(event.pointerId);
     }
@@ -697,7 +1453,38 @@ export class Editor {
 
     this.keys.add(event.code);
 
+    // History works in both modes; Z is the universal undo, X is redo per
+    // this project's binding (there is no cut for it to collide with).
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+      event.preventDefault();
+      this.undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
+      event.preventDefault();
+      this.redo();
+      return;
+    }
+
+    if (this.splineMode) {
+      switch (event.code) {
+        case 'KeyP':
+          this.setSplineMode(false);
+          return;
+        case 'Delete':
+        case 'Backspace':
+          event.preventDefault();
+          this.deleteSelectedSplinePoint();
+          return;
+        default:
+          return;
+      }
+    }
+
     switch (event.code) {
+      case 'KeyP':
+        this.setSplineMode(true);
+        break;
       case 'KeyQ':
         this.rotateSelected(event.altKey ? -1 : -YAW_SNAP);
         break;
@@ -725,6 +1512,7 @@ export class Editor {
         // channel is made and how a descent staircase alternates.
         this.nudgeSelected((piece) => {
           piece.rollDeg = -piece.rollDeg;
+          if (piece.yawSweepDeg !== undefined) piece.yawSweepDeg = -piece.yawSweepDeg;
         });
         break;
       case 'KeyN':

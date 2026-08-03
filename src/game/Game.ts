@@ -15,12 +15,13 @@ import { resetMovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
 import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
-import { drawUpgradeChoices, UpgradeContext } from '../progression/Upgrades';
-import { XPOrb } from '../progression/XPOrb';
+import { createRunPerks, drawUpgradeChoices, resetRunPerks, UpgradeContext } from '../progression/Upgrades';
+import { resetXpMagnet, XPOrb } from '../progression/XPOrb';
 import { Banner } from '../ui/Banner';
 import { BossBar } from '../ui/BossBar';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
+import { Shrine } from './Shrine';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
 import { CourseStage } from '../world/SurfCourse';
@@ -43,7 +44,22 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
-const RESPAWN_HEIGHT_OFFSET = new Vector3(0, 1.2, 0);
+/**
+ * Fall detection: one rule only — below the course's `killPlaneY`, the run
+ * ends. The plane is the map's true floor, safely under every piece of
+ * geometry, so nothing in the air can ever trigger it.
+ *
+ * Two prompter detectors came before it and both are gone for cause. The
+ * checkpoint kill-plane ladder hung an invisible plane below the next unarmed
+ * checkpoint and yanked mid-flight players to the start (the "random
+ * teleport" bug). Its replacement, a plummeting-with-no-ground-below check,
+ * killed players the moment they carved a bank at speed: their feet sit ON
+ * the face, the downward probe starts inside that slab — which raycasts
+ * ignore — finds nothing beneath, and a fast carve's vertical speed crossed
+ * the threshold. Falling to the floor takes a few seconds; a few seconds of
+ * plummet is honest, and no clever detector has survived contact with this
+ * game yet.
+ */
 const BASE_MAX_HP = 100;
 
 /**
@@ -79,6 +95,8 @@ export interface GameCourse {
   trackY: number;
   /** Radius of the surf loop, which sizes the boss's engagement and cull radii. */
   trackRadius: number;
+  /** Blessing-shrine positions. Absent on free-mode maps (for now). */
+  shrines?: Vector3[];
   /**
    * Absolute world Y of the kill plane, overriding the per-stage one below.
    *
@@ -106,6 +124,11 @@ export class Game {
   readonly entityManager: EntityManager;
   readonly spawnDirector = new SpawnDirector();
   readonly dash = new Dash();
+  /** Run-scoped perk hooks (heal-on-kill, XP multiplier). See `RunPerks`. */
+  readonly perks = createRunPerks();
+
+  /** Blessing shrines built from the course. */
+  private shrines: Shrine[] = [];
 
   state: GameState = 'playing';
 
@@ -115,8 +138,6 @@ export class Game {
   /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
   bossesFelled = 0;
 
-  /** Index into `stages` of the last rest platform the player stood on. */
-  private lastStageIndex = 0;
   private paused = false;
   private readonly hud = new Hud();
   private readonly bossBar = new BossBar();
@@ -141,8 +162,6 @@ export class Game {
   /** Stable callback the boss reports its damage through; see `Boss.tick`. */
   private readonly damagePlayer = (amount: number) => this.playerHealth.takeDamage(amount);
 
-  private stages: CourseStage[];
-
   constructor(
     private readonly scene: Scene,
     camera: PerspectiveCamera,
@@ -162,7 +181,6 @@ export class Game {
      */
     private readonly viewModel: ViewModel,
   ) {
-    this.stages = course.stages;
     this.playerController = new PlayerController(course.spawnPoint, course.spawnYawDeg);
     this.cameraRig = new CameraRig(camera);
     this.entityManager = new EntityManager(scene);
@@ -173,27 +191,29 @@ export class Game {
     this.scene.add(this.weapon.effects);
     this.gameOverScreen = new GameOverScreen(() => this.restart());
     scene.add(this.slashCone.mesh);
-  }
-
-  private get lastStage(): CourseStage {
-    return this.stages[this.lastStageIndex];
+    this.rebuildShrines();
   }
 
   /**
-   * Kill plane, placed just below the platform the player is currently surfing
-   * *toward* rather than below the whole course.
-   *
-   * A single global plane derived from the lowest stage looks equivalent but
-   * isn't: this course descends over 1100 units, so falling off the first ramp
-   * would mean plummeting ~1000 units — about ten seconds of nothing — before
-   * the recovery triggered. Each stage's ramp stays above the platform it ends
-   * on, so a margin below that platform is below the whole ramp run and catches
-   * a fall promptly wherever it happens.
+   * Tears down and rebuilds the shrine objects for the current course. Called
+   * from the constructor and from `setCourse` — a new map brings new shrine
+   * positions, and the old meshes must not linger in the scene.
+   */
+  private rebuildShrines(): void {
+    for (const shrine of this.shrines) {
+      this.scene.remove(shrine.group);
+      shrine.dispose();
+    }
+    this.shrines = (this.course.shrines ?? []).map((position) => new Shrine(position.clone()));
+    for (const shrine of this.shrines) this.scene.add(shrine.group);
+  }
+
+  /**
+   * The unconditional backstop plane. Promptness comes from the doomed check
+   * (see `DOOMED_FALL_SPEED`), so one honest global plane per course is enough.
    */
   private get outOfBoundsY(): number {
-    if (this.course.killPlaneY !== undefined) return this.course.killPlaneY;
-    const target = this.stages[Math.min(this.lastStageIndex + 1, this.stages.length - 1)];
-    return target.center.y - OUT_OF_BOUNDS_MARGIN;
+    return this.course.killPlaneY ?? -OUT_OF_BOUNDS_MARGIN;
   }
 
   /**
@@ -203,7 +223,7 @@ export class Game {
    */
   setCourse(course: GameCourse): void {
     this.course = course;
-    this.stages = course.stages;
+    this.rebuildShrines();
     this.restart();
   }
 
@@ -245,14 +265,28 @@ export class Game {
 
     this.dash.tick(dt);
     if (input.dashPressed && this.dash.tryConsume()) {
-      this.playerController.grantMomentumBoost();
+      this.playerController.dashImpulse();
       this.viewModel.triggerDash();
       this.dashFx.trigger();
     }
 
-    this.trackLastStage(playerPosition);
+    this.playerHealth.tick(dt);
+
+    // Shrines animate and test pickup on the fixed step like everything else.
+    // Contact opens the blessing choice immediately: the pause freezes the
+    // whole sim, so the flight resumes exactly where it stopped once a power
+    // is picked — flying through a shrine costs the line, not the landing.
+    for (const shrine of this.shrines) {
+      if (shrine.tick(dt, playerPosition)) {
+        this.startBlessing();
+        return;
+      }
+    }
+
+    // Falling is death, judged at the map's floor and nowhere else.
     if (playerPosition.y < this.outOfBoundsY) {
-      this.playerController.teleport(this.lastStage.center.clone().add(RESPAWN_HEIGHT_OFFSET));
+      this.endRun();
+      return;
     }
 
     // Checked before the spawn director runs, so the tick a Monolith arrives on
@@ -300,7 +334,7 @@ export class Game {
     this.weaponTargets.length = 0;
     for (const enemy of this.entityManager.enemies) this.weaponTargets.push(enemy);
     if (this.boss) this.weaponTargets.push(this.boss);
-    this.weapon.tick(dt, playerPosition, this.weaponTargets);
+    this.weapon.tick(dt, playerPosition, this.weaponTargets, this.playerController.speed);
 
     // After the auto-weapon, before the kill pass, so a drone finished off by
     // the knife this tick still drops its XP on this tick.
@@ -314,6 +348,7 @@ export class Game {
 
     this.entityManager.cullDeadEnemies((enemy) => {
       this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
+      if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
     });
     // Runs after the kill pass so a drone that dies this tick still drops XP;
     // distance culling itself awards nothing — leaving play is not a kill.
@@ -322,7 +357,7 @@ export class Game {
     for (const orb of this.entityManager.orbs) orb.tick(dt, playerPosition);
 
     this.entityManager.cullCollectedOrbs((orb) => {
-      this.levelSystem.addXp(orb.value, () => this.startLevelUp());
+      this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier), () => this.startLevelUp());
     });
     this.entityManager.cullDistantOrbs(playerPosition, ORB_CULL_DISTANCE);
     this.entityManager.cullSpentBlasts();
@@ -411,10 +446,31 @@ export class Game {
   }
 
   private startLevelUp(): void {
+    this.openUpgradeChoice();
+  }
+
+  /** A shrine blessing: identical menu, identical stakes, no level required. */
+  private startBlessing(): void {
+    this.openUpgradeChoice();
+  }
+
+  /**
+   * Pauses the run on a three-way powerup choice — the shared body of a
+   * level-up and a shrine blessing. The pause is the same "welcome back"
+   * contract as ever: `grantMomentumBoost` compensates the input window the
+   * menu ate.
+   */
+  private openUpgradeChoice(): void {
     this.state = 'pausedForUpgrade';
     const choices = drawUpgradeChoices(3);
     this.upgradeMenu.show(choices, (choice) => {
-      const ctx: UpgradeContext = { weapon: this.weapon, playerHealth: this.playerHealth, dash: this.dash };
+      const ctx: UpgradeContext = {
+        weapon: this.weapon,
+        knife: this.knife,
+        playerHealth: this.playerHealth,
+        dash: this.dash,
+        perks: this.perks,
+      };
       choice.apply(ctx);
       this.playerController.grantMomentumBoost();
       this.state = 'playing';
@@ -442,6 +498,10 @@ export class Game {
     this.bossesFelled = 0;
     this.playerHealth.maxHp = BASE_MAX_HP;
     this.playerHealth.hp = BASE_MAX_HP;
+    this.playerHealth.regenPerSecond = 0;
+    resetRunPerks(this.perks);
+    resetXpMagnet();
+    for (const shrine of this.shrines) shrine.reset();
     this.playerController.teleport(this.course.spawnPoint.clone());
     // Yaw too, not just position. A free map can start the player on any
     // heading, and `restart` is also the path `setCourse` takes — leaving the
@@ -449,7 +509,6 @@ export class Game {
     // backwards off the pad.
     this.playerController.yaw = degToRad(this.course.spawnYawDeg);
     this.playerController.pitch = 0;
-    this.lastStageIndex = 0;
     this.spawnDirector.reset();
     this.levelSystem.reset();
     this.weapon.reset();
@@ -476,21 +535,6 @@ export class Game {
     return new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   }
 
-  private trackLastStage(playerPosition: Vector3): void {
-    for (let i = 0; i < this.stages.length; i++) {
-      const stage = this.stages[i];
-      const dx = Math.abs(playerPosition.x - stage.center.x);
-      const dz = Math.abs(playerPosition.z - stage.center.z);
-      const dy = playerPosition.y - stage.center.y;
-      // Feet are snapped to the platform top when standing, and respawns drop
-      // from RESPAWN_HEIGHT_OFFSET above it, so only a small band above the
-      // surface counts as "on this stage" — a player passing underneath must not.
-      if (dx < stage.halfWidth && dz < stage.halfDepth && dy > -0.5 && dy < 2) {
-        this.lastStageIndex = i;
-        break;
-      }
-    }
-  }
 
   private updateHud(): void {
     // Hidden on the terminal screens so the bar doesn't hang over them.

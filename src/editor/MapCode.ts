@@ -76,7 +76,7 @@ function compact(map: FreeMap): unknown {
     },
     boss: { x: round(map.boss.x), y: round(map.boss.y), z: round(map.boss.z) },
     pieces: map.pieces.map((piece) => ({
-      kind: piece.kind,
+      def: piece.def,
       x: round(piece.x),
       y: round(piece.y),
       z: round(piece.z),
@@ -85,7 +85,15 @@ function compact(map: FreeMap): unknown {
       rollDeg: round(piece.rollDeg),
       length: round(piece.length),
       width: round(piece.width),
+      // Optional curve/taper parameters ride along only when set — a straight
+      // constant-width piece costs the same bytes it did in version 1.
+      ...(piece.endWidth !== undefined ? { endWidth: round(piece.endWidth) } : {}),
+      ...(piece.yawSweepDeg !== undefined ? { yawSweepDeg: round(piece.yawSweepDeg) } : {}),
+      ...(piece.endPitchDeg !== undefined ? { endPitchDeg: round(piece.endPitchDeg) } : {}),
     })),
+    ...(map.spline && map.spline.length > 0
+      ? { spline: map.spline.map((p) => ({ x: round(p.x), y: round(p.y), z: round(p.z) })) }
+      : {}),
   };
 }
 

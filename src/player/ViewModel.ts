@@ -96,9 +96,9 @@ const SWAY_PITCH_SCALE = 0.5;
 /**
  * A single decaying pose, not a phase machine like the slash: both hands
  * briefly brace back and down as if bracing against the sudden speed, then
- * ease back to the idle pose over the same window the dash itself acts on
- * (`Dash`'s momentum nudge), so the animation reads as "that" push rather than
- * as an unrelated flourish.
+ * ease back to the idle pose. The dash's own shove
+ * (`PlayerController.dashImpulse()`) lands in a single tick, so this window is
+ * the follow-through on that push rather than an unrelated flourish.
  */
 const DASH_KICK_DURATION = 0.3;
 const DASH_KICK_POS = { x: 0, y: -0.035, z: 0.05 };

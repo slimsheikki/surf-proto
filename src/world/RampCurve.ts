@@ -43,6 +43,14 @@ export interface RampCurveParams {
   /** Approximate arc length of the whole curve. */
   length: number;
   width: number;
+  /**
+   * Width at the far end of the piece. Defaults to `width` (constant). A taper
+   * is what makes a trapezoid or pyramid ramp: the surface stays centred on the
+   * path and both edges move. Realised as stepped segments, like everything
+   * else here — the collision engine is oriented boxes, so a smoothly tapered
+   * face would be a mesh the sweep could not test.
+   */
+  endWidth?: number;
   thickness?: number;
   /** Degrees of arc per segment — 2-5 deg matches real surf-map construction for a smooth feel. */
   angleStepDeg?: number;
@@ -74,7 +82,13 @@ export interface RampCurveResult {
 }
 
 const DEFAULT_THICKNESS = 0.4;
-const DEFAULT_ANGLE_STEP = 4;
+/**
+ * Degrees of arc per segment. Lowered from 4: on a *banked* curve the seam
+ * mismatch between consecutive segments grows with the square of this step
+ * (see `emitFaceColliders`), and that mismatch is what the player hits as a
+ * wall. Still inside the 2-5 deg band real surf maps are built at.
+ */
+const DEFAULT_ANGLE_STEP = 2;
 const GUIDE_WALL_HEIGHT = 1.4;
 const GUIDE_WALL_THICKNESS = 0.3;
 
@@ -142,23 +156,49 @@ function basisFromForward(
   return { right, normal };
 }
 
-/**
- * Builds one curved (or straight) ramp segment-chain, mirroring real surf-map
- * construction: a sequence of short flat wedge segments, each rotated a few
- * degrees from the last, with edges kept exactly coincident so there's no
- * seam that would kick the player's velocity unpredictably.
- */
-export function buildRampCurve(
-  params: RampCurveParams,
-  mode: RampCurveMode,
-): RampCurveResult {
-  const thickness = params.thickness ?? DEFAULT_THICKNESS;
-  const angleStepDeg = params.angleStepDeg ?? DEFAULT_ANGLE_STEP;
-  const color = params.color ?? 0x4a7fb5;
-  const withColliders = params.registerColliders ?? true;
+/** One segment of a ramp path: enough to place a box, or to chain a socket. */
+export interface RampFrame {
+  /** Path point (centreline) at the segment's leading edge. */
+  start: Vector3;
+  /** Path point at the segment's middle — where the box is centred. */
+  mid: Vector3;
+  forward: Vector3;
+  right: Vector3;
+  normal: Vector3;
+  width: number;
+  length: number;
+}
 
+export interface RampPath {
+  frames: RampFrame[];
+  /** Path point past the last segment, for chaining the next piece. */
+  end: Vector3;
+  endYawDeg: number;
+  endPitchDeg: number;
+  /**
+   * Extra length each segment's box should carry, split across both ends, so
+   * adjacent segments overlap instead of gapping. Zero for single-segment
+   * pieces. A rotated segment chain only meets exactly *on the centreline*;
+   * at the face's edge, half a step of rotation opens a wedge of
+   * `2·sin(step/2)·(width/2)` per seam — visible daylight on a banked curve.
+   * Real surf mapping solves it the same way: the CS2 guide's curved-ramp
+   * method explicitly slides segment faces "so that the faces overlap once".
+   */
+  overlapPad: number;
+}
+
+/**
+ * Pure geometry walk shared by the mesh builder below and by anything that
+ * needs the path without the meshes — the editor's socket snapping and its
+ * spline generator both do. Splitting this out is what keeps a piece's sockets
+ * and its collision from ever disagreeing: both are derived from the same
+ * frames, sampled the same way.
+ */
+export function computeRampFrames(params: RampCurveParams, mode: RampCurveMode): RampPath {
+  const angleStepDeg = params.angleStepDeg ?? DEFAULT_ANGLE_STEP;
   const startRoll = params.rollDeg ?? 0;
   const endRoll = params.endRollDeg ?? startRoll;
+  const endWidth = params.endWidth ?? params.width;
 
   const totalAngleChange = Math.max(
     mode === 'vertical'
@@ -169,17 +209,19 @@ export function buildRampCurve(
     // A banked piece that also twists needs segments for the roll sweep alone.
     Math.abs(endRoll - startRoll),
   );
-  const segmentCount = Math.max(1, Math.round(totalAngleChange / angleStepDeg) || 1);
+  const segmentCount = Math.max(
+    1,
+    Math.round(totalAngleChange / angleStepDeg) || 1,
+    // A taper needs steps of its own or it degenerates to one average-width
+    // box. One unit of width change per segment: the visible skin tapers
+    // continuously, so this bounds how far the stepped *collision* edge can
+    // sit from the visible edge — the audit measured the player-facing cost
+    // of coarser steps as invisible ledges along every tapered side.
+    Math.ceil(Math.abs(endWidth - params.width)),
+  );
   const segmentLength = params.length / segmentCount;
 
-  const group = new Group();
-  const material = new MeshStandardMaterial({
-    color,
-    roughness: params.roughness ?? 0.75,
-    metalness: params.metalness ?? 0.05,
-  });
-  const wallMaterial = new MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 });
-
+  const frames: RampFrame[] = [];
   let curPos = params.start.clone();
   let curYaw = params.startYawDeg;
   let curPitch = params.startPitchDeg;
@@ -200,16 +242,65 @@ export function buildRampCurve(
     const forward = forwardFromAngles(segYaw, segPitch);
     const { right, normal } = basisFromForward(forward, segYaw, segRoll);
 
-    const pathMid = curPos.clone().addScaledVector(forward, segmentLength / 2);
-    const boxCenter = pathMid.clone().addScaledVector(normal, -thickness / 2);
+    frames.push({
+      start: curPos.clone(),
+      mid: curPos.clone().addScaledVector(forward, segmentLength / 2),
+      forward,
+      right,
+      normal,
+      width: lerp(params.width, endWidth, midT),
+      length: segmentLength,
+    });
+
+    curPos = curPos.addScaledVector(forward, segmentLength);
+    curYaw = segYaw;
+    curPitch = segPitch;
+  }
+
+  const overlapPad =
+    frames.length > 1
+      ? 2 * Math.sin(degToRad(angleStepDeg) / 2) * (Math.max(params.width, endWidth) / 2) + 0.1
+      : 0;
+
+  return { frames, end: curPos, endYawDeg: curYaw, endPitchDeg: curPitch, overlapPad };
+}
+
+/**
+ * Builds one curved (or straight) ramp segment-chain, mirroring real surf-map
+ * construction: a sequence of short flat wedge segments, each rotated a few
+ * degrees from the last, with edges kept exactly coincident so there's no
+ * seam that would kick the player's velocity unpredictably.
+ */
+export function buildRampCurve(
+  params: RampCurveParams,
+  mode: RampCurveMode,
+): RampCurveResult {
+  const thickness = params.thickness ?? DEFAULT_THICKNESS;
+  const color = params.color ?? 0x4a7fb5;
+  const withColliders = params.registerColliders ?? true;
+
+  const group = new Group();
+  const material = new MeshStandardMaterial({
+    color,
+    roughness: params.roughness ?? 0.75,
+    metalness: params.metalness ?? 0.05,
+  });
+  const wallMaterial = new MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 });
+
+  const path = computeRampFrames(params, mode);
+
+  for (const frame of path.frames) {
+    const { forward, right, normal } = frame;
+    const boxCenter = frame.mid.clone().addScaledVector(normal, -thickness / 2);
+    const boxLength = frame.length + path.overlapPad;
 
     const basisMatrix = new Matrix4().makeBasis(right, normal, forward);
     const quaternion = new Quaternion().setFromRotationMatrix(basisMatrix);
-    const halfExtents = new Vector3(params.width / 2, thickness / 2, segmentLength / 2);
+    const halfExtents = new Vector3(frame.width / 2, thickness / 2, boxLength / 2);
 
     if (withColliders) registerCollider({ position: boxCenter, quaternion, halfExtents });
 
-    const geometry = new BoxGeometry(params.width, thickness, segmentLength);
+    const geometry = new BoxGeometry(frame.width, thickness, boxLength);
     const mesh = new Mesh(geometry, material);
     mesh.position.copy(boxCenter);
     mesh.quaternion.copy(quaternion);
@@ -219,12 +310,12 @@ export function buildRampCurve(
       for (const side of [-1, 1]) {
         const wallCenter = boxCenter
           .clone()
-          .addScaledVector(right, side * (params.width / 2 + GUIDE_WALL_THICKNESS / 2))
+          .addScaledVector(right, side * (frame.width / 2 + GUIDE_WALL_THICKNESS / 2))
           .addScaledVector(normal, GUIDE_WALL_HEIGHT / 2 - thickness / 2);
         const wallHalfExtents = new Vector3(
           GUIDE_WALL_THICKNESS / 2,
           GUIDE_WALL_HEIGHT / 2,
-          segmentLength / 2,
+          boxLength / 2,
         );
         if (withColliders) {
           registerCollider({
@@ -237,7 +328,7 @@ export function buildRampCurve(
         const wallGeometry = new BoxGeometry(
           GUIDE_WALL_THICKNESS,
           GUIDE_WALL_HEIGHT,
-          segmentLength,
+          boxLength,
         );
         const wallMesh = new Mesh(wallGeometry, wallMaterial);
         wallMesh.position.copy(wallCenter);
@@ -245,11 +336,7 @@ export function buildRampCurve(
         group.add(wallMesh);
       }
     }
-
-    curPos = curPos.addScaledVector(forward, segmentLength);
-    curYaw = segYaw;
-    curPitch = segPitch;
   }
 
-  return { group, endPosition: curPos, endYawDeg: curYaw, endPitchDeg: curPitch };
+  return { group, endPosition: path.end, endYawDeg: path.endYawDeg, endPitchDeg: path.endPitchDeg };
 }

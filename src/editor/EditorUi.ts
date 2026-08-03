@@ -1,6 +1,7 @@
 import { Editor } from './Editor';
 import { encodeMapCode, decodeMapCode, shareUrlFor } from './MapCode';
-import { PALETTE } from './MapData';
+import { RAMP_LIBRARY, RampFamily } from './RampLibrary';
+import { generateThumbnails } from './Thumbnails';
 import {
   deleteMap,
   listMapNames,
@@ -46,6 +47,10 @@ export class EditorUi {
   private readonly deletePieceButton = document.getElementById(
     'editor-delete-piece',
   ) as HTMLButtonElement;
+  private readonly splineButton = document.getElementById('editor-spline') as HTMLButtonElement;
+  private readonly splineClearButton = document.getElementById(
+    'editor-spline-clear',
+  ) as HTMLButtonElement;
 
   private readonly sharePanel = document.getElementById('share-panel')!;
   private readonly shareTitle = document.getElementById('share-title')!;
@@ -89,23 +94,65 @@ export class EditorUi {
     const count = this.editor.pieceCount;
     this.countEl.textContent = `${count} ${count === 1 ? 'piece' : 'pieces'}`;
     this.deletePieceButton.disabled = !this.editor.canDeleteSelection;
+    this.splineButton.textContent = this.editor.splineMode ? '✓ Spline (P)' : 'Spline (P)';
+    this.splineButton.classList.toggle('active', this.editor.splineMode);
+    this.splineClearButton.disabled = this.editor.splinePointCount === 0;
   }
 
+  /**
+   * The palette is generated from `RAMP_LIBRARY`, grouped by family, in a
+   * content-browser layout: a grid of 3D thumbnail tiles rendered from each
+   * definition's real geometry (`Thumbnails.ts`), with the prose hint demoted
+   * to a hover tooltip. The palette stays a *view* of the library, per the
+   * data-driven rule: adding a ramp family is adding a definition, never
+   * touching this file.
+   */
   private buildPalette(): void {
-    for (const preset of PALETTE) {
+    const familyLabels: Record<RampFamily, string> = {
+      straight: 'Straight',
+      trapezoid: 'Trapezoid',
+      'reverse-trapezoid': 'Trapezoid',
+      pyramid: 'Pyramid',
+      slide: 'Slide',
+      'vertical-curved': 'Vertical curve',
+      'horizontal-curved': 'Horizontal curve',
+      platform: 'Platforms',
+    };
+    const thumbnails = generateThumbnails();
+
+    let lastHeader = '';
+    for (const def of RAMP_LIBRARY) {
+      const header = familyLabels[def.family];
+      if (header !== lastHeader) {
+        const heading = document.createElement('div');
+        heading.className = 'palette-family';
+        heading.textContent = header;
+        this.paletteEl.appendChild(heading);
+        lastHeader = header;
+      }
+
       const item = document.createElement('div');
       item.className = 'palette-item';
       item.draggable = true;
-      item.dataset.preset = preset.id;
-      item.innerHTML = `<strong>${preset.label}</strong><span>${preset.hint}</span>`;
+      item.dataset.preset = def.id;
+      item.title = `${def.label} — ${def.hint}`;
+
+      const thumb = thumbnails.get(def.id);
+      // Tile label: the family header already says the family, so strip that
+      // prefix off the definition label and keep only the variant.
+      const prefix = `${header} ·`;
+      const short = def.label.startsWith(prefix) ? def.label.slice(prefix.length).trim() : def.label;
+      item.innerHTML =
+        (thumb ? `<img src="${thumb}" alt="" draggable="false" />` : '') +
+        `<span>${short}</span>`;
 
       item.addEventListener('dragstart', (event) => {
         // The payload is set for correctness (a drop with no data is refused by
-        // some browsers), but the editor reads its own `pendingPreset` — during
+        // some browsers), but the editor reads its own `pendingDef` — during
         // `dragover`, which is where the preview is drawn, `getData` returns "".
-        event.dataTransfer?.setData('text/plain', preset.id);
+        event.dataTransfer?.setData('text/plain', def.id);
         if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
-        this.editor.beginPalettePlacement(preset.id);
+        this.editor.beginPalettePlacement(def.id);
       });
       item.addEventListener('dragend', () => this.editor.endPalettePlacement());
 
@@ -122,6 +169,14 @@ export class EditorUi {
     // feature nobody has: the palette is where pieces come from, so it is where
     // the control for getting rid of one belongs.
     this.deletePieceButton.addEventListener('click', () => this.editor.deleteSelected());
+
+    this.splineButton.addEventListener('click', () =>
+      this.editor.setSplineMode(!this.editor.splineMode),
+    );
+    this.splineClearButton.addEventListener('click', () => {
+      this.editor.clearSpline();
+      this.flash('Spline cleared — the generated ramps stay as ordinary pieces');
+    });
 
     document.getElementById('editor-save')!.addEventListener('click', () => {
       const map = this.editor.getMap();

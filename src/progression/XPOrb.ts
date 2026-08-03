@@ -16,7 +16,18 @@ const MATERIAL = new MeshStandardMaterial({
 });
 
 /** Distance at which an orb notices the player and starts homing. */
-const MAGNET_RADIUS = 12;
+const MAGNET_RADIUS_DEFAULT = 12;
+/**
+ * Live magnet radius, mutable because upgrades grow it. A module-level box
+ * rather than per-orb state so an upgrade applies to orbs already in flight;
+ * `resetXpMagnet` restores it on run restart (same contract as
+ * `resetMovementConfig`).
+ */
+export const XP_MAGNET = { radius: MAGNET_RADIUS_DEFAULT };
+
+export function resetXpMagnet(): void {
+  XP_MAGNET.radius = MAGNET_RADIUS_DEFAULT;
+}
 const COLLECT_RADIUS = 1;
 /**
  * Homing speed must exceed the player's travel speed, or an orb can never close
@@ -56,7 +67,7 @@ export class XPOrb {
     toPlayer.copy(playerPosition).sub(this.position);
     let dist = toPlayer.length();
 
-    if (dist < MAGNET_RADIUS) this.magnetised = true;
+    if (dist < XP_MAGNET.radius) this.magnetised = true;
 
     if (this.magnetised && dist > 1e-6) {
       const pullSpeed = MAGNET_SPEED + dist * MAGNET_SPEED_PER_UNIT;
