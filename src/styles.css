@@ -380,8 +380,9 @@ h2,
 .menu-logo {
   perspective: 1500px;
   /* Reserves the height the image will occupy, so the menu items below do not
-     jump when the file finishes decoding. */
-  min-height: 200px;
+     jump when the file finishes decoding. Kept in step with the img's own
+     max-height below. */
+  min-height: min(330px, 38vh);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -395,8 +396,12 @@ h2,
  * box whichever way the art is shaped.
  */
 .menu-logo img {
-  max-width: min(620px, 80vw);
-  max-height: min(230px, 30vh);
+  /* The art is 3:2, so the height bound is the one that actually binds — at a
+     600px width it would want 400px of height. Both caps are set so the
+     wordmark lands around 495 x 330 on a desktop viewport: hero-sized, with
+     the three menu items still comfortably below it. */
+  max-width: min(600px, 78vw);
+  max-height: min(330px, 38vh);
   width: auto;
   height: auto;
   animation: megaflow-turn 11s linear infinite;
