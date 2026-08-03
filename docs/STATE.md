@@ -12,7 +12,7 @@ the game: `git checkout ed58d05`.
 
 ## Movement — under active review
 
-`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v1 · Source Parity`** is what is deployed.
+`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v2 · Clean Seams`** is what is deployed.
 The controller is now a full port of `CGameMovement::FullWalkMove` / `TryPlayerMove` rather
 than a sketch of it: split gravity, 4 bumps with plane accumulation and crease handling,
 Source's ground-state rules, and the CS:S constants. Two behaviour changes the user will
@@ -27,8 +27,28 @@ with Hammer units alongside). Panel values are *preferences* and survive a run r
 `setMovementPreference` keeps them apart from the upgrade pool's writes to the same object,
 which must not survive.
 
-Awaiting the user's verdict before v2. Candidates already identified: a real 32x32x72 swept
-hull instead of the flat ray ring, and ducking.
+**v2 (Clean Seams) changed no movement maths** — it stopped a ramp piece's leading edge from
+being a wall. See the log for the full before/after; the short version is that
+`RampLibrary.emitStripColliders` now pads both ends of a strip with the `overlapPad`
+`computeRampFrames` had always been computing and the prism path had never picked up, and
+`Raycast` declines a piece **end cap** as an entry plane for an airborne player. Stalls over
+the shipped course went 471 → 180 of 2632 seeds, and **none of the survivors are on a surface
+you are meant to surf**.
+
+Still open, still the named next candidates: a real 32x32x72 swept hull instead of the flat
+ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 log:
+
+- **`MAX_GROUND_SPEED` clamps actual velocity, not just `wishspeed`** (`PlayerController.tick`).
+  Source's `WalkMove` clamps `wishvel`; the only post-`Accelerate` magnitude test is
+  `if (spd < 1.0f)`, a *minimum*. So a single grounded tick at 30 u/s truncates the player to
+  7 and `stayOnGround` holds it. It can only fire on the 8 checkpoint pads and the spawn pad —
+  no ramp face on this course is walkable — but two of those pads are 2x2 clusters directly on
+  the route. Deliberately left for its own build: it changes how every landing feels.
+- **No `StepMove`.** Source retries a blocked move from `sv_stepsize` higher when it was
+  grounded at the start of it; this controller only has `stayOnGround`, which reaches *down*.
+  Worth knowing it would **not** have fixed the seam bug — `WalkMove` returns early rather than
+  stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
+  1.4-unit vertical sides of the platform pads, and nothing else.
 
 ## ReWind — the ultimate (new)
 
@@ -529,7 +549,21 @@ Playwright pass covering all of the above plus restart and the ReWind resume reg
 
 ## Known bugs
 
-None blocking. The approach entry is fixed — see below.
+None blocking on the surf line. Two known, both with the reasoning written down rather than
+left to be rediscovered:
+
+- **The bottom of a `straight-inverted` V channel is a wedge.** A player who slides to the
+  valley floor sticks in the crease. It is all 164 of the residual stalls in the v2 probe, it
+  fires at a speed-*independent* tick well before any join (so it is the floor, not a seam),
+  and it predates v2 — the count went 108 → 164 only because pieces that used to stop the
+  player at a cap now let them carry speed into the valley. Source's reverse-stop does the
+  same in any acute corner, and real surf channels are ridden on the walls, so fixing it means
+  rounding the valley: a level-design call, not a collision one. Three pieces on the course.
+- **One authoring gap at a join**, between two pitched `straight-full` pieces, leaves 1.4
+  units of open air where the sockets nearly meet. Two of the 31 face-joins; every other
+  exposed cap on the course is closed. A map fix, not an engine one.
+
+The approach entry is fixed — see below.
 
 **Fixed: Escape out of the pause menu used to bring it straight back.** Chrome refuses a
 re-lock for about a second after the *user* escaped out of one, and Escape-to-pause then
@@ -749,6 +783,12 @@ CS2 guide's taxonomy:
   Standard course is untouched (still 28 boxes, 0 wedges — it builds through
   `buildRampCurve`). Cost: a heavy 30-curved-piece map is 1470 volumes at ~14.5 µs/ray,
   about 2.8% of the 1/128 s tick budget.
+  **Two corrections to the above, both found in the v2 seam work.** (1) That audit tested the
+  14 definitions **in isolation**; nothing had ever driven a probe down a hand-placed *chain*,
+  which is where the pieces meet and where the bug that survived all of this lived. (2) The
+  perf figure is stale: the shipped 61-piece course is **3412 prisms**, 2.3x the 1470 costed
+  here, so budget ~6% of the tick rather than 2.8%. Anything that adds volumes is compounding
+  an already-doubled number — which is why the v2 fix adds none.
 - **The "stuck partway along a curved ramp" bug — first fix, engine-level.**
   `sweep()` spreads its five sample rays **horizontally**; a surf face is banked, so at
   51° a sample 0.4 to the side sits 0.31 *inside* the slab. `rayIntersectBox` already
@@ -1036,6 +1076,13 @@ Not done, deliberately: no undo, no piece resize, and **no in-editor check that 
 rideable** — the player is trusted to sort that out, and the palette presets are all shapes
 that already work in the standard course.
 
+That gap is what let the seam bug (v2) live in the shipped course unnoticed. The check itself
+is cheap and now written down: for every pair of pieces whose sockets are within a couple of
+units, take the signed along-travel offset of B's padded ring 0 from A's padded last ring at
+both the high and low edge, and flag any non-negative value as an exposed cap. It is a few
+milliseconds over the whole map and it found 22 of 31 joins. Wiring it to a toolbar button in
+`EditorUi` — on demand, not per drag, since it is O(n^2) in pieces — is the obvious next step.
+
 ## Current level constants (`src/world/SurfCourse.ts`)
 
 ```
@@ -1158,7 +1205,8 @@ the pyramid's four faces converging on the apex, both trapezoid tapers, and both
 
 ## Next up
 
-1. Fix the approach entry (bug 1), then re-run the flow probe.
+1. Decide on the two deferred movement items in the v2 log: the `MAX_GROUND_SPEED` clamp on
+   actual velocity (non-Source, costs 23 u/s on a pad touch) and `StepMove` for the pad walls.
 2. Banked powers want a human balance pass. Two numbers in particular: the 2.5 s hold, and
    `epic-tailwind`'s `MAX_AIR_WISH_SPEED += 0.15` — that is +22% air control off a 0.667
    base, the one new upgrade that could distort surf feel, and it is an aesthetic call.
@@ -1174,3 +1222,24 @@ the pyramid's four faces converging on the apex, both trapezoid tapers, and both
 Throwaway verification harnesses live at `.probe-*.ts` / `.probe-*.mjs` (gitignored,
 esbuild-bundled and run under node). The SAT overlap + approach-flow probe was deleted;
 rewrite from the numbers above if needed.
+
+Two things now bite anything written against the current tree, neither of which existed when
+the earlier probes were:
+
+- `RampTexture.ts` reads `import.meta.env.BASE_URL` at module init, so a bare esbuild bundle
+  throws before a single collider is registered. Pass
+  `--define:import.meta.env='{"BASE_URL":"/","DEV":false}'`.
+- `RampTexture.ts` also calls `new TextureLoader().load(...)`, which reaches
+  `document.createElementNS`. Stub a `globalThis.document` with that one method before the
+  imports run. Nothing in a collision probe looks at pixels.
+
+`npm install` first — `node_modules` is not checked in, and esbuild arrives with Vite.
+
+**A stall probe must judge by absolute one-tick speed loss** (a relative test flags a player
+legitimately climbing a 55° pyramid face) **and it must also measure displacement.** The v2
+work produced a fix that looked perfect on speed and was in fact pinning the player in place
+with velocity intact — 0.0% of `|v|·dt` realised over 45 seconds. Speed alone cannot see that.
+
+To attribute a hit back to a piece, build the world one piece at a time with
+`buildPiece(piece, { colliders: true })` and snapshot `getConvexColliders().length` around each
+call; `setMoveDiagnostics` in `PlayerController` names which velocity-destroying site fired.

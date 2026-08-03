@@ -49,6 +49,25 @@ export interface ColliderConvex {
   bound: Vector3;
   boundRadius: number;
   isWall?: boolean;
+  /**
+   * Index into `planes` of this volume's **end cap** — the vertical plane that
+   * closes off the leading or trailing edge of a whole ramp piece, as opposed to
+   * the vertical planes along its high and low edges.
+   *
+   * The two are geometrically identical (both are exactly vertical, both come
+   * out of the same `edge x (0,-1,0)` construction) and must be treated
+   * completely differently. A cap faces *along* travel: it is the boundary
+   * between a piece and whatever comes next, and a player who strikes it has
+   * their entire forward velocity deleted. A high/low edge wall faces *across*
+   * travel: it is what a player slides off the bottom of a ramp past, and
+   * ignoring it would glue them to the low edge and delete the height-for-speed
+   * trade that surfing is made of.
+   *
+   * Only `RampLibrary.emitStripColliders` can tell them apart, because only it
+   * knows which prisms are a strip's first and last. So the distinction is
+   * recorded here at registration rather than guessed from the normal later.
+   */
+  capPlane?: number;
 }
 
 const colliders: ColliderBox[] = [];
@@ -82,6 +101,11 @@ export function registerPrism(
   c: Vector3,
   depth: number,
   isWall?: boolean,
+  /**
+   * Which of the triangle's three edges — 0 = a->b, 1 = b->c, 2 = c->a — is a
+   * piece end cap rather than an interior or lateral boundary. See `capPlane`.
+   */
+  capEdge?: 0 | 1 | 2,
 ): ColliderConvex | null {
   const ab = new Vector3().subVectors(b, a);
   const ac = new Vector3().subVectors(c, a);
@@ -126,7 +150,15 @@ export function registerPrism(
   const boundRadius =
     Math.max(bound.distanceTo(a), bound.distanceTo(b), bound.distanceTo(c)) + depth / 2 + 1e-3;
 
-  const convex: ColliderConvex = { planes, bound, boundRadius, isWall };
+  // Side planes are pushed in edge order after the two face planes, so edge `i`
+  // is plane `2 + i`.
+  const convex: ColliderConvex = {
+    planes,
+    bound,
+    boundRadius,
+    isWall,
+    capPlane: capEdge === undefined ? undefined : 2 + capEdge,
+  };
   convexColliders.push(convex);
   return convex;
 }

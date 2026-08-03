@@ -529,11 +529,19 @@ interface FaceRing {
   low: Vector3;
   /** Surface normal's y at this ring, for the vertical under-side drop. */
   ny: number;
+  /** Direction of travel at this ring, for the collision lead-in/run-out. */
+  forward: Vector3;
 }
 
 interface FaceStrip {
   rings: FaceRing[];
   thickness: number;
+  /**
+   * How far the *collision* runs past each end of the visible face, so a piece's
+   * end planes are buried inside its neighbour instead of standing in the open.
+   * See `emitStripColliders`.
+   */
+  pad: number;
   /**
    * Overrides the per-ring `thickness / ny` under-side drop with one vertical
    * distance for the whole strip.
@@ -566,7 +574,11 @@ type FaceEdgeMode = 'centre' | 'ridge' | 'valley';
  * across boundaries, which is what makes a taper a straight-edged triangle
  * instead of a staircase.
  */
-function faceRings(params: RampCurveParams, mode: RampCurveMode, edge: FaceEdgeMode): FaceRing[] {
+function faceRings(
+  params: RampCurveParams,
+  mode: RampCurveMode,
+  edge: FaceEdgeMode,
+): { rings: FaceRing[]; pad: number } {
   const path = computeRampFrames(params, mode);
   const frames = path.frames;
   const count = frames.length;
@@ -591,9 +603,9 @@ function faceRings(params: RampCurveParams, mode: RampCurveMode, edge: FaceEdgeM
       high = position.clone().addScaledVector(highDir, width / 2);
       low = position.clone().addScaledVector(highDir, -width / 2);
     }
-    rings.push({ high, low, ny: Math.max(frame.normal.y, 0.3) });
+    rings.push({ high, low, ny: Math.max(frame.normal.y, 0.3), forward: frame.forward.clone() });
   }
-  return rings;
+  return { rings, pad: path.overlapPad };
 }
 
 /**
@@ -610,15 +622,101 @@ function faceRings(params: RampCurveParams, mode: RampCurveMode, edge: FaceEdgeM
  * *is* what you see, on every ramp shape.
  */
 function emitStripColliders(strip: FaceStrip): void {
-  for (let i = 0; i + 1 < strip.rings.length; i++) {
-    const a = strip.rings[i];
-    const b = strip.rings[i + 1];
+  const rings = padStripEnds(strip);
+  const lastQuad = rings.length - 2;
+  for (let i = 0; i + 1 < rings.length; i++) {
+    const a = rings[i];
+    const b = rings[i + 1];
     // Same diagonal the skin uses, so collision and mesh are the same solid.
     const depth = (strip.verticalDrop ?? strip.thickness / Math.max(a.ny, 0.3)) + COLLIDER_UNDER_DEPTH;
-    registerPrism(a.high, b.high, b.low, depth);
-    registerPrism(a.high, b.low, a.low, depth);
+    // The strip's two end caps, tagged so the controller can tell them from the
+    // lateral edge walls they are otherwise identical to. See `ColliderConvex.capPlane`.
+    // In (a.high, b.high, b.low) the trailing edge b.high->b.low is edge 1; in
+    // (a.high, b.low, a.low) the leading edge a.low->a.high is edge 2.
+    //
+    // "First and last" is along *travel*, which is the only axis a cap can face.
+    // A half-pipe's 24 strips are facets *across* the section, so the edges they
+    // share with each other are lateral walls and are correctly left untagged.
+    registerPrism(a.high, b.high, b.low, depth, undefined, i === lastQuad ? 1 : undefined);
+    registerPrism(a.high, b.low, a.low, depth, undefined, i === 0 ? 2 : undefined);
   }
 }
+
+/**
+ * Slides the first and last rings out along travel, so a piece's collision runs
+ * a little past both visible ends.
+ *
+ * Without this, two pieces butted socket-on-socket still crack apart at the face
+ * edges, because `faceRings` builds ring `i` at the segment *boundary*
+ * `frames[i].start` but with that segment's *midpoint* basis — so a piece's two
+ * end rings are each half an angle step off their nominal heading, and two
+ * perfectly snapped neighbours meet with a full step of yaw discontinuity in the
+ * width axis. On the shipped course that opens a triangular notch, nil at the
+ * ridge and 0.19 at the low edge, at every curved join.
+ *
+ * A notch is not merely a hole to fall through. The far side of it is the next
+ * piece's leading edge, and `registerPrism` builds that as an *exactly vertical*
+ * plane pointing backwards along travel — so a sweep sample that crosses the gap
+ * strikes it head-on and `clipVelocity` deletes the player's entire forward
+ * component. That is the dead stop, and it is the same failure that end-caps
+ * caused between box segments before collision moved to welded wedges.
+ *
+ * `computeRampFrames` has always computed the right number for this
+ * (`overlapPad`, sized to the daylight half a step of rotation opens across the
+ * face) and the box builder has always used it. The prism path simply never
+ * picked it up. This is also, exactly, what real surf mapping does: the CS2
+ * guide's curved-ramp method slides the clip edges "so that the faces overlap
+ * once".
+ *
+ * Mesh geometry is untouched — this is collision only, so nothing visibly
+ * lengthens. The trade is that collision reaches `pad` (~0.41 at the stock width
+ * 18 / 2 deg step, under half a player width) past a free-standing exit, which
+ * costs a sliver of airtime off the end of a chain and is the cheaper side of
+ * this bargain by a wide margin.
+ */
+function padStripEnds(strip: FaceStrip): FaceRing[] {
+  const rings = strip.rings;
+  if (rings.length < 2) return rings;
+
+  // `overlapPad` is zero for a single-segment piece, and a straight-to-straight
+  // butt joint still cracks by a few thousandths from float noise at map-scale
+  // coordinates — which is *worse* than a wide one, because a hit closer than
+  // `SKIN_WIDTH` yields exactly zero progress and burns a bump for nothing.
+  const pad = Math.max(strip.pad, MIN_JOIN_PAD);
+
+  const first = rings[0];
+  const last = rings[rings.length - 1];
+  const padded = rings.slice();
+
+  padded[0] = slideRing(first, -pad);
+  // A taper that runs out to a point (pyramid faces, `endWidth: 0`) has a
+  // degenerate last ring; sliding it past the apex would invert the triangles.
+  if (last.high.distanceToSquared(last.low) > 1e-6) {
+    padded[padded.length - 1] = slideRing(last, pad);
+  }
+  return padded;
+}
+
+/**
+ * Moves a ring along its own travel direction, both edges together, so the
+ * extension stays in that segment's face plane and adds no lip of its own.
+ */
+function slideRing(ring: FaceRing, distance: number): FaceRing {
+  return {
+    high: ring.high.clone().addScaledVector(ring.forward, distance),
+    low: ring.low.clone().addScaledVector(ring.forward, distance),
+    ny: ring.ny,
+    forward: ring.forward,
+  };
+}
+
+/**
+ * Floor on the lead-in, for pieces whose own `overlapPad` is zero — every
+ * single-segment piece, i.e. every straight. 0.05 (2.25 hu) is far below
+ * anything a player can perceive and comfortably above both the 2-decimal
+ * rounding the shipped map stores its coordinates at and `SKIN_WIDTH`.
+ */
+const MIN_JOIN_PAD = 0.05;
 
 /**
  * Extra depth under a face's own thickness. The visible slab is thin, and a
@@ -869,9 +967,21 @@ function halfpipeStrips(piece: FreePiece): FaceStrip[] {
           // while `verticalDrop` is set, but kept true so the ring contract
           // still holds if that override is ever dropped.
           ny: Math.max(frame.normal.y * Math.cos((inner + outer) / 2), 0.3),
+          forward: frame.forward.clone(),
         });
       }
-      strips.push({ rings, thickness: COMPOSITE_THICKNESS, verticalDrop: HALFPIPE_SHELL_DROP });
+      // `path.overlapPad` is the piece's, not this facet's, and that is right:
+      // it is sized to the daylight half a step of rotation opens at the section's
+      // widest point, and a lead-in that is generous for the inner facets costs
+      // nothing. It matters more here than anywhere else in the kit, because a
+      // pipe walks its path at `HALFPIPE_ANGLE_STEP_DEG` (6) rather than the usual
+      // 2 for the reasons above, and the crack a join opens grows with the step.
+      strips.push({
+        rings,
+        thickness: COMPOSITE_THICKNESS,
+        verticalDrop: HALFPIPE_SHELL_DROP,
+        pad: path.overlapPad,
+      });
     }
   }
   return strips;
@@ -902,7 +1012,7 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
     strips.push(...halfpipeStrips(piece));
   } else if (def.family === 'pyramid') {
     for (const face of pyramidFaceParams(piece)) {
-      strips.push({ rings: faceRings(face.params, 'straight', 'centre'), thickness: COMPOSITE_THICKNESS });
+      strips.push({ ...faceRings(face.params, 'straight', 'centre'), thickness: COMPOSITE_THICKNESS });
     }
   } else if (def.variant === 'full' || def.variant === 'inverted' || def.family === 'slide') {
     const { entry } = piecePath(piece);
@@ -910,11 +1020,11 @@ export function buildRampPiece(piece: FreePiece, options: RampBuildOptions): Gro
     for (const sign of [1, -1]) {
       const params = centreParams(piece, entry);
       params.rollDeg = Math.abs(piece.rollDeg) * sign;
-      strips.push({ rings: faceRings(params, mode, edge), thickness: COMPOSITE_THICKNESS });
+      strips.push({ ...faceRings(params, mode, edge), thickness: COMPOSITE_THICKNESS });
     }
   } else {
     const params = centreParams(piece, piecePath(piece).entry);
-    strips.push({ rings: faceRings(params, mode, 'centre'), thickness: FACE_THICKNESS });
+    strips.push({ ...faceRings(params, mode, 'centre'), thickness: FACE_THICKNESS });
   }
 
   // Mesh and collision are now built from the *same* strips: one lofted skin

@@ -56,8 +56,24 @@ Handing it all to the first tick leaves the rest with a stale view angle, and a 
 view did not turn pays out no air-strafe gain — so strafing got weaker the lower the
 framerate.
 
+**A ramp piece's leading edge is a vertical wall, and no shaping of the geometry changes
+that.** `registerPrism` builds every side plane as `edge × (0,-1,0)`, so the plane closing off
+a strip's first ring comes out *exactly vertical* whatever the edge it was built from looks
+like — chamfer it, round it, rake it, the wall stays a wall. Clipping against one deletes the
+player's whole forward component, which is the dead stop that has now been found three times
+in three disguises (box end-caps, then a butted pitched piece, then piece joins). Two things
+hold it off and both must stay: `emitStripColliders` pads both ends of a strip with
+`computeRampFrames`' `overlapPad` so the cap is buried in its neighbour, and `Raycast` declines
+a **tagged cap plane** as an entry plane for an airborne player. Do not "simplify" either by
+guessing at the normal — a cap and a lateral edge wall are both exactly vertical, and ignoring
+the lateral one glues the player to the low edge and deletes surfing.
+
 **Ring ramps must close on themselves with no net descent** — that is what makes the loop
 endless. Verify with a collision probe, not by eye.
+
+**A collision probe must measure displacement, not just speed.** A fix that pins the player in
+place with their velocity intact looks perfect on every speed-based metric and is the worst
+outcome there is. Cost a full round-trip in the v2 seam work; see `docs/STATE.md` § Probes.
 
 **All gameplay ticks at a fixed 1/128s.** Render is variable. Never feed render dt into
 movement.
