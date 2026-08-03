@@ -295,9 +295,10 @@ are ordered for a reason:
 7. Auto-weapon fires at the nearest target; then the solar wake burns anything sitting in it —
    before the kill pass, so a chaser it finishes still drops XP this tick. (A dash earlier in
    the tick may also have fired the sound blast.)
-8. Cull dead enemies (dropping XP orbs), then distant ones (**awarding nothing** — leaving play
-   is not a kill). Orbs magnet toward the player and are collected. Uncollected orbs are never
-   despawned: dropped XP hovers where it fell until it is picked up or the run ends.
+8. Cull dead enemies (dropping XP orbs). Nothing is distance-culled — enemies persist and
+   pursue forever (hidden past the fog wall, still simulated), and uncollected orbs hover
+   where they fell until picked up; the spawn director's cap counts only enemies near the
+   fight so stragglers cannot starve it.
 9. **Player death is resolved first**, so a simultaneous kill is a loss.
 10. Last: flow XP pays out for sustained speed (`FlowXP`), the ultimate meter
     charges, and `Rewind` records the tick. The recorder reads the *settled*

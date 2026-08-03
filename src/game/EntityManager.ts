@@ -63,21 +63,29 @@ export class EntityManager {
     }
   }
 
+  // Enemies deliberately have no distance cull, same design rule as orbs below:
+  // Vampire-Survivors persistence. A drone the player outruns falls behind, drops
+  // past the fog wall, and keeps solving its intercept forever — it re-engages
+  // when the course loops back through it. Enemies leave the world by dying, by
+  // a Monolith's arrival (`clearEnemies`, a duel rule, not a distance rule), by
+  // rewind reconciliation, or by the run ending. See docs/STATE.md.
+
   /**
-   * Drops drones the player has left far behind. Deliberately callback-free:
-   * leaving play is not a kill, so it must never award XP.
-   * Returns how many were removed (handy for diagnostics/tests).
+   * Enemies inside the local fight, for the spawn director's concurrency cap.
+   *
+   * With persistence, counting *all* live enemies would let far stragglers eat
+   * the cap and starve spawning near the player — outrunning the swarm would
+   * make the game emptier, backwards. The radius keeps the cap meaning what it
+   * always meant ("how busy is the fight around the player"); it just no longer
+   * kills anything for crossing it.
    */
-  cullDistantEnemies(playerPosition: Vector3, maxDistance: number): number {
-    const maxDistSq = maxDistance * maxDistance;
-    let removed = 0;
-    for (let i = this.enemies.length - 1; i >= 0; i--) {
-      if (this.enemies[i].position.distanceToSquared(playerPosition) > maxDistSq) {
-        this.removeEnemyAt(i);
-        removed += 1;
-      }
+  countEnemiesWithin(playerPosition: Vector3, radius: number): number {
+    const radiusSq = radius * radius;
+    let count = 0;
+    for (const enemy of this.enemies) {
+      if (enemy.position.distanceToSquared(playerPosition) <= radiusSq) count += 1;
     }
-    return removed;
+    return count;
   }
 
   // Orbs deliberately have no distance cull. Dropped XP is earned, and there is

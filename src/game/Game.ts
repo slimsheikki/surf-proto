@@ -98,14 +98,21 @@ const BASE_MAX_HP = 100;
 const OUT_OF_BOUNDS_MARGIN = 30;
 
 /**
- * Distance at which enemies are considered out of play and despawned. The
- * player outruns drones permanently at surf speed, so anything this far away is
- * dead weight — but the radius is well beyond the base weapon's reach and
- * beyond the furthest spawn distance, so nothing plausibly still in play is
- * culled. Enemies only: XP orbs are never distance-culled — dropped loot
- * hovers where it fell until collected (see EntityManager for the rule).
+ * Nothing is despawned by distance any more — not orbs (PR #24) and not
+ * enemies: Vampire-Survivors persistence, a straggler chases forever and
+ * re-engages when the course loops back through it. Two radii remain, neither
+ * of which deletes anything:
+ *
+ * - `ENEMY_ENGAGE_RADIUS` bounds the spawn director's concurrency count, so
+ *   far stragglers cannot eat the live cap and starve the fight around the
+ *   player. 55 is the old cull distance, kept because nothing escapes it in
+ *   the early game — which is exactly what leaves the tuned early game
+ *   bit-identical.
+ * - `ENEMY_RENDER_DISTANCE` hides meshes past the ~220-unit fog wall (they are
+ *   fully fogged anyway); pursuit keeps simulating, only the draw call stops.
  */
-const ENEMY_CULL_DISTANCE = 55;
+const ENEMY_ENGAGE_RADIUS = 55;
+const ENEMY_RENDER_DISTANCE = 240;
 
 /**
  * The slice of the built course the game loop needs. Declared here rather than
@@ -477,7 +484,7 @@ export class Game {
         playerPosition,
         travelDirection: this.travelDirection(),
         playerSpeed: playerVelocity.length(),
-        liveEnemyCount: this.entityManager.enemies.length,
+        nearbyEnemyCount: this.entityManager.countEnemiesWithin(playerPosition, ENEMY_ENGAGE_RADIUS),
         playerLevel: this.levelSystem.level,
       },
       (enemy) => this.entityManager.addEnemy(enemy),
@@ -485,13 +492,17 @@ export class Game {
 
     for (const enemy of this.entityManager.enemies) {
       enemy.tick(dt, playerPosition, playerVelocity);
+      const distToPlayer = enemy.distanceToPlayer(playerPosition);
+      // Persistence makes far stragglers routine; past the fog wall they are
+      // invisible anyway, so stop paying their draw call. Simulation continues.
+      enemy.mesh.visible = distToPlayer < ENEMY_RENDER_DISTANCE;
       // Collected straight after the enemy's own tick, so a blast is planted
       // against the player position that tick used rather than one frame stale.
       if (enemy instanceof Seeder) {
         const plant = enemy.takePlantedBlast();
         if (plant) this.entityManager.addBlast(new Blast(plant, enemy.blastDamage));
       }
-      if (enemy.canDealContactDamage() && enemy.distanceToPlayer(playerPosition) < CONTACT_RADIUS) {
+      if (enemy.canDealContactDamage() && distToPlayer < CONTACT_RADIUS) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
       }
@@ -528,9 +539,6 @@ export class Game {
       if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
       this.ultimate.registerKill();
     });
-    // Runs after the kill pass so a drone that dies this tick still drops XP;
-    // distance culling itself awards nothing — leaving play is not a kill.
-    this.entityManager.cullDistantEnemies(playerPosition, ENEMY_CULL_DISTANCE);
 
     // Full 3D speed, not the horizontal `speed` getter: the pull's lead has to
     // beat the player's actual closing rate, and on a descent much of that is
