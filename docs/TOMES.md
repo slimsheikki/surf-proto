@@ -83,8 +83,9 @@ sits inside that band.
 
 ### How many stacks is realistic
 
-Visible pool 33, drawn 3 at a time → a given Tome appears in ~9.1% of menus.
+Visible pool 34, drawn 3 at a time → a given Tome appears in ~8.8% of menus.
 Over a 40-level run that is ~3-4 offers; a player building for it takes 2-3.
+(§ 4 argues for moving the menu to 4 cards, which puts this back at ~11.8%.)
 **Tune so `s ≈ 8` is strong, `s ≈ 15` is the practical ceiling, and the asymptote
 sits somewhere you would never mind reaching.** Every table below reads at
 s = 1, 3, 8.
@@ -99,7 +100,7 @@ the weight ladder honest.
 
 ## 2. The Tomes
 
-Twenty-two. `s` is the accumulated weight above.
+Twenty-three. `s` is the accumulated weight above.
 
 ### Offense
 
@@ -130,26 +131,109 @@ local form.
 *Legendary rider:* **Downbeat** — every 12th shot fires a free Sound Blast at the
 target. Reuses `applySoundBlast`; no new system.
 
-#### 3. Harmonic Tome — *"One note, sounding as several."* — new system
+#### 3. Spore Tome — *"Cast wide. Let them find their own way home."* — new weapon
 
-`extraTargets = floor(0.4·s)`, each struck for **60%** damage.
-**s=1 → +0 · s=2.5 → +1 · s=5 → +2 · s=8 → +3**
-
-The weapon fires at its sticky target plus the *N* next-nearest in range.
+Grants the **volley** (spec below) and scales its size.
+`projectilesPerVolley = 2 + floor(0.55·s)`
+**s=1 → 2 · s=3 → 3 · s=5 → 4 · s=8 → 6**
 
 **This is the Quantity / Projectile Count slot, and it is the most
-build-changing Tome in the set.** `Weapon` today is strictly single-target with
-a deliberate sticky-target rule (added because retargeting sprayed partial damage
-across a stream of drones and killed nothing). Harmonic converts it into a crowd
-clearer without touching that rule — the sticky target still gets full damage;
-the extras are spillover.
+build-changing Tome in the set** — it is the only one that adds a weapon rather
+than a number. Vampire-Survivors wave-clear is the explicit goal: a fan of
+homing spores that deletes the pack you are surfing through without you turning
+to face it.
 
-60% rather than 100% because the multiplicative stack with Ember and Prism is
-where this set is most likely to go degenerate. See § 7.4.
+It is deliberately a **second** weapon rather than a change to the auto-gun.
+`Weapon`'s sticky-target rule exists because retargeting sprayed partial damage
+across a stream of drones and killed nothing; a projectile volley that ignores
+that rule and a hitscan gun that keeps it give the two weapons distinct jobs —
+the gun is the single-target sniper, the volley is the crowd.
 
-*Legendary rider:* **Overtone** — extra targets take full damage instead of 60%.
+*Legendary rider:* **Sporebloom** — a spore that kills releases two more at 50%
+damage, once per spore. Chain clears without a chain system.
 
-#### 4. Beam Tome — *"Light reaches further before it gives up."*
+#### 4. Photon Tome — *"Faster light, and it does not stop at one."* — new system
+
+```
+projectileSpeed = 90 + 70·s/(s+5)    → 160 u/s at infinity   (softcap)
+homingTurnRate  = 6 + 6·s/(s+6)      → 12 rad/s at infinity   (softcap)
+pierce          = 1 + floor(s/3)
+```
+
+**s=1 → 102 u/s, 6.9 rad/s, pierce 1 · s=3 → 116, 8.0, pierce 2 · s=8 → 133, 9.4, pierce 3**
+
+**This is the original Projectile Tome's slot, restored to its literal meaning**
+now that projectiles exist. Earlier drafts substituted weapon *reach* for
+projectile speed because the gun is hitscan; with a real volley in the game that
+substitution is no longer needed, and Beam Tome (§ 2.5) goes back to being purely
+about the gun.
+
+Speed and homing together are what decide whether a volley *connects* — Spore is
+how many you throw, Photon is how many arrive. Two genuinely different builds.
+
+Follows the **no-dead-pick rule** (`Subwoofer` / `Standing Wave` precedent):
+drawn before Spore, it grants a 2-projectile volley so it is never inert.
+
+*Legendary rider:* **Total Internal Reflection** — a spore that runs out of
+pierce ricochets once to the nearest unhit enemy.
+
+### The volley weapon
+
+What Spore grants. A second auto-weapon on its own timer, sharing nothing with
+`Weapon` but the `damage` stat.
+
+| | Value | Why |
+|---|---|---|
+| `VOLLEY_INTERVAL` | 1.4 s | Slow enough that a volley reads as an event, not a stream |
+| `VOLLEY_RANGE` | 34 u | Wider than the gun's 22 — reach is the volley's identity |
+| Damage per spore | `weapon.damage × 0.55` | Rides Ember, so a volley is breadth rather than a strict upgrade |
+| Muzzle speed | 90 u/s base | ~4× the 22 u/s `MAX_DRONE_SPEED` ceiling, ~2.5× a fast line |
+| Lifetime | 1.2 s | 108 u of travel, so spores outlive the acquire range and chase |
+| Visual / hit radius | 0.35 / 1.1 | Mirrors the Monolith's generous-hit convention |
+| Pool | 96, fixed | Same bounded-pool contract as `TracerFx` (32) and `SolarWave` (64) |
+
+**The Monolith already implements this weapon.** `Boss.ts` fires pooled
+travelling projectiles with shared geometry and a separate hit shell —
+`RING_PROJECTILE_RADIUS 0.8` visual against `RING_HIT_RADIUS 1.4`, orbs at
+`0.55 / 1.3`. The player side should mirror that structure rather than invent a
+second pattern, and it inherits the convention that **hit radius is generous
+relative to visual radius** at these speeds.
+
+**Homing is mandatory, not a flavour choice.** A straight-line projectile fired
+at a 3D target by a shooter moving at 35 u/s misses nearly always. And it must be
+the **latched constant-speed seek** `XPOrb` uses, not a proportional lerp —
+`CLAUDE.md` records that lesson in as many words: *"Proportional lerp toward a
+moving target fails at speed (closing velocity vanishes)."* Steering is
+turn-rate-limited like `Enemy`'s, so spores arc toward a target instead of
+snapping to it, and a fast enough enemy can still be missed.
+
+**No velocity inheritance.** Physically wrong, right for play: inheriting the
+player's velocity would make forward shots very fast and backward shots crawl,
+and enemies intercept from behind or beside by design. A fixed muzzle speed plus
+homing keeps the weapon symmetric around a player who is never standing still.
+
+**Target assignment:** each spore in a volley claims a *different* enemy where
+enough exist, otherwise the remainder fan within ±18°. That is what makes a
+volley feel like wave-clear rather than overkill on one drone.
+
+**Rewind: spores are cleared and never restored.** Exactly the precedent live
+blasts and wake points set, for exactly the same reason — they live 1.2 s, so
+anything recorded has long since landed, and the volley re-fires on resume.
+**Zero `Frame` fields.** Only the Spore/Photon weights ride, like every Tome.
+
+**The Monolith is a legitimate target here**, unlike the shockwave.
+`applySoundBlast` excludes the boss because `Boss.distanceToPlayer` "already lies
+for the hitscan gun's benefit" and a shockwave would reach it from across the
+arena. A spore has a real world position and has to physically travel, so it has
+no such problem — test it against `BODY_RADIUS` (5.5).
+
+**This is also the template for the weapon variety the genre runs on.** Own
+timer, own bounded pool, own perk fields, cleared-not-rewound. A second weapon
+(an orbiting solar mote; a wake-mine dropped behind you) costs the same shape
+again and nothing structural. Worth building one and playing it before
+committing to more.
+
+#### 5. Beam Tome — *"Light reaches further before it gives up."*
 
 `weapon.range = 22 + 30·s/(s+7)` — **softcap**, → 52 at infinity.
 **s=1 → 25.8 · s=3 → 31.0 · s=8 → 38.0**
@@ -157,14 +241,15 @@ where this set is most likely to go degenerate. See § 7.4.
 Replaces `+Range`. Capped because uncapped range turns the whole course into one
 kill volume and quietly deletes the decision to surf *toward* a fight.
 
-**This is the Projectile Tome's slot.** There are no projectiles here — the
-weapon is hitscan and `Tracer.BOLT_SPEED` is cosmetic — so "how fast your shot
-arrives" becomes "how far it reaches", which is the honest local equivalent.
+Purely the auto-gun's envelope. Earlier drafts had this standing in for the
+Projectile Tome, on the grounds that a hitscan weapon has no projectile speed to
+raise; Photon (§ 2.4) now owns that slot literally, so Beam is free to be the
+one thing it should have been all along.
 
 *Legendary rider:* **Collimation** — shots no longer drop the sticky target when
 it leaves range; they hold until it dies.
 
-#### 5. Prism Tome — *"White light splits. So does damage."* — new system
+#### 6. Prism Tome — *"White light splits. So does damage."* — new system
 
 Refraction chance `c = 0.09·s` — **linear and deliberately uncapped**, because
 the overflow *is* the diminishing return.
@@ -181,7 +266,7 @@ and split light are the solarpunk reading of a critical hit.
 *Legendary rider:* **Spectrum** — a refracted shot also burns its target at
 `solarWaveDps` for 2 s, whether or not you own Solar Wave.
 
-#### 6. Bloom Tome — *"Everything you set off opens wider."* — new system
+#### 7. Bloom Tome — *"Everything you set off opens wider."* — new system
 
 Area multiplier `a = 1 + 0.9·s/(s+7)` — **softcap**, → ×1.9 radius at infinity.
 **s=1 → ×1.11 · s=3 → ×1.27 · s=8 → ×1.48**
@@ -196,7 +281,7 @@ kills.
 *Legendary rider:* **Full Bloom** — your dash blast also strips 25% speed from
 everything it touches. Reuses `WeaponTarget.applySlow`.
 
-#### 7. Percussion Tome — *"Every hit lands like a drum."* — new system
+#### 8. Percussion Tome — *"Every hit lands like a drum."* — new system
 
 `knockback = 1.2·s/(s+4)` units, × the Bloom multiplier — **softcap**, → 1.2 u.
 **s=1 → 0.24 u · s=3 → 0.51 u · s=8 → 0.80 u**
@@ -219,7 +304,7 @@ both, refreshing Standing Wave's slow on each.
 
 ### Movement — the part that must not break
 
-#### 8. Surf Tome — *"The line answers you sooner."*
+#### 9. Surf Tome — *"The line answers you sooner."*
 
 Two curves, both **softcapped**:
 
@@ -246,7 +331,7 @@ ceiling at all**. A hard +30% across every stack in a run is a tightening.
 *Legendary rider:* **Laminar** — landing on a ramp within 0.3 s of leaving one
 keeps full speed instead of clipping. A scoped, opt-in `SURF_LANDING_REDIRECT`.
 
-#### 9. Updraft Tome — *"You leave the ground with more to spend."*
+#### 10. Updraft Tome — *"You leave the ground with more to spend."*
 
 ```
 JUMP_SPEED         = 6.711 + 4.5·s/(s+5)   → 11.2 at infinity
@@ -260,7 +345,7 @@ Replaces `+Jump Height`, and makes dash strength upgradeable for the first time 
 
 *Legendary rider:* **Thermal** — one free air-jump, refunded on every ramp touch.
 
-#### 10. Kite Tome — *"The dash comes back before you miss it."*
+#### 11. Kite Tome — *"The dash comes back before you miss it."*
 
 ```
 dash.rechargeSeconds = 6 − 4.5·s/(s+4)   → 1.5 s at infinity
@@ -277,7 +362,7 @@ wall four picks hit.
 
 ### Survival
 
-#### 11. Heartwood Tome — *"More of you to lose."*
+#### 12. Heartwood Tome — *"More of you to lose."*
 
 `playerHealth.maxHp = 100 + 18·s`, healed to match — linear.
 **s=1 → 118 · s=3 → 154 · s=8 → 244**
@@ -287,7 +372,7 @@ Replaces `+Max HP`. This is the HP Tome's slot.
 *Legendary rider:* **Heartwood** — the first hit that would kill you leaves you at
 1 HP instead. Once per Monolith.
 
-#### 12. Chlorophyll Tome — *"You mend in the light."*
+#### 13. Chlorophyll Tome — *"You mend in the light."*
 
 `playerHealth.regenPerSecond = 1.3·s` — linear.
 **s=1 → 1.3 · s=3 → 3.9 · s=8 → 10.4**
@@ -297,7 +382,7 @@ stays as its own build piece.
 
 *Legendary rider:* **Evergreen** — regen doubles while above the flow floor.
 
-#### 13. Graft Tome — *"What you kill, you keep."*
+#### 14. Graft Tome — *"What you kill, you keep."*
 
 `perks.healOnKill = 1.8·s` — linear.
 **s=1 → 1.8 · s=3 → 5.4 · s=8 → 14.4**
@@ -308,7 +393,7 @@ trickle.
 *Legendary rider:* **Rootstock** — kills past full HP bank into a shield worth up
 to 25% of max HP.
 
-#### 14. Sap Tome — *"You draw a little back from every touch."* — new system
+#### 15. Sap Tome — *"You draw a little back from every touch."* — new system
 
 Sap chance `c = 0.06·s` — **linear, uncapped, overflow**, exactly like Prism.
 `heals = floor(c) + (rand < frac(c) ? 1 : 0)`, 1 HP each.
@@ -318,14 +403,14 @@ Sap chance `c = 0.06·s` — **linear, uncapped, overflow**, exactly like Prism.
 1 guaranteed plus a chance at a second.
 
 Deliberately paired with attack rate rather than kills: Sap is the sustain that
-scales with Cadence and Harmonic, where Graft scales with how much you actually
+scales with Cadence and the volley, where Graft scales with how much you actually
 kill. At s=8 with 8 shots/s that is ~3.8 HP/s, comparable to Chlorophyll but
 conditional on having targets.
 
 *Legendary rider:* **Heartwood Sap** — sap heals scale with Ember instead of
 being flat 1 HP.
 
-#### 15. Albedo Tome — *"You send some of it back."* — new system
+#### 16. Albedo Tome — *"You send some of it back."* — new system
 
 `damageReduction = 0.55·s/(s+6)` — **hyperbolic, mandatory**.
 **s=1 → 7.9% · s=3 → 18.3% · s=8 → 31.4% · ∞ → 55%**
@@ -339,7 +424,7 @@ tension**. This shape cannot.
 *Legendary rider:* **Specular** — damage you resist is dealt back as a Bramble
 flash, whether or not you own Bramble.
 
-#### 16. Mirage Tome — *"Sometimes you were never there."* — new system
+#### 17. Mirage Tome — *"Sometimes you were never there."* — new system
 
 `evasion = 0.45·s/(s+7)` — **hyperbolic, mandatory**.
 **s=1 → 5.6% · s=3 → 13.5% · s=8 → 24.0% · ∞ → 45%**
@@ -354,7 +439,7 @@ together**, see § 7.4.
 *Legendary rider:* **Heat Shimmer** — an evaded hit grants 0.6 s of doubled air
 acceleration. Evading pays in speed, which is the currency the game is about.
 
-#### 17. Bramble Tome — *"Touch it and find out."*
+#### 18. Bramble Tome — *"Touch it and find out."*
 
 `thornsDamage = 12·s` — linear, radius `MIRROR_RADIUS` × Bloom.
 **s=1 → 12 · s=3 → 36 · s=8 → 96**
@@ -368,7 +453,7 @@ counter-attacks.
 
 ### Economy
 
-#### 18. Pollen Tome — *"It drifts to you now."*
+#### 19. Pollen Tome — *"It drifts to you now."*
 
 `XP_MAGNET.radius = 18 + 26·s/(s+6)` — **softcap**, → 44 at infinity.
 **s=1 → 21.7 · s=3 → 26.7 · s=8 → 32.9**
@@ -380,7 +465,7 @@ decision.
 *Legendary rider:* **Anemophily** — orbs you leave behind chase you for 4 s past
 the point they would normally give up.
 
-#### 19. Harvest Tome — *"The line pays out."*
+#### 20. Harvest Tome — *"The line pays out."*
 
 `perks.xpMultiplier = 1 + 0.20·s` — linear.
 **s=1 → ×1.20 · s=3 → ×1.60 · s=8 → ×2.60**
@@ -391,7 +476,7 @@ one is about *reaching* loot, the other about what loot is worth.
 
 *Legendary rider:* **Second Crop** — every 10th orb collected counts twice.
 
-#### 20. Flux Tome — *"The line pays better."*
+#### 21. Flux Tome — *"The line pays better."*
 
 ```
 flowRateMultiplier       = 1 + 0.15·s
@@ -408,7 +493,7 @@ Aurora Wake and Solar Capacitor, and both of those are conditional.
 
 *Legendary rider:* **Standing Flux** — ReWind's window grows from 15 s to 20 s.
 
-#### 21. Solstice Tome — *"The sun sits higher when you draw."* — new system
+#### 22. Solstice Tome — *"The sun sits higher when you draw."* — new system
 
 Pick menus: `uncommonChance = 0.28 + 0.45·s/(s+6)` — **softcap**, → 0.73.
 **s=1 → 34.4% · s=3 → 43.0% · s=8 → 53.7%**
@@ -427,7 +512,7 @@ more" for free, because shrine blessings already route through
 
 *Legendary rider:* **Zenith** — one guaranteed epic-or-better on your next gamble.
 
-#### 22. Blight Tome — *"Make it worse. Get paid."* — new system
+#### 23. Blight Tome — *"Make it worse. Get paid."* — new system
 
 Effective difficulty level offset `+2.5·s`, i.e. `difficultyAt(level + 2.5·s, t)`.
 Plus `perks.xpMultiplier += 0.25·s`.
@@ -512,13 +597,14 @@ first and on its own, since it retunes the whole run's pacing.
 
 | | Before | After |
 |---|---|---|
-| Visible entries | 24 | **33** (22 Tomes + 11 named build pieces) |
-| A given entry per 3-card menu | 12.5% | **9.1%** |
+| Visible entries | 24 | **34** (23 Tomes + 11 named build pieces) |
+| A given entry per 3-card menu | 12.5% | **8.8%** |
+| …per **4**-card menu (recommended) | — | **11.8%** |
 | Gamble-only uniques | 11 | 11 (unchanged) |
-| Tomes reachable at epic/legendary | — | all 22, gamble-only |
+| Tomes reachable at epic/legendary | — | all 23, gamble-only |
 
-**One pool entry per Tome, tier rolled at offer time.** 22 Tomes is 22 rows, not
-88. Pick menus roll common/uncommon; the F-gamble rolls epic/legendary — so the
+**One pool entry per Tome, tier rolled at offer time.** 23 Tomes is 23 rows, not
+92. Pick menus roll common/uncommon; the F-gamble rolls epic/legendary — so the
 existing "epic and legendary are gamble-only" rule survives untouched, and a
 tiered Tome becomes another reason to stake a full bank.
 
@@ -530,14 +616,17 @@ Thirteen entries fold in and stop being separate rows: `damage`, `attack-speed`,
 Subwoofer, Velocity Rounds, Sound Blast, Solar Wave, Solar Capacitor, Aurora
 Wake, Echo Chamber, Standing Wave — plus all 11 gamble uniques.
 
-> **9.1% is thin and worth a decision.** A specific Tome is offered ~3-4 times in
-> a 40-level run, so a committed build reaches maybe s = 4-6 rather than the s = 8
-> these curves are tuned around. Three options: leave it (Solstice partly
-> compensates by improving *tier* rather than frequency), raise the menu to 4
-> cards (`drawUpgradeChoices` already takes a `count`), or drop the weakest 4-5
-> Tomes. **Recommendation: leave the draw at 3 and re-read the curves at s = 5**,
-> since a build that never quite gets there is more interesting than one that caps
-> out.
+> **8.8% is too thin now — move the menu to 4 cards.** A specific Tome offered
+> ~3-4 times in a 40-level run means a committed build reaches s = 4-6, not the
+> s = 8 these curves are tuned around, and the volley makes that worse: Spore and
+> Photon are a *pair*, and a build needing two specific entries to show up is a
+> build that mostly does not happen.
+>
+> `drawUpgradeChoices` already takes a `count`, so this is a two-line change at
+> `Game.ts:937` and `Game.ts:986` plus a CSS grid column. 4-of-34 restores 11.8%,
+> roughly today's density. **Recommendation: 4 cards, and re-read every curve at
+> s = 5 rather than s = 8.** Solstice helps too, but it improves *tier*, not
+> frequency — it cannot fix a Tome never being offered.
 
 ---
 
@@ -559,30 +648,46 @@ nothing. Either is fine; the rename is assumed above.
 rollable at any tier; `drawUpgradeChoices` rolls common/uncommon per offered Tome
 (biased by Solstice); `drawOfRarity` draws from `{uniques of that tier} ∪ {all Tomes}`.
 
-**`RunPerks`** — 22 new weight fields (`surfTome`, `emberTome`, …) plus derived
+**`RunPerks`** — 23 new weight fields (`surfTome`, `emberTome`, …) plus derived
 getters. `PERK_DEFAULTS` / `resetRunPerks` need no per-field work; that contract
 already holds.
 
-**`src/game/Rewind.ts`** — 22 `Frame` fields, 22 lines in `write()`, 22 in
+**`src/game/Rewind.ts`** — 23 `Frame` fields, 23 lines in `write()`, 23 in
 `applyFrame()`. Non-negotiable: *"an upgrade whose field is not in `Frame` is one
 a rewind silently leaves applied."* Note that the weight-field design means **one**
 field per Tome however many stats it drives — derived values are recomputed, not
-recorded. Knockback needs none at all (enemy position is already sampled).
+recorded. Knockback and the volley need none beyond their weights (enemy position
+is already sampled; spores are cleared like blasts).
 
 **Nine new systems**, in rough order of cost:
 
 | System | Where | Cost |
 |---|---|---|
-| Knockback | `Game` kill/hit pass | Trivial — one `position.addScaledVector`, rewound for free |
 | Thorns | already exists as `mirrorDamage` | None; a rename |
+| Knockback | `Game` kill/hit pass | Trivial — one `position.addScaledVector`, rewound for free |
 | Crit + Overrefraction | `Weapon.tick` | Small |
 | Lifesteal + overflow | `Weapon.tick` | Small, reuses the crit overflow helper |
 | Area multiplier | `applySoundBlast` / `SolarWave` / mirror call sites | Small |
 | Damage reduction | `Health.takeDamage`, player instance only | Small |
 | Evasion | same three incoming-damage sites | Small |
-| Multishot | `Weapon.tick` target selection | Medium — the sticky-target rule must survive it |
-| Luck | `drawUpgradeChoices` + `gambleOdds` | Medium — changes the shape of both draws |
 | Difficulty offset | `Game`'s `difficultyAt` call | Small, but see § 3 |
+| Luck | `drawUpgradeChoices` + `gambleOdds` | Medium — changes the shape of both draws |
+| **The volley** | new `src/combat/Volley.ts` + one `Game` tick call | **Largest single piece — a whole weapon** |
+
+**The volley is the only item here that is not a stat change**, and it is worth
+separating in planning: a pooled projectile with homing, pierce, a hit pass
+against drones/seeders/boss, and its own effects group. Budget it like
+`SolarWave.ts` (a ~200-line self-contained system with its own pool and `tick`),
+and lean on `Boss.ts`'s existing projectile code for structure rather than
+starting from the shape of the problem.
+
+**It is also the one piece that can ship on its own.** Nothing about a projectile
+weapon depends on the Tome tier machinery — it could land today as `Volley.ts`
+plus two ordinary pool entries (`+Projectile Count`, `+Projectile Speed`) in the
+existing 24-entry visible pool, and be folded into Spore/Photon later. **That is
+the recommended order:** build the weapon, play it, then decide whether the Tome
+restructure is worth it. A projectile system that feels wrong at 40 u/s is much
+cheaper to find out about before 23 Tomes are built on top of it.
 
 Plus `DASH_IMPULSE_SPEED` promoted from a `PlayerController` constant to a
 `MovementConfig` field, which gets its restart reset for free via
@@ -619,9 +724,17 @@ stub providing `createElementNS`.
      safe alone but *compose*: `1 − (1−0.45)(1−0.55)` = **75.3% mitigation** at
      both asymptotes, before Heartwood's HP and two regen sources. A full
      defensive build may simply not die. Probe the pair, not each alone.
-   - **The offensive stack.** Ember × Prism × Harmonic multiply. At s = 8 each
-     that is ×2.12 × ~1.72 × 4 targets ≈ **14.6× effective throughput**. The 60%
-     spillover on Harmonic is the intended brake; verify it is enough.
+   - **The offensive stack.** Ember × Prism × Spore multiply. At s = 8 each that
+     is ×2.12 damage × ~1.72 crit × 6 spores at 0.55 each ≈ **12× effective
+     throughput**, before Photon's pierce multiplies it again by however many
+     enemies a spore passes through. The 0.55 damage fraction is the intended
+     brake; verify it is enough, and treat Spore + Photon + Prism as the
+     most likely degenerate build in the set.
+   - **Does the volley actually connect?** The whole weapon rests on homing
+     working at speed. Probe hit-rate at player speeds of 15 / 35 / 60 u/s
+     against drones at their 22 u/s cap, at Photon s = 0 and s = 8. If hit-rate
+     collapses above 40 u/s, the muzzle speed or the turn rate is wrong — and a
+     volley that only works when you are slow is exactly backwards for this game.
    - **Percussion's sign.** Knockback that pushes enemies out of weapon range is a
      DPS *loss*. Probe kills-per-minute at s = 0, 3, 8 and confirm it is monotonic
      upward. If it is not, the cap comes down or the push goes lateral.
