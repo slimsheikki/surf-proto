@@ -1,5 +1,6 @@
 import { Scene, Vector3 } from 'three';
 import { Blast } from '../combat/Blast';
+import { Bolt } from '../combat/Bolt';
 import { Enemy } from '../enemies/Enemy';
 import { XPOrb } from '../progression/XPOrb';
 
@@ -14,6 +15,8 @@ export class EntityManager {
    * what is already ticking.
    */
   readonly blasts: Blast[] = [];
+  /** Live spitter projectiles. Apart from `enemies` for the same reasons as blasts, which they outlive-their-shooter exactly like. */
+  readonly bolts: Bolt[] = [];
 
   constructor(private readonly scene: Scene) {}
 
@@ -27,19 +30,31 @@ export class EntityManager {
     this.scene.add(blast.group);
   }
 
+  addBolt(bolt: Bolt): void {
+    this.bolts.push(bolt);
+    this.scene.add(bolt.mesh);
+  }
+
   addOrb(orb: XPOrb): void {
     this.orbs.push(orb);
     this.scene.add(orb.mesh);
   }
 
   get entityCount(): number {
-    return this.enemies.length + this.orbs.length + this.blasts.length;
+    return this.enemies.length + this.orbs.length + this.blasts.length + this.bolts.length;
   }
 
   /** Drops blasts that have finished detonating. They expire on their own clock, so there is no distance cull. */
   cullSpentBlasts(): void {
     for (let i = this.blasts.length - 1; i >= 0; i--) {
       if (this.blasts[i].finished) this.removeBlastAt(i);
+    }
+  }
+
+  /** Drops bolts that hit, fizzled on terrain, or timed out. */
+  cullSpentBolts(): void {
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      if (this.bolts[i].finished) this.removeBoltAt(i);
     }
   }
 
@@ -118,6 +133,7 @@ export class EntityManager {
     this.clearEnemies();
     for (let i = this.orbs.length - 1; i >= 0; i--) this.removeOrbAt(i);
     this.clearBlasts();
+    this.clearBolts();
   }
 
   /**
@@ -127,6 +143,11 @@ export class EntityManager {
    */
   clearBlasts(): void {
     for (let i = this.blasts.length - 1; i >= 0; i--) this.removeBlastAt(i);
+  }
+
+  /** Same occasions as `clearBlasts`, same reasoning — in-flight shots don't survive an arena change. */
+  clearBolts(): void {
+    for (let i = this.bolts.length - 1; i >= 0; i--) this.removeBoltAt(i);
   }
 
   /**
@@ -157,5 +178,11 @@ export class EntityManager {
   private removeOrbAt(index: number): void {
     this.scene.remove(this.orbs[index].mesh);
     this.orbs.splice(index, 1);
+  }
+
+  /** Bolts share geometry+material like orbs — unparenting is the whole teardown. */
+  private removeBoltAt(index: number): void {
+    this.scene.remove(this.bolts[index].mesh);
+    this.bolts.splice(index, 1);
   }
 }

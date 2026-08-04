@@ -1,5 +1,6 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Blast } from '../combat/Blast';
+import { Bolt } from '../combat/Bolt';
 import { Health } from '../combat/Health';
 import { applySoundBlast, SoundBlastFx } from '../combat/SoundBlast';
 import { SolarWave } from '../combat/SolarWave';
@@ -10,6 +11,7 @@ import { Boss } from '../enemies/Boss';
 import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
+import { Spitter } from '../enemies/Spitter';
 import { waveAt } from '../enemies/Waves';
 import { CameraRig } from '../player/CameraRig';
 import { Dash } from '../player/Dash';
@@ -577,6 +579,11 @@ export class Game {
         const plant = enemy.takePlantedBlast();
         if (plant) this.entityManager.addBlast(new Blast(plant, enemy.blastDamage));
       }
+      // Same polling contract for the spitter's shots.
+      if (enemy instanceof Spitter) {
+        const shot = enemy.takePendingShot();
+        if (shot) this.entityManager.addBolt(new Bolt(shot.origin, shot.velocity, enemy.boltDamage));
+      }
       if (enemy.canDealContactDamage() && distToPlayer < enemy.contactRadius) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
@@ -597,6 +604,13 @@ export class Game {
     // not something the auto-weapon should waste a lock on.
     for (const blast of this.entityManager.blasts) {
       blast.tick(dt, playerPosition, this.damagePlayer);
+    }
+
+    // Bolts fly after the spitters that fired them, same ordering logic as
+    // blasts-after-seeders; they use the same damage route, so Mirror Array
+    // (contact-only) correctly ignores them too.
+    for (const bolt of this.entityManager.bolts) {
+      bolt.tick(dt, playerPosition, this.damagePlayer);
     }
 
     this.boss?.tick(dt, playerPosition, this.damagePlayer);
@@ -696,6 +710,7 @@ export class Game {
       this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
     });
     this.entityManager.cullSpentBlasts();
+    this.entityManager.cullSpentBolts();
 
     // Player death is resolved first: a simultaneous kill is a loss, and the
     // boss dying must not rescue a player the beam already finished off. Death
@@ -843,6 +858,7 @@ export class Game {
     this.spawnDirector.suspended = true;
     this.entityManager.clearEnemies();
     this.entityManager.clearBlasts();
+    this.entityManager.clearBolts();
   }
 
   /** Tears the boss down completely; safe to call when there is no boss. */

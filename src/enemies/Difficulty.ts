@@ -84,6 +84,13 @@ export interface Difficulty {
   lancerHp: number;
   lancerSpeed: number;
   lancerContactDamage: number;
+  bulwarkHp: number;
+  bulwarkSpeed: number;
+  bulwarkContactDamage: number;
+  spitterHp: number;
+  spitterSpeed: number;
+  spitterContactDamage: number;
+  boltDamage: number;
   spawnInterval: number;
   batchSize: number;
   liveCap: number;
@@ -129,6 +136,20 @@ export function difficultyAt(level: number, elapsedSeconds: number): Difficulty 
     lancerHp: (14 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
     lancerSpeed: Math.min(MAX_DRONE_SPEED, 10 + 0.2 * n),
     lancerContactDamage: 7 * (1 + 0.1 * n),
+
+    // The wall: four drones' worth of HP moving at a crawl that never
+    // meaningfully rises — a bulwark that sped up with level would stop being
+    // terrain and start being a chaser, which is the drone's job.
+    bulwarkHp: droneHp * 4,
+    bulwarkSpeed: Math.min(12, 7.5 + 0.1 * n),
+    bulwarkContactDamage: 12 * (1 + 0.1 * n),
+
+    // Seeder-class mobility for the other support enemy; the bolt is the
+    // threat, so the body stays catchable.
+    spitterHp: (16 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
+    spitterSpeed: Math.min(MAX_SEEDER_SPEED, 8 + 0.15 * n),
+    spitterContactDamage: 3 * (1 + 0.1 * n),
+    boltDamage: 10 * (1 + 0.1 * n),
 
     spawnInterval: Math.max(
       MIN_SPAWN_INTERVAL,

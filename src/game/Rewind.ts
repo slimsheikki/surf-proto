@@ -2,10 +2,12 @@ import { Vector3 } from 'three';
 import { Health } from '../combat/Health';
 import { Weapon } from '../combat/Weapon';
 import { Boss } from '../enemies/Boss';
+import { Bulwark } from '../enemies/Bulwark';
 import { Enemy } from '../enemies/Enemy';
 import { Lancer } from '../enemies/Lancer';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector, SpawnSnapshot } from '../enemies/SpawnDirector';
+import { Spitter } from '../enemies/Spitter';
 import { Swarmer } from '../enemies/Swarmer';
 import { Dash, DashSnapshot } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
@@ -65,6 +67,8 @@ const ENEMY_KIND_DRONE = 0;
 const ENEMY_KIND_SEEDER = 1;
 const ENEMY_KIND_SWARMER = 2;
 const ENEMY_KIND_LANCER = 3;
+const ENEMY_KIND_BULWARK = 4;
+const ENEMY_KIND_SPITTER = 5;
 
 interface EnemySample {
   id: number;
@@ -76,8 +80,8 @@ interface EnemySample {
   maxHp: number;
   moveSpeed: number;
   contactDamage: number;
-  /** Seeders only; ignored for drones. */
-  blastDamage: number;
+  /** Kind-specific extra constructor arg: seeder blast damage, spitter bolt damage, 0 otherwise. */
+  aux: number;
   /**
    * Recorded stats are already elite-multiplied, so reconstruction feeds them
    * straight through the constructor; this flag only re-applies the look and
@@ -208,12 +212,15 @@ export interface RewindContext {
  *
  * **Known limits, all deliberate:**
  *
- * - **Live blasts are cleared and never restored.** They live about a second,
- *   so anything recorded has long since gone off, and the seeders that plant
- *   them come back and re-plant.
- * - **Enemy internals do not travel** — heading, aim error, contact cooldown.
- *   Position and health do. A drone rebuilt by the rewind picks a fresh aim
- *   error, which is invisible next to it being in the right place.
+ * - **Live blasts and bolts are cleared and never restored.** Both live a
+ *   couple of seconds at most, so anything recorded has long since resolved,
+ *   and the seeders/spitters that produce them come back and re-fire.
+ * - **Enemy internals do not travel** — heading, aim error, contact cooldown
+ *   (which the spawn grace rides), materialize progress, the Lancer's dash
+ *   state machine, the Spitter's shot timer. Position, health, kind and the
+ *   elite flag do. A drone rebuilt by the rewind picks a fresh aim error and
+ *   a lancer resumes in recover-drift, which is invisible next to being in
+ *   the right place.
  * - **The rewind cannot cross a Monolith's arrival or death** (`bossEpoch`).
  *   Un-felling a boss would mean rebuilding a 786-line state machine from a
  *   snapshot, and the alternative — letting the kill stand while its XP is
@@ -341,7 +348,11 @@ export class Rewind {
             ? ENEMY_KIND_SWARMER
             : enemy instanceof Lancer
               ? ENEMY_KIND_LANCER
-              : ENEMY_KIND_DRONE;
+              : enemy instanceof Bulwark
+                ? ENEMY_KIND_BULWARK
+                : enemy instanceof Spitter
+                  ? ENEMY_KIND_SPITTER
+                  : ENEMY_KIND_DRONE;
       sample.x = enemy.position.x;
       sample.y = enemy.position.y;
       sample.z = enemy.position.z;
@@ -349,7 +360,8 @@ export class Rewind {
       sample.maxHp = enemy.health.maxHp;
       sample.moveSpeed = enemy.moveSpeed;
       sample.contactDamage = enemy.contactDamage;
-      sample.blastDamage = enemy instanceof Seeder ? enemy.blastDamage : 0;
+      sample.aux =
+        enemy instanceof Seeder ? enemy.blastDamage : enemy instanceof Spitter ? enemy.boltDamage : 0;
       sample.elite = enemy.elite;
     }
 
@@ -402,8 +414,11 @@ export class Rewind {
     this.cursor = 0;
     this.limit = Math.max(0, this.usableFrames() - 1);
     // A blast planted before the rewind would otherwise detonate on the tick
-    // play resumes, under a player who is no longer where it was aimed.
+    // play resumes, under a player who is no longer where it was aimed. Bolts
+    // are cleared for the same reason and, like blasts, never restored — the
+    // shooters come back and re-fire within a couple of seconds.
     this.ctx.entityManager.clearBlasts();
+    this.ctx.entityManager.clearBolts();
   }
 
   /**
@@ -545,12 +560,22 @@ export class Rewind {
           sample.maxHp,
           sample.moveSpeed,
           sample.contactDamage,
-          sample.blastDamage,
+          sample.aux,
         );
       case ENEMY_KIND_SWARMER:
         return new Swarmer(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
       case ENEMY_KIND_LANCER:
         return new Lancer(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
+      case ENEMY_KIND_BULWARK:
+        return new Bulwark(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
+      case ENEMY_KIND_SPITTER:
+        return new Spitter(
+          this.scratch,
+          sample.maxHp,
+          sample.moveSpeed,
+          sample.contactDamage,
+          sample.aux,
+        );
       default:
         return new Enemy(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
     }
@@ -594,7 +619,7 @@ function blankEnemySample(): EnemySample {
     maxHp: 0,
     moveSpeed: 0,
     contactDamage: 0,
-    blastDamage: 0,
+    aux: 0,
     elite: false,
   };
 }

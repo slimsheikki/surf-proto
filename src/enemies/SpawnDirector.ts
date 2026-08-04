@@ -1,8 +1,10 @@
 import { Vector3 } from 'three';
+import { Bulwark } from './Bulwark';
 import { Difficulty, difficultyAt, ELITE_DAMAGE_MULT, ELITE_HP_MULT } from './Difficulty';
 import { Enemy } from './Enemy';
 import { Lancer } from './Lancer';
 import { Seeder } from './Seeder';
+import { Spitter } from './Spitter';
 import { Swarmer } from './Swarmer';
 import { pickPatternPoints } from './SpawnPlacement';
 import { ArchetypeId, drawArchetype, drawPattern, waveAt } from './Waves';
@@ -139,10 +141,24 @@ export class SpawnDirector {
           difficulty.lancerContactDamage * damageMult,
         );
         break;
-      default:
-        // 'drone' — and, until Stage 4 lands, the bulwark/spitter entries the
-        // act-2 tables already name fall back to drones so the tables can
-        // ship ahead of the classes.
+      case 'bulwark':
+        enemy = new Bulwark(
+          position,
+          difficulty.bulwarkHp * hpMult,
+          difficulty.bulwarkSpeed,
+          difficulty.bulwarkContactDamage * damageMult,
+        );
+        break;
+      case 'spitter':
+        enemy = new Spitter(
+          position,
+          difficulty.spitterHp * hpMult,
+          difficulty.spitterSpeed,
+          difficulty.spitterContactDamage * damageMult,
+          difficulty.boltDamage * damageMult,
+        );
+        break;
+      case 'drone':
         enemy = new Enemy(
           position,
           difficulty.droneHp * hpMult,
