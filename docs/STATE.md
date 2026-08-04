@@ -47,7 +47,7 @@ the game: `git checkout ed58d05`.
 
 ## Movement — under active review
 
-`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v2 · Clean Seams`** is what is deployed.
+`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v3 · Strafe Only`** is what is deployed.
 The controller is now a full port of `CGameMovement::FullWalkMove` / `TryPlayerMove` rather
 than a sketch of it: split gravity, 4 bumps with plane accumulation and crease handling,
 Source's ground-state rules, and the CS:S constants. Two behaviour changes the user will
@@ -61,6 +61,18 @@ notice immediately and is reviewing:
 with Hammer units alongside). Panel values are *preferences* and survive a run reset —
 `setMovementPreference` keeps them apart from the upgrade pool's writes to the same object,
 which must not survive.
+
+**v3 (Strafe Only) gates W/S on being grounded.** `PlayerController.wishDir` zeroes
+`input.moveForward` unless `this.grounded` — which is the game's own definition of a flat
+surface (walkable normal, not a wall, per `categorizePosition`), so there is no second test to
+drift. A surfer is airborne on every tick of a ramp, so in practice W and S simply stop
+existing while you are surfing. `MovementConfig.AIR_FORWARD_INPUT` (off; *W/S in air* in the
+tuning panel) restores CS:S. `InputSystem` is untouched and still reports the keys honestly —
+the controller decides what they mean, because the input layer does not know what the player
+is standing on. Measured airborne at 18 u/s with the knob on: W held gains **nothing** (the
+wish direction points along travel, so `v · wishDir` is 27× past the 30 hu cap and
+`airAccelerate` returns early), and S is a 5.47 u/s-per-tick retro burn that stops you in
+three ticks. Those are the two keys a new player reaches for first.
 
 **v2 (Clean Seams) changed no movement maths** — it stopped a ramp piece's leading edge from
 being a wall. See the log for the full before/after; the short version is that
@@ -1603,6 +1615,12 @@ the pyramid's four faces converging on the apex, both trapezoid tapers, and both
 Throwaway verification harnesses live at `.probe-*.ts` / `.probe-*.mjs` (gitignored,
 esbuild-bundled and run under node). The SAT overlap + approach-flow probe was deleted;
 rewrite from the numbers above if needed.
+
+- **`.probe-wsflat`** (2026-08-04, 14 green) — the v3 W/S gate, against a flat floor and one
+  51.34° banked slab: the ramp never grounds the player; W+A and S+A ride bit-identically to
+  A alone (position delta 0); W alone in the air equals no keys; W/S still walk on flat
+  ground; the jump tick reads W and the tick after it does not; with `AIR_FORWARD_INPUT` on,
+  W+A gains nothing where A gains and S+A sheds a third of its speed in 0.375 s.
 
 The enemy-rework probes (2026-08-04), all green at commit time — rewrite from these specs
 if needed:

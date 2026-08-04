@@ -110,6 +110,23 @@ export const MovementConfig = {
    * choice, but it is not Source and it is not surf.
    */
   SURF_LANDING_REDIRECT: false,
+  /**
+   * Off = W and S are read only while the player is standing on a walkable
+   * ("flat") surface. Airborne — which, by the ramp invariant, is every tick of
+   * every surf — the wish direction comes from A and D alone.
+   *
+   * Not Source, and deliberately so. In CS a surfer simply *knows* not to touch
+   * W: holding it points the wish direction along travel, where `v . wishDir` is
+   * already at or past the 30 hu cap, so `airAccelerate` pays out nothing and the
+   * strafe that would have gained speed instead does not — and a W+A diagonal is
+   * a worse strafe than A on its own. Here that knowledge is not assumed. The key
+   * that does nothing but throw your line away simply stops being live once you
+   * leave the ground.
+   *
+   * On = CS behaviour, W/S live everywhere, for anyone who wants to strafe the
+   * way their muscle memory already does.
+   */
+  AIR_FORWARD_INPUT: false,
 };
 
 /**

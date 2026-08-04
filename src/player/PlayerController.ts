@@ -254,9 +254,18 @@ export class PlayerController {
    * `AngleVectors` with the z components zeroed and renormalised, exactly as
    * both `WalkMove` and `AirMove` do — look pitch never contributes to the wish
    * direction, so staring at your feet does not change how you strafe.
+   *
+   * One departure from Source, behind `AIR_FORWARD_INPUT`: while airborne the
+   * forward/back axis is dropped, so W and S only steer on a flat surface. A
+   * surfer is airborne on every tick of a ramp (the 0.7 normal cutoff guarantees
+   * it), so this is exactly "W/S do nothing while you are surfing" — the input
+   * that kills a line by pointing the wish direction where there is no gain left
+   * to take. `this.grounded` is the game's own definition of flat: walkable
+   * normal, non-wall, per `categorizePosition`.
    */
   private wishDir(input: InputFrame): Vector3 {
-    const local = new Vector3(input.moveRight, 0, -input.moveForward);
+    const forward = this.grounded || MovementConfig.AIR_FORWARD_INPUT ? input.moveForward : 0;
+    const local = new Vector3(input.moveRight, 0, -forward);
     if (local.lengthSq() > 1e-6) local.normalize();
     return local.applyAxisAngle(UP, this.yaw);
   }

@@ -22,6 +22,61 @@ Open questions I could not settle from here are listed at the bottom.
 
 ---
 
+## v3 — Strafe Only
+
+**W and S are only live when you are standing on a flat surface.** In the air — which is
+every tick of every surf, since a ramp's normal is deliberately below the 0.7 walkable
+cutoff — the wish direction is built from A and D alone. One knob, `AIR_FORWARD_INPUT`
+(*W/S in air* in the tuning panel), off by default; on restores CS:S exactly.
+
+Judge this build on whether a line ever gets away from you for a reason you did not choose.
+Ground movement, jumping and the strafe maths itself are untouched.
+
+### Why W was never doing what it looks like it does
+
+Holding W on a ramp is not a small mistake, and it is not mainly about falling off the low
+edge. It deletes the acceleration.
+
+`airAccelerate` may add at most `AIR_SPEED_CAP - (v · wishDir)` along the wish direction per
+tick (30 hu = 0.667 u/s). Riding at 20 u/s with W held, the wish direction points along
+travel, so `v · wishDir ≈ 20` — twenty times past the cap. `addSpeed` comes out negative and
+the function returns having added **nothing**. A W+A diagonal is barely better: `v · wishDir`
+is still ~14, still far past the cap, still nothing. Only A on its own keeps the wish
+direction near-perpendicular to travel, where `v · wishDir ≈ 0` and every tick pays out the
+full cap.
+
+S is worse in the opposite direction. It puts `v · wishDir` deeply negative, so `addSpeed` is
+huge, nothing clamps it, and the tick runs at the accelerator's uncapped magnitude —
+`AIR_ACCEL × wishSpeed × dt` = 100 × 7 / 128 = **5.47 u/s applied straight backwards, every
+tick**. Measured airborne at 18 u/s with S held: `vz` goes −18 → −12.53 → −7.06 → −1.59 →
+**+0.667**. Three ticks, 23 ms, and you are stopped; hold it and you are travelling backwards
+pinned at the 30 hu cap.
+
+So the two keys a new player reaches for first are, respectively, "turn the strafe off" and
+"hit the brakes". A CS surfer knows to keep both hands off them; that knowledge is now
+built into the controller instead of assumed.
+
+### Where it lives
+
+`PlayerController.wishDir` zeroes `moveForward` unless `this.grounded`. That flag is the
+game's own definition of flat — walkable normal, not a wall, per `categorizePosition` — so
+"flat surface" needed no new test and cannot drift away from what grounds the player.
+`InputSystem` is unchanged: it still reports the keys honestly, and the controller decides
+what they mean, because the input layer has no idea what the player is standing on.
+
+One tick's worth of nuance: `wishDir` is computed before `CheckJumpButton` clears the ground
+flag, so the tick you jump on still reads W. That is one tick of a ground-derived wish
+direction on the way up, which is what Source does too (one usercmd, built once per tick).
+
+Verified by `.probe-wsflat.ts`, 14 green against a real 51.34° face: the ramp never grounds
+the player; W+A and S+A ride *bit-identically* to A alone (position delta 0); W alone in the
+air is indistinguishable from no keys at all; W and S still walk on flat ground; the jump
+tick keeps its W and the tick after it does not. With `AIR_FORWARD_INPUT` on, the same ride
+reproduces the CS numbers above — W+A gains nothing where A alone gains, S+A sheds a third
+of its speed in 0.375 s.
+
+---
+
 ## v2 — Clean Seams
 
 One bug, chased to the bottom: **a surfing player stopped dead at the join between two ramp
