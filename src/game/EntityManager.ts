@@ -78,12 +78,15 @@ export class EntityManager {
     }
   }
 
-  // Enemies deliberately have no distance cull, same design rule as orbs below:
-  // Vampire-Survivors persistence. A drone the player outruns falls behind, drops
-  // past the fog wall, and keeps solving its intercept forever — it re-engages
-  // when the course loops back through it. Enemies leave the world by dying, by
-  // a Monolith's arrival (`clearEnemies`, a duel rule, not a distance rule), by
-  // rewind reconciliation, or by the run ending. See docs/STATE.md.
+  // Enemies deliberately have no distance cull — Vampire-Survivors persistence:
+  // an enemy leaves the world by dying, by a Monolith's arrival (`clearEnemies`,
+  // a duel rule, not a distance rule), by rewind reconciliation, or by the run
+  // ending. What changed with the wave rework is what "left behind" means: a
+  // straggler far *behind* the travel direction is ring-relocated back to the
+  // fight (`Enemy.relocateTo`, same entity and rewind identity, health kept).
+  // The original rule — persist in place, it re-engages when the loop returns —
+  // was written for the ring course; on a one-way descent a dropped straggler
+  // never re-engages and only accrues sim and rewind cost. See docs/STATE.md.
 
   /**
    * Enemies inside the local fight, for the spawn director's concurrency cap.

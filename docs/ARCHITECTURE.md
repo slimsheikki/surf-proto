@@ -278,31 +278,39 @@ in a second rather than after a ten-second plummet.
 ## 6. The combat layer
 
 Deliberately simple: **plain arrays with update-and-cull loops**, no ECS — it would be pure
-overhead at this entity count. `src/game/EntityManager.ts` owns three lists (`enemies`, `orbs`,
-`blasts`) and every add/remove goes through it so scene parenting and disposal stay paired.
+overhead at this entity count. `src/game/EntityManager.ts` owns four lists (`enemies`, `orbs`,
+`blasts`, `bolts`) and every add/remove goes through it so scene parenting and disposal stay
+paired.
 
-`Game.updateGameplay()` (`src/game/Game.ts:241`) runs a fixed order every tick, and most steps
+`Game.updateGameplay()` (`src/game/Game.ts`) runs a fixed order every tick, and most steps
 are ordered for a reason:
 
 1. Player controller ticks; dash charge ticks and may fire.
 2. Track the last stage touched; respawn if below the kill plane.
 3. Spawn the Monolith if the level threshold is met — checked *before* the spawn director, so
    the tick a boss arrives on already has drone spawning suspended.
-4. Spawn director adds drones/seeders ahead of the player's travel direction.
-5. Each enemy steers and may deal contact damage. Seeders plant blasts *immediately* after
-   their own tick, so a blast lands on the position that tick used.
-6. Blasts tick — after the seeders that plant them, before the death check.
+4. Spawn director adds enemies on a ring around the player (`SpawnPlacement`), never in the
+   projected collision corridor; the wave in effect (`Waves.waveAt`, from level +
+   `bossesFelled`) decides the archetype mix, batch pattern and elite chance.
+5. Each enemy steers and may deal contact damage (per-enemy `contactRadius`; fresh spawns
+   carry a 1.2 s grace). A straggler left >120u behind the travel direction is
+   ring-relocated — same entity, same rewind identity. Seeders plant blasts and spitters
+   queue bolts *immediately* after their own tick, so both land on the position that tick
+   used.
+6. Blasts tick, then bolts fly — after the enemies that produce them, before the death check.
 7. Auto-weapon fires at the nearest target; then the solar wake burns (and Standing Wave
    drags) anything sitting in it, and a pending Echo Chamber repeat resolves — all before
    the kill pass, so anything they finish still drops XP this tick. (A dash earlier in the
    tick may have fired the sound blast; Chorus blasts fire right after the kill pass, at
    the victims' positions.)
-8. Cull dead enemies (dropping XP orbs). Nothing is distance-culled — enemies persist and
-   pursue forever (hidden past the fog wall, still simulated), and uncollected orbs hover
-   where they fell until picked up; the spawn director's cap counts only enemies near the
-   fight so stragglers cannot starve it.
+8. Cull dead enemies (dropping `xpOrbCount` XP orbs each). Nothing is distance-culled —
+   enemies persist (hidden past the fog wall, still simulated; left-behind stragglers are
+   relocated, never deleted), and uncollected orbs hover where they fell until picked up;
+   the spawn director's cap counts only enemies near the fight so stragglers cannot starve
+   it.
 9. **Player death is resolved first**, so a simultaneous kill is a loss.
-10. Last: flow XP pays out for sustained speed (`FlowXP`), the ultimate meter
+10. Last: the wave headline fires if the settled level crossed a boundary (never over a
+    boss), flow XP pays out for sustained speed (`FlowXP`), the ultimate meter
     charges, and `Rewind` records the tick. The recorder reads the *settled*
     end-of-tick world — a recorded frame is what the player is handed back if
     they rewind to it, so it must never be a half-updated one.
@@ -313,11 +321,19 @@ being written from the recording instead of simulated. See `docs/STATE.md`.
 
 Enemies steer by solving an *interception* on the player's trajectory, not by chasing their
 current position — a 12 u/s drone cannot catch a 30 u/s surfer, so chasing means trailing
-forever. A **turn-rate cap** is what makes them dodgeable: re-solving every tick with unlimited
-steering is perfect homing and every drone hits.
+forever. A **turn-rate cap** (per-enemy `turnRate`) is what makes them dodgeable: re-solving
+every tick with unlimited steering is perfect homing and every drone hits. The roster is six
+archetypes on one steering core — drone, seeder, swarmer, lancer, bulwark, spitter — each an
+`Enemy` subclass differing in `EnemyVisual`, a few instance knobs (`turnRate`,
+`contactRadius`, `baseScale`, `xpOrbCount`), and at most one behaviour (a plant timer, a
+dash state machine, a standoff band). Any of them can carry the elite affix (`markElite` —
+look and drops only; the spawner multiplies the stats).
 
-All scaling lives in one file, `src/enemies/Difficulty.ts`. Runs are endless — felling the
-Monolith continues the run and death is the only exit.
+All scaling lives in one file, `src/enemies/Difficulty.ts`; all *composition* — which
+archetypes a wave fields, in what formation, at what elite rate — lives in
+`src/enemies/Waves.ts` (five waves per act, act = Monoliths felled, acts 3+ remixed from
+the two authored ones). Runs are endless — felling the Monolith continues the run and death
+is the only exit.
 
 ---
 
@@ -372,10 +388,15 @@ old combat knife went further — a 2D `Shape` outline extruded into a blade; it
 the knife weapon, but the technique is in git history under `KnifeHand.ts` if a non-box
 silhouette is ever needed again.)
 
-For enemies there is already a seam: `EnemyVisual` (`src/enemies/Enemy.ts:40`) is
+For enemies there is already a seam: `EnemyVisual` (`src/enemies/Enemy.ts`) is
 `{ geometry, color, emissive, emissiveIntensity }`, and it exists so a subclass can be a
 different shape without reimplementing any steering. That is exactly how `Seeder` (a violet
-octahedron) differs from a drone (a red sphere).
+octahedron), `Swarmer` (acid-green tetra), `Lancer` (bone-white spike), `Bulwark` (cobalt
+boulder) and `Spitter` (emerald disc) differ from a drone (a red sphere). A new archetype
+also needs: stats in `Difficulty`, a case in `SpawnDirector.buildEnemy` (the switch is
+exhaustive — the compiler will point at it), weights in a `Waves.ts` table, and a kind tag
+plus reconstruction branch in `Rewind.ts` — miss that last one and the rewind rebuilds it
+as a plain drone.
 
 Costs nothing, needs no loader, no asset pipeline, and diffs as text in git. It is why the
 game currently looks the way it does.

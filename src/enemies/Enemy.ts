@@ -171,6 +171,8 @@ export class Enemy {
   xpOrbCount = 1;
   /** Set by `markElite`; recorded by the rewind so a rebuilt elite stays one. */
   elite = false;
+  /** Seconds until this enemy may be ring-relocated again — see `relocateTo` and the game loop's straggler recycling. */
+  repositionCooldown = 0;
 
   constructor(
     position: Vector3,
@@ -337,6 +339,7 @@ export class Enemy {
     }
 
     if (this.contactCooldown > 0) this.contactCooldown -= dt;
+    if (this.repositionCooldown > 0) this.repositionCooldown -= dt;
     if (this.flashTimer > 0) {
       this.flashTimer -= dt;
       this.material.emissive.setHex(this.flashTimer > 0 ? FLASH_EMISSIVE : this.baseEmissive);
@@ -352,6 +355,24 @@ export class Enemy {
     this.materializeRemaining = 0;
     this.mesh.scale.setScalar(this.baseScale);
     this.material.emissiveIntensity = this.baseEmissiveIntensity;
+  }
+
+  /**
+   * Ring relocation for a straggler the player has left far behind.
+   *
+   * Not a despawn and not a fresh spawn: same entity, same `rewindId`, health
+   * and stats kept — the enemy never stops existing, it stops being *lost*.
+   * The spawn grace and the materialize are re-armed so the re-entry
+   * announces itself exactly like an arrival, and the heading resets so it
+   * steers in fresh instead of resuming a chase vector from 120 units ago.
+   */
+  relocateTo(position: Vector3, cooldownSeconds: number): void {
+    this.position.copy(position);
+    this.mesh.position.copy(this.position);
+    this.heading.set(0, 0, 0);
+    this.contactCooldown = Math.max(this.contactCooldown, SPAWN_CONTACT_GRACE);
+    this.materializeRemaining = MATERIALIZE_SECONDS;
+    this.repositionCooldown = cooldownSeconds;
   }
 
   /**

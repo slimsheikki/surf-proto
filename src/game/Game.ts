@@ -11,6 +11,11 @@ import { Boss } from '../enemies/Boss';
 import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
+import {
+  pickSpawnPoint,
+  REPOSITION_COOLDOWN,
+  REPOSITION_DISTANCE,
+} from '../enemies/SpawnPlacement';
 import { Spitter } from '../enemies/Spitter';
 import { waveAt } from '../enemies/Waves';
 import { CameraRig } from '../player/CameraRig';
@@ -51,6 +56,9 @@ import { GameState } from './GameState';
 const XP_PER_KILL = 3;
 /** Scatter for multi-orb drops, so a rich kill reads as several orbs rather than one bright one. */
 const ORB_DROP_JITTER = 0.5;
+
+/** Scratch for the straggler behind-check; the enemy loop is the hottest path in the tick. */
+const scratchToEnemy = new Vector3();
 /**
  * XP for felling a Monolith.
  *
@@ -117,10 +125,12 @@ const BASE_MAX_HP = 100;
 const OUT_OF_BOUNDS_MARGIN = 30;
 
 /**
- * Nothing is despawned by distance any more — not orbs (PR #24) and not
- * enemies: Vampire-Survivors persistence, a straggler chases forever and
- * re-engages when the course loops back through it. Two radii remain, neither
- * of which deletes anything:
+ * Nothing is despawned by distance — not orbs (PR #24) and not enemies:
+ * Vampire-Survivors persistence. A straggler left far *behind* the travel
+ * direction is ring-relocated back into the fight instead of persisting in
+ * place (`REPOSITION_DISTANCE` in SpawnPlacement, checked in the enemy loop) —
+ * a relocation, never a deletion. Two radii remain here, neither of which
+ * deletes anything either:
  *
  * - `ENEMY_ENGAGE_RADIUS` bounds the spawn director's concurrency count, so
  *   far stragglers cannot eat the live cap and starve the fight around the
@@ -551,12 +561,18 @@ export class Game {
       this.spawnBoss();
     }
 
+    // Shared by the spawner's context and the straggler recycling below.
+    const travelDir = this.travelDirection();
+    const placement = {
+      playerPosition,
+      travelDirection: travelDir,
+      playerSpeed: playerVelocity.length(),
+    };
+
     this.spawnDirector.tick(
       dt,
       {
-        playerPosition,
-        travelDirection: this.travelDirection(),
-        playerSpeed: playerVelocity.length(),
+        ...placement,
         nearbyEnemyCount: this.entityManager.countEnemiesWithin(playerPosition, ENEMY_ENGAGE_RADIUS),
         playerLevel: this.levelSystem.level,
         bossesFelled: this.bossesFelled,
@@ -569,7 +585,22 @@ export class Game {
     let contactLanded = false;
     for (const enemy of this.entityManager.enemies) {
       enemy.tick(dt, playerPosition, playerVelocity);
-      const distToPlayer = enemy.distanceToPlayer(playerPosition);
+      let distToPlayer = enemy.distanceToPlayer(playerPosition);
+      // Straggler recycling. An enemy left far behind the direction of travel
+      // re-enters the spawn ring — same entity, same rewind identity, grace
+      // and materialize re-armed (see Enemy.relocateTo). Behind only: a far
+      // enemy *ahead* is one the player is still flying toward, and it keeps
+      // its ambush. On the old ring course stragglers re-engaged when the
+      // loop came back through them; on a one-way descent they never do, so
+      // persisting in place had become pure sim-and-rewind cost.
+      if (
+        distToPlayer > REPOSITION_DISTANCE &&
+        enemy.repositionCooldown <= 0 &&
+        scratchToEnemy.copy(enemy.position).sub(playerPosition).dot(travelDir) < 0
+      ) {
+        enemy.relocateTo(pickSpawnPoint(placement), REPOSITION_COOLDOWN);
+        distToPlayer = enemy.distanceToPlayer(playerPosition);
+      }
       // Persistence makes far stragglers routine; past the fog wall they are
       // invisible anyway, so stop paying their draw call. Simulation continues.
       enemy.mesh.visible = distToPlayer < ENEMY_RENDER_DISTANCE;

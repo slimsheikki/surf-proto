@@ -54,6 +54,17 @@ export const REAR_BIAS_MAX = 0.5;
 const REAR_BIAS_RAMP = 20;
 export const VERTICAL_SPREAD = 6;
 export const MAX_ATTEMPTS = 12;
+/**
+ * Straggler recycling — the Megabonk repositioning rule. An enemy this far
+ * *behind* the travel direction has been left for dead on a one-way descent:
+ * it will never re-engage on its own, and it costs a steering solve and a
+ * rewind sample forever. Instead of persisting in place (the old rule, written
+ * for a course that looped back through its stragglers) it re-enters the ring.
+ * Never a despawn — same entity, same rewind identity, health kept.
+ */
+export const REPOSITION_DISTANCE = 120;
+/** Per-enemy gap between relocations, so a borderline straggler doesn't strobe. */
+export const REPOSITION_COOLDOWN = 3;
 /** Scatter radius for cluster members around their anchor. */
 export const CLUSTER_RADIUS = 4;
 /** Flank anchors sit at ±(90° ± this) off the travel direction. */
