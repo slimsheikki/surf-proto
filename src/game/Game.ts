@@ -408,21 +408,22 @@ export class Game {
    * so a list that grew or shrank as blessings came and went would restore each
    * one onto a different shrine's history. Blessings appear and disappear by
    * flipping slots dormant, never by resizing this.
+   *
+   * **Every slot is built dormant and unplaced**, and `updateGameplay`'s loop
+   * hangs them on the first tick — the same path a collected blessing comes
+   * back through. This used to seed each one at a strided anchor instead, on
+   * the reasoning that `restart` would move it anyway; the constructor does not
+   * go through `restart`, so the first run of every session opened on the exact
+   * same five rings, and reloading the page gave the same five again.
    */
   private rebuildShrines(): void {
     for (const shrine of this.shrines) {
       this.scene.remove(shrine.group);
       shrine.dispose();
     }
-    const anchors = this.blessingAnchors;
-    const slots = Math.min(BLESSING_SLOTS, anchors.length);
+    const slots = Math.min(BLESSING_SLOTS, this.blessingAnchors.length);
     this.shrines = [];
-    for (let i = 0; i < slots; i++) {
-      // Seeded spread across the pool so the very first placements are not all
-      // drawn from one end of the course; every one is moved by `restart`
-      // anyway, which is what actually decides where a run's blessings hang.
-      this.shrines.push(new Shrine(anchors[Math.floor((i / slots) * anchors.length)]));
-    }
+    for (let i = 0; i < slots; i++) this.shrines.push(new Shrine());
     for (const shrine of this.shrines) this.scene.add(shrine.group);
   }
 
@@ -997,6 +998,12 @@ export class Game {
    * the rules, including why every anchor it can return is reachable. A null
    * means the course offers nowhere at all — the slot simply stays dormant and
    * is tried again on the next tick rather than being placed somewhere unsafe.
+   *
+   * `avoid` is where this slot last stood, which is *not* an occupied spot — it
+   * is vacant, and that is exactly the problem: a blessing that reappears where
+   * it was collected has not moved as far as the player can tell. Null on a
+   * slot that has yet to stand anywhere, so the opening arrangement of a run is
+   * free to use the whole pool.
    */
   private respawnShrine(shrine: Shrine): void {
     const occupied: Vector3[] = [];
@@ -1007,6 +1014,7 @@ export class Game {
       anchors: this.blessingAnchors,
       playerPosition: this.playerController.position,
       occupied,
+      avoid: shrine.lastSpot,
     });
     if (spot) shrine.respawnAt(spot);
   }

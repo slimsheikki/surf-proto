@@ -194,11 +194,21 @@ mid-run**, because `Rewind` pairs shrines with snapshots *by array index*; bless
 and disappear by flipping slots dormant, never by resizing the list. Position *and facing*
 are mutable, so both ride in `Rewind`'s `Frame`.
 
-A run **opens with all five standing** — `restart` resets every slot to a zero delay and the
+A run **opens with all five standing** — every slot is built dormant at a zero delay and the
 gameplay loop places them on the first tick, each seeing the ones already up so the ≥70 u
 separation still holds. Staggering them 30 s apart instead (the literal reading of "one every
 30 seconds") left the player looking at an empty sky for the first half minute;
 `SHRINE_RESPAWN_SECONDS` governs only how long a *collected* blessing stays gone.
+
+**Nothing places a blessing but that loop, and no placement is deterministic.** `Shrine` has
+no authored spot — the constructor takes no anchor — because anything that seeds one is
+a spot the game will show. `rebuildShrines` used to seed each slot at a strided anchor on
+the reasoning that `restart` moved it anyway, and the *constructor does not go through
+`restart`*, so every session opened on the same five rings. `pickBlessingSpot` draws at
+random on both its paths for the same reason: its old fallback took the single best score,
+which is a pure function of where the other four stand, so a returning blessing was handed
+its own anchor back. A blessing also refuses `MIN_RETURN_DISTANCE` around the spot it was
+just taken from — vacant, and therefore not in `occupied`, which is exactly the trap.
 
 ## Free mode
 

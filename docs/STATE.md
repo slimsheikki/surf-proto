@@ -491,9 +491,22 @@ high. Pyramids are skipped — their anchor is the base centre and the apex rise
 by a different rule.
 
 Placement rules are preferences with a graceful floor rather than hard rejects
-(≥70 u apart, ≥45 u from the player); every anchor is scored by distance to the
-nearest thing it should avoid, so a cramped map degrades to "as far apart as
-this map allows" instead of failing to place anything.
+(≥70 u apart, ≥45 u from the player, ≥55 u from the spot this slot was taken
+from); every anchor is scored by distance to the nearest thing it should avoid,
+so a cramped map degrades to "as far apart as this map allows" instead of
+failing to place anything. Scores are normalised against their own rule before
+the weakest is taken, or the return rule — the shortest of the three distances —
+would look worst at every anchor and decide every tie by itself.
+
+**Both paths draw at random, and the fallback especially.** It used to return
+the single highest-scoring anchor, which is a pure function of where the other
+blessings stand: take one, let it come back while the other four have not moved,
+and the same anchor wins again. It now draws from everything within
+`FALLBACK_SCORE_FRACTION` (0.8) of the best — relative, not an absolute band, so
+on a map with real spread it stays a *near-best* set instead of quietly widening
+to the whole pool. Probed on a deliberately cramped six-anchor pool where
+nothing is ever eligible: 200 picks, 0 nulls, and the two least-bad anchors both
+come up.
 
 **Five slots, fixed for the run.** `BLESSING_SLOTS` `Shrine` objects are
 allocated once and cycled between standing and dormant — they are never
@@ -502,7 +515,7 @@ allocated or freed mid-run, because `Rewind` pairs shrines with their snapshots
 different shrine's history. Facing rides in `ShrineSnapshot` alongside position
 — a restored blessing must face as it did.
 
-**The course opens with all five standing.** `restart` resets every slot to a
+**The course opens with all five standing.** Every slot is built dormant at a
 zero delay, which makes each one `needsRespawn` immediately; `updateGameplay`'s
 loop places them on the first tick, one at a time, each seeing the ones already
 up — so the separation rule holds on the opening arrangement exactly as it does
@@ -510,6 +523,27 @@ mid-run. It was briefly staggered 30 s apart instead, which is the literal
 reading of "one every 30 seconds" and meant a player who loaded the course
 looked at an empty sky for half a minute. `SHRINE_RESPAWN_SECONDS` now governs
 only the thing it is named for: how long a *collected* blessing stays gone.
+
+**Every run opened on the same five rings, and the cause was the seeding, not
+the sampler (fixed).** `rebuildShrines` built each `Shrine` at
+`anchors[(i / slots) · anchors.length]` — a strided spread through the pool —
+with the comment that `restart` moves them all anyway. It does; the
+**constructor does not go through `restart`**, and `App` constructs `Game`
+directly for the first run of a session. So a page load always showed
+193/199/210, −39/151/−147, −16/162/−62, −224/137/−54, −182/24/136 on MegaFlow
+Demo V1, verified identical across three fresh sessions. `Shrine`'s constructor
+now takes no anchor at all and starts dormant: **there is no authored spot to
+fall back to**, so the loop is the only thing that can place a blessing, on the
+first run of a session exactly as on the tenth. Four fresh sessions now open on
+four distinct arrangements, five standing every time.
+
+**A blessing also may not come back where it was taken from.** `Shrine.lastSpot`
+is the vacated position, or null while a slot has never stood anywhere (`reset`
+clears it, so a new run may use the whole pool), and it rides into
+`pickBlessingSpot` as `avoid` rather than into `occupied` — the vacated spot is
+*empty*, which is why the not-on-top-of-another-ring rule never covered it.
+Probed live: six collect-and-return cycles moved the ring 168–295 u each time,
+five standing throughout, closest pair never under 70.
 
 Visuals: a `BackSide`, `depthWrite: false` halo torus at 0.17 opacity breathing
 ±0.07, and a 0.18-unit hover. Normal blending, per the usual rule. The old
@@ -738,7 +772,10 @@ gives it a menu.
   uses. `Shrine.reset()` now returns each blessing to its **authored** position,
   not just un-collects it in place: positions are mutable since blessings
   respawn, so without an `origin` a restart left every shrine wherever the
-  previous run had scattered it.
+  previous run had scattered it. *(Superseded — there is no authored position
+  any more. `reset()` puts the slot back to dormant and unplaced, and the
+  gameplay loop draws it a fresh spot on the first tick. See the blessings
+  section above.)*
 - **QUIT** always goes to the front menu, including from a free-mode run. `M`
   still goes back to the *editor*, because that is the useful exit while
   iterating on a map; Quit is the one that leaves.
