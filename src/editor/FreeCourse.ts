@@ -10,6 +10,7 @@ import {
 } from 'three';
 import { degToRad } from '../engine/MathUtils';
 import { GameCourse } from '../game/Game';
+import { blessingAnchorsForMap } from '../world/BlessingSpots';
 import { registerCollider } from '../world/Colliders';
 import {
   APPROACH_FACE_COLOR,
@@ -381,6 +382,10 @@ export function buildFreeWorld(map: FreeMap, colliders = true): FreeWorld {
       islandCenter: bossTop.clone(),
       trackY: bossTop.y,
       trackRadius,
+      // Derived from the pieces themselves, so a blessing can only ever hang
+      // over something the player can ride to. Free maps used to omit this
+      // entirely, which is why the shipped course had no blessings at all.
+      blessingAnchors: blessingAnchorsForMap(map),
       killPlaneY: lowestY(map) - FREE_KILL_PLANE_MARGIN,
     },
   };

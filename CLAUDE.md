@@ -172,10 +172,17 @@ divides the spawn interval by; move them together. See `docs/STATE.md`.
 
 ## Blessings
 
-Collecting one removes it; 30 s later it comes back at a random point on the **endless ring**
-(`ShrineRespawn.ts`). "Reachable" is answered by construction — candidates are drawn from the
-same envelope the authored ring shrines occupy — and never from the approach, which is
-one-way. A shrine's position is mutable now, so it is part of `Rewind`'s `Frame`.
+A blessing is a **ring the player surfs through**, hung above a ramp. "Reachable" is answered
+by construction (`BlessingSpots.ts`): every candidate spot is *derived from a ramp piece the
+map contains*, so a blessing can only appear over something rideable. Sampling an envelope
+around `islandCenter`/`trackRadius` instead — what the deleted `ShrineRespawn.ts` did — is
+wrong on a free map, where those are the boss pillar and its engagement radius, not a track.
+
+**There are exactly `BLESSING_SLOTS` (5) `Shrine` objects and the count may never change
+mid-run**, because `Rewind` pairs shrines with snapshots *by array index*; blessings appear
+and disappear by flipping slots dormant, never by resizing the list. A run starts with all
+five dormant, staggered 30 s apart, so the map fills one at a time. Position *and facing* are
+mutable, so both ride in `Rewind`'s `Frame`.
 
 ## Free mode
 

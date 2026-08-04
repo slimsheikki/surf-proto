@@ -33,14 +33,14 @@ import { COUNTDOWN_SECONDS, Countdown } from '../ui/Countdown';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { FlowXP } from './FlowXP';
-import { Shrine } from './Shrine';
-import { pickShrineRespawnPoint } from './ShrineRespawn';
+import { Shrine, SHRINE_RESPAWN_SECONDS } from './Shrine';
 import { Rewind } from './Rewind';
 import { getSettings } from './Settings';
 import { Ultimate } from './Ultimate';
 import { UltimateEffect } from '../ui/UltimateEffect';
 import { Hud } from '../ui/Hud';
 import { UpgradeMenu } from '../ui/UpgradeMenu';
+import { BlessingAnchor, pickBlessingSpot } from '../world/BlessingSpots';
 import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
@@ -61,6 +61,15 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
+
+/**
+ * How many blessings may stand on the map at once.
+ *
+ * Also the number of `Shrine` objects that exist for the whole run — they are
+ * slots, cycled between standing and dormant, never allocated or freed. See
+ * `rebuildShrines` for why the count may not change mid-run.
+ */
+const BLESSING_SLOTS = 5;
 
 /**
  * How long F must be held to open the all-in screen instead of cashing one
@@ -144,8 +153,15 @@ export interface GameCourse {
   trackY: number;
   /** Radius of the surf loop, which sizes the boss's engagement and cull radii. */
   trackRadius: number;
-  /** Blessing-shrine positions. Absent on free-mode maps (for now). */
+  /** Blessing-shrine positions. Only the retired generated course supplies these. */
   shrines?: Vector3[];
+  /**
+   * Every spot a blessing may occupy on this course, with the ramp heading to
+   * face there. A pool, not a placement: `BLESSING_SLOTS` blessings move around
+   * inside it for the whole run. Built from the map's own pieces, which is what
+   * makes every one of them reachable — see `BlessingSpots`.
+   */
+  blessingAnchors?: BlessingAnchor[];
   /**
    * Absolute world Y of the kill plane, overriding the per-stage one below.
    *
@@ -344,16 +360,44 @@ export class Game {
   }
 
   /**
+   * The pool of spots blessings move around in on this course.
+   *
+   * The retired generated course hands over bare positions instead; they become
+   * anchors facing world-forward so the one code path serves both.
+   */
+  private get blessingAnchors(): BlessingAnchor[] {
+    if (this.course.blessingAnchors?.length) return this.course.blessingAnchors;
+    return (this.course.shrines ?? []).map((position) => ({
+      position,
+      forward: new Vector3(0, 0, 1),
+    }));
+  }
+
+  /**
    * Tears down and rebuilds the shrine objects for the current course. Called
-   * from the constructor and from `setCourse` — a new map brings new shrine
-   * positions, and the old meshes must not linger in the scene.
+   * from the constructor and from `setCourse` — a new map brings a new anchor
+   * pool, and the old meshes must not linger in the scene.
+   *
+   * The count is fixed for the whole run, and that is load-bearing rather than
+   * incidental: `Rewind` pairs shrines with their snapshots **by array index**,
+   * so a list that grew or shrank as blessings came and went would restore each
+   * one onto a different shrine's history. Blessings appear and disappear by
+   * flipping slots dormant, never by resizing this.
    */
   private rebuildShrines(): void {
     for (const shrine of this.shrines) {
       this.scene.remove(shrine.group);
       shrine.dispose();
     }
-    this.shrines = (this.course.shrines ?? []).map((position) => new Shrine(position.clone()));
+    const anchors = this.blessingAnchors;
+    const slots = Math.min(BLESSING_SLOTS, anchors.length);
+    this.shrines = [];
+    for (let i = 0; i < slots; i++) {
+      // Seeded spread across the pool so the very first placements are not all
+      // drawn from one end of the course; every one is moved by `restart`
+      // anyway, which is what actually decides where a run's blessings hang.
+      this.shrines.push(new Shrine(anchors[Math.floor((i / slots) * anchors.length)]));
+    }
     for (const shrine of this.shrines) this.scene.add(shrine.group);
   }
 
@@ -853,27 +897,25 @@ export class Game {
   }
 
   /**
-   * Sends a collected blessing back into the world at a fresh spot on the ring.
+   * Brings a blessing into the world at a fresh spot above a ramp.
    *
    * The occupied list is every *standing* blessing except this one, so two can
-   * never be planted on top of each other; `pickShrineRespawnPoint` owns the
-   * rest of the rules, including why a point on the ring is reachable by
-   * construction and a point on the approach would not be.
+   * never be planted on top of each other; `pickBlessingSpot` owns the rest of
+   * the rules, including why every anchor it can return is reachable. A null
+   * means the course offers nowhere at all — the slot simply stays dormant and
+   * is tried again on the next tick rather than being placed somewhere unsafe.
    */
   private respawnShrine(shrine: Shrine): void {
     const occupied: Vector3[] = [];
     for (const other of this.shrines) {
       if (other !== shrine && !other.collected) occupied.push(other.position);
     }
-    shrine.respawnAt(
-      pickShrineRespawnPoint({
-        trackRadius: this.course.trackRadius,
-        trackY: this.course.trackY,
-        islandCenter: this.course.islandCenter,
-        playerPosition: this.playerController.position,
-        occupied,
-      }),
-    );
+    const spot = pickBlessingSpot({
+      anchors: this.blessingAnchors,
+      playerPosition: this.playerController.position,
+      occupied,
+    });
+    if (spot) shrine.respawnAt(spot);
   }
 
   /** A shrine blessing: identical menu, identical stakes, no level required. */
@@ -1072,7 +1114,11 @@ export class Game {
     this.playerHealth.regenPerSecond = 0;
     resetRunPerks(this.perks);
     resetXpMagnet();
-    for (const shrine of this.shrines) shrine.reset();
+    // Staggered, so the map fills to its cap one blessing every
+    // `SHRINE_RESPAWN_SECONDS` instead of all five hanging there from the first
+    // frame. Each slot's countdown then carries the same cadence for the rest
+    // of the run: take one, and that slot is back a spawn interval later.
+    this.shrines.forEach((shrine, index) => shrine.reset(SHRINE_RESPAWN_SECONDS * (index + 1)));
     this.playerController.teleport(this.course.spawnPoint.clone());
     // Yaw too, not just position. A free map can start the player on any
     // heading, and `restart` is also the path `setCourse` takes — leaving the

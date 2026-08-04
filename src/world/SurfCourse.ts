@@ -342,9 +342,6 @@ const JOURNEY_DIVE_PITCH_DEG = 22;
 const JOURNEY_CLIMB_PITCH_DEG = -12;
 /** Narrow-section face width: two thirds of standard, a precision check at speed. */
 const JOURNEY_NARROW_WIDTH = 12;
-/** How close the player must fly to a shrine to collect its blessing. */
-export const SHRINE_COLLECT_RADIUS = 6;
-
 export const FACE_ROUGHNESS = 0.85;
 export const FACE_METALNESS = 0;
 /**
