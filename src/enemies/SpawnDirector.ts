@@ -2,17 +2,7 @@ import { Vector3 } from 'three';
 import { Difficulty, difficultyAt } from './Difficulty';
 import { Enemy } from './Enemy';
 import { Seeder } from './Seeder';
-
-/** How far ahead along the travel direction drones appear, so they're met head-on. */
-const BASE_FORWARD_DIST = 22;
-const FORWARD_DIST_PER_SPEED = 0.5;
-const MAX_SPEED_LEAD = 12;
-const FORWARD_DIST_JITTER = 8;
-/** Kept tight so spawns land near the player's actual path, inside the weapon's envelope. */
-const LATERAL_SPREAD = 8;
-const VERTICAL_SPREAD = 4;
-
-const UP = new Vector3(0, 1, 0);
+import { pickSpawnPoint } from './SpawnPlacement';
 
 export interface SpawnContext {
   playerPosition: Vector3;
@@ -35,24 +25,24 @@ export interface SpawnContext {
   playerLevel: number;
 }
 
-/**
- * Spawns drones ahead of the player's direction of travel, like obstacles in
- * a runner, rather than ringing a static arena — this keeps most of a ramp
- * run clear for pure surfing and turns combat into punctuation, not a
- * constant distraction.
- *
- * Spawn distance scales with the player's speed so a 35 u/s surfer still gets
- * roughly the same fraction of a second of approach time as a 10 u/s one, and
- * both batch size and the *local* population are capped — the cap counts only
- * enemies near the fight, because enemies persist forever once spawned and a
- * cap on the global count would starve the fight as stragglers accumulate.
- */
 export interface SpawnSnapshot {
   survivalTime: number;
   timeSinceLastSpawn: number;
   suspended: boolean;
 }
 
+/**
+ * Spawns the horde on a ring around the player — near enough to be felt
+ * immediately, never inside the corridor the player is about to fly through
+ * (`SpawnPlacement` holds that geometry and its rationale). A moving player
+ * reads it as wading through a field of threats the intercept AI arcs in from
+ * the sides; a still player gets encircled, which keeps the combat layer's
+ * pressure pointed at its one commandment: keep surfing.
+ *
+ * Both batch size and the *local* population are capped — the cap counts only
+ * enemies near the fight, because enemies persist once spawned and a cap on
+ * the global count would starve the fight as stragglers accumulate.
+ */
 export class SpawnDirector {
   /**
    * Halts new drones without stopping the run clock — set while a Monolith is
@@ -84,25 +74,7 @@ export class SpawnDirector {
   }
 
   private spawnOne(ctx: SpawnContext, difficulty: Difficulty): Enemy {
-    const forward = ctx.travelDirection;
-    // Lateral basis from the horizontal component of travel, so spread stays
-    // level with the world even when the player is plunging down a 78° ramp.
-    const lateral = new Vector3().crossVectors(UP, forward);
-    if (lateral.lengthSq() < 1e-6) lateral.set(1, 0, 0);
-    lateral.normalize();
-
-    const forwardDist =
-      BASE_FORWARD_DIST +
-      Math.min(ctx.playerSpeed * FORWARD_DIST_PER_SPEED, MAX_SPEED_LEAD) +
-      Math.random() * FORWARD_DIST_JITTER;
-    const lateralOffset = (Math.random() - 0.5) * LATERAL_SPREAD;
-    const verticalOffset = (Math.random() - 0.35) * VERTICAL_SPREAD;
-
-    const position = ctx.playerPosition
-      .clone()
-      .addScaledVector(forward, forwardDist)
-      .addScaledVector(lateral, lateralOffset)
-      .add(new Vector3(0, verticalOffset, 0));
+    const position = pickSpawnPoint(ctx);
 
     // Seeders are drawn per-spawn rather than as a scheduled wave, so a batch
     // is a mix and the player never gets a lull of "only drones" to relax into.

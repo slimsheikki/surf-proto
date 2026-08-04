@@ -15,6 +15,21 @@ const BASE_EMISSIVE_INTENSITY = 0.85;
 const FLASH_EMISSIVE = 0xffcc55;
 const CONTACT_COOLDOWN = 0.5;
 const FLASH_DURATION = 0.12;
+/** Scale-in time for a fresh spawn — the visual announcement that something just arrived. */
+export const MATERIALIZE_SECONDS = 0.6;
+const MATERIALIZE_START_SCALE = 0.15;
+/** Emissive boost at the start of the materialize, fading to the visual's base. */
+const MATERIALIZE_EMISSIVE_BOOST = 2.5;
+/**
+ * How long a fresh spawn cannot deal contact damage. This — not spawn
+ * placement — is the hard "no instant hit" guarantee: the corridor rejection
+ * in `SpawnPlacement` keeps enemies out of the windshield, but a legal spawn
+ * beside the path can still brush a 40 u/s player in ~0.35 s, faster than
+ * anyone can react. Riding the contact cooldown makes the window exact and
+ * unconditional (fallback spawns included), and keeps it inside the one field
+ * the rewind already deliberately declines to restore.
+ */
+export const SPAWN_CONTACT_GRACE = 1.2;
 /** Don't aim further ahead than this — a long lead against a curving ramp run just flies off into space. */
 const MAX_LEAD_SECONDS = 1.6;
 /**
@@ -92,8 +107,21 @@ export class Enemy {
   rewindId = nextRewindId();
 
   protected readonly material: MeshStandardMaterial;
-  private contactCooldown = 0;
+  /** Starts at the spawn grace — a fresh enemy is visible before it is dangerous. */
+  private contactCooldown = SPAWN_CONTACT_GRACE;
   private flashTimer = 0;
+  /**
+   * Scale-in progress. Deliberately not rewound: `finishMaterialize` is called
+   * on rewind reconstruction so rebuilt enemies stand at full size instead of
+   * replaying the pop-in mid-playback.
+   */
+  private materializeRemaining = MATERIALIZE_SECONDS;
+  /**
+   * Resting mesh scale. Subclasses that are physically bigger (the Bulwark)
+   * set this instead of writing `mesh.scale`, so the materialize ramp and the
+   * elite affix compose with it instead of fighting over the transform.
+   */
+  protected baseScale = 1;
   /**
    * Standing Wave's resonance slow. Transient and deliberately NOT rewound —
    * the same documented limit as heading, aim error and contact cooldown: it
@@ -107,6 +135,7 @@ export class Enemy {
   private slowFactor = 1;
   private bobPhase = Math.random() * Math.PI * 2;
   private readonly baseEmissive: number;
+  private readonly baseEmissiveIntensity: number;
   /** Current heading; steered toward the intercept solution at a bounded rate. */
   private readonly heading = new Vector3();
   private readonly aimError: Vector3;
@@ -121,13 +150,15 @@ export class Enemy {
     this.position = position.clone();
     this.health = new Health(hp);
     this.baseEmissive = visual.emissive;
+    this.baseEmissiveIntensity = visual.emissiveIntensity;
     this.material = new MeshStandardMaterial({
       color: visual.color,
       emissive: visual.emissive,
-      emissiveIntensity: visual.emissiveIntensity,
+      emissiveIntensity: visual.emissiveIntensity * MATERIALIZE_EMISSIVE_BOOST,
     });
     this.mesh = new Mesh(visual.geometry, this.material);
     this.mesh.position.copy(this.position);
+    this.mesh.scale.setScalar(MATERIALIZE_START_SCALE);
     this.aimError = new Vector3(
       Math.random() - 0.5,
       Math.random() - 0.5,
@@ -247,6 +278,20 @@ export class Enemy {
     this.mesh.position.copy(this.position);
     this.mesh.position.y += Math.sin(this.bobPhase) * 0.15;
 
+    if (this.materializeRemaining > 0) {
+      this.materializeRemaining -= dt;
+      if (this.materializeRemaining <= 0) {
+        this.finishMaterialize();
+      } else {
+        const t = 1 - this.materializeRemaining / MATERIALIZE_SECONDS;
+        this.mesh.scale.setScalar(
+          this.baseScale * (MATERIALIZE_START_SCALE + (1 - MATERIALIZE_START_SCALE) * t),
+        );
+        this.material.emissiveIntensity =
+          this.baseEmissiveIntensity * (MATERIALIZE_EMISSIVE_BOOST - (MATERIALIZE_EMISSIVE_BOOST - 1) * t);
+      }
+    }
+
     // Decremented here rather than in `tick`, deliberately: `Seeder` overrides
     // `tick` and every subclass funnels through this method, so the slow can
     // never silently stop expiring on a subclass.
@@ -260,6 +305,17 @@ export class Enemy {
       this.flashTimer -= dt;
       this.material.emissive.setHex(this.flashTimer > 0 ? FLASH_EMISSIVE : this.baseEmissive);
     }
+  }
+
+  /**
+   * Snaps to full size and resting glow. Called by `Rewind` when it rebuilds
+   * an enemy from a recorded frame — a reconstructed enemy was already fully
+   * present when the frame was recorded, so it must not replay the scale-in.
+   */
+  finishMaterialize(): void {
+    this.materializeRemaining = 0;
+    this.mesh.scale.setScalar(this.baseScale);
+    this.material.emissiveIntensity = this.baseEmissiveIntensity;
   }
 
   distanceToPlayer(playerPosition: Vector3): number {

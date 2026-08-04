@@ -510,6 +510,8 @@ export class Rewind {
         // Stand in for the enemy that was here, so the next frame recognises it
         // instead of destroying and rebuilding it all over again.
         enemy.rewindId = sample.id;
+        // It was fully present when this frame was recorded — no spawn pop-in.
+        enemy.finishMaterialize();
         em.addEnemy(enemy);
       }
       enemy.position.set(sample.x, sample.y, sample.z);
