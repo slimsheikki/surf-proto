@@ -1,4 +1,4 @@
-import { BufferGeometry, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import { BufferGeometry, Color, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
 import { Health } from '../combat/Health';
 
 const GEOMETRY = new SphereGeometry(0.45, 12, 10);
@@ -45,6 +45,20 @@ const MIN_AIM_ERROR = 1.2;
 const MAX_AIM_ERROR = 4;
 /** Range over which that aim error fades to zero as the drone closes in. */
 const AIM_ERROR_FADE_DIST = 3;
+/**
+ * How close counts as touching the player. Enemy sphere is r=0.45 and the
+ * player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing
+ * speed. An instance field (not a game-wide constant) because a physically
+ * bigger body — the Bulwark, any elite — has to reach further or it visually
+ * overlaps the player without ever hitting.
+ */
+const DEFAULT_CONTACT_RADIUS = 1.3;
+/** The elite affix: bigger, brighter, richer — stats are multiplied by the spawner, not here. */
+const ELITE_SCALE = 1.5;
+const ELITE_BONUS_ORBS = 2;
+/** How far an elite's glow is pulled toward white — the type colour must stay dominant. */
+const ELITE_EMISSIVE_LIFT = 0.35;
+const ELITE_EMISSIVE_INTENSITY_MULT = 1.6;
 
 /**
  * How an enemy looks. Split out so a subclass can be a different shape and
@@ -134,11 +148,29 @@ export class Enemy {
   private slowRemaining = 0;
   private slowFactor = 1;
   private bobPhase = Math.random() * Math.PI * 2;
-  private readonly baseEmissive: number;
-  private readonly baseEmissiveIntensity: number;
-  /** Current heading; steered toward the intercept solution at a bounded rate. */
-  private readonly heading = new Vector3();
+  /**
+   * Resting glow. Protected and mutable: subclasses ramp against it for their
+   * own telegraphs (the Lancer's windup), and `markElite` lifts it — anything
+   * that restores the material afterwards must read these, not the visual.
+   */
+  protected baseEmissive: number;
+  protected baseEmissiveIntensity: number;
+  /** Current heading; steered toward the intercept solution at a bounded rate. Protected so a subclass can orient its mesh along it. */
+  protected readonly heading = new Vector3();
   private readonly aimError: Vector3;
+
+  /**
+   * Steering limit, radians/second — see `TURN_RATE` for why it exists. An
+   * instance field so an archetype can be twitchier (the Swarmer) without the
+   * drone's dodge tuning moving.
+   */
+  protected turnRate = TURN_RATE;
+  /** How close this enemy has to get for contact damage. */
+  contactRadius = DEFAULT_CONTACT_RADIUS;
+  /** XP orbs dropped on death. */
+  xpOrbCount = 1;
+  /** Set by `markElite`; recorded by the rewind so a rebuilt elite stays one. */
+  elite = false;
 
   constructor(
     position: Vector3,
@@ -174,7 +206,11 @@ export class Enemy {
    * no interception exists (the usual case for a player faster than the drone
    * and heading away), in which case the caller falls back to a direct chase.
    */
-  private interceptSeconds(playerPosition: Vector3, playerVelocity: Vector3): number | null {
+  protected interceptSeconds(
+    playerPosition: Vector3,
+    playerVelocity: Vector3,
+    speed = this.moveSpeed,
+  ): number | null {
     const rx = playerPosition.x - this.position.x;
     const ry = playerPosition.y - this.position.y;
     const rz = playerPosition.z - this.position.z;
@@ -183,7 +219,7 @@ export class Enemy {
       playerVelocity.x * playerVelocity.x +
       playerVelocity.y * playerVelocity.y +
       playerVelocity.z * playerVelocity.z -
-      this.moveSpeed * this.moveSpeed;
+      speed * speed;
     const b = 2 * (rx * playerVelocity.x + ry * playerVelocity.y + rz * playerVelocity.z);
     const c = rx * rx + ry * ry + rz * rz;
 
@@ -245,9 +281,9 @@ export class Enemy {
       if (this.heading.lengthSq() < 1e-6) {
         this.heading.copy(desired);
       } else {
-        // Rotate the heading toward the desired direction, at most TURN_RATE*dt.
+        // Rotate the heading toward the desired direction, at most turnRate*dt.
         const angle = Math.acos(Math.min(1, Math.max(-1, this.heading.dot(desired))));
-        const maxTurn = TURN_RATE * dt;
+        const maxTurn = this.turnRate * dt;
         if (angle <= maxTurn || angle < 1e-6) {
           this.heading.copy(desired);
         } else {
@@ -316,6 +352,30 @@ export class Enemy {
     this.materializeRemaining = 0;
     this.mesh.scale.setScalar(this.baseScale);
     this.material.emissiveIntensity = this.baseEmissiveIntensity;
+  }
+
+  /**
+   * The elite affix: half again the size, a glow lifted toward white, and a
+   * richer drop. Visual and drop only, on purpose — the stat multipliers are
+   * applied by the spawner *before* construction, so the rewind (which records
+   * final numbers and replays them through the constructor) can call this on a
+   * rebuilt elite without multiplying anything twice.
+   */
+  markElite(): void {
+    if (this.elite) return;
+    this.elite = true;
+    this.baseScale *= ELITE_SCALE;
+    this.contactRadius *= ELITE_SCALE;
+    this.xpOrbCount += ELITE_BONUS_ORBS;
+    this.baseEmissive = new Color(this.baseEmissive)
+      .lerp(new Color(0xffffff), ELITE_EMISSIVE_LIFT)
+      .getHex();
+    this.baseEmissiveIntensity *= ELITE_EMISSIVE_INTENSITY_MULT;
+    this.material.emissive.setHex(this.baseEmissive);
+    this.material.emissiveIntensity = this.baseEmissiveIntensity;
+    // Mid-materialize the ramp re-derives scale/intensity next tick; done
+    // after it, snap straight to the new resting look.
+    if (this.materializeRemaining <= 0) this.mesh.scale.setScalar(this.baseScale);
   }
 
   distanceToPlayer(playerPosition: Vector3): number {

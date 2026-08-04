@@ -30,9 +30,23 @@ export const BOSS_LEVEL_INTERVAL = 10;
  * met head-on and becomes a thing that hounds them from behind, which is
  * exactly the "stop surfing to fight" failure the whole combat layer exists to
  * avoid. Anything above about 22 starts keeping pace with a mediocre line.
+ *
+ * The law reads: no *sustained pursuit* above this. Every archetype's cruise
+ * speed is min()'d against it. The one sanctioned exception is the Lancer's
+ * dash — a telegraphed, non-tracking straight line with a long recovery,
+ * which can exceed the ceiling precisely because it cannot pursue.
  */
 const MAX_DRONE_SPEED = 22;
 const MAX_SEEDER_SPEED = 16;
+
+/**
+ * The elite affix's stat side, applied by the spawner before construction so
+ * the rewind can replay recorded (already-multiplied) numbers through the
+ * constructor and then `markElite` without compounding. Visual/drop side
+ * lives on `Enemy.markElite`.
+ */
+export const ELITE_HP_MULT = 3;
+export const ELITE_DAMAGE_MULT = 1.4;
 
 /** Population ceiling. Raised with level, but bounded — this is a frame-time budget, not a difficulty dial. */
 const BASE_LIVE_CAP = 32;
@@ -64,6 +78,12 @@ export interface Difficulty {
   seederSpeed: number;
   seederContactDamage: number;
   blastDamage: number;
+  swarmerHp: number;
+  swarmerSpeed: number;
+  swarmerContactDamage: number;
+  lancerHp: number;
+  lancerSpeed: number;
+  lancerContactDamage: number;
   spawnInterval: number;
   batchSize: number;
   liveCap: number;
@@ -82,15 +102,33 @@ export function difficultyAt(level: number, elapsedSeconds: number): Difficulty 
   // Levels *past the first*, so a level-1 player sees exactly the original numbers.
   const n = Math.max(0, level - 1);
 
+  // The drone's curves are the reference the newer archetypes derive from, so
+  // the whole roster inherits both ramps and the uncapped level term at once.
+  const droneHp = (10 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n);
+  const droneSpeed = Math.min(MAX_DRONE_SPEED, 9 + Math.min(t / 40, 6) + 0.22 * n);
+
   return {
-    droneHp: (10 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
-    droneSpeed: Math.min(MAX_DRONE_SPEED, 9 + Math.min(t / 40, 6) + 0.22 * n),
+    droneHp,
+    droneSpeed,
     droneContactDamage: 5 * (1 + 0.1 * n),
 
     seederHp: (18 + Math.min(t * 0.3, 30)) * (1 + 0.16 * n),
     seederSpeed: Math.min(MAX_SEEDER_SPEED, 7 + 0.15 * n),
     seederContactDamage: 3 * (1 + 0.1 * n),
     blastDamage: 16 * (1 + 0.1 * n),
+
+    // Swarmers matter through numbers: cheap to kill, a touch faster and much
+    // twitchier than the drone (turn rate lives on the class), gentle contact.
+    swarmerHp: droneHp * 0.4,
+    swarmerSpeed: Math.min(MAX_DRONE_SPEED, droneSpeed + 2),
+    swarmerContactDamage: 3 * (1 + 0.1 * n),
+
+    // The lancer's declared speed is its *drift* input (the class halves it in
+    // flight); the dash speed is the class's own constant, not a curve — a
+    // telegraph that got faster with level would stop being learnable.
+    lancerHp: (14 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
+    lancerSpeed: Math.min(MAX_DRONE_SPEED, 10 + 0.2 * n),
+    lancerContactDamage: 7 * (1 + 0.1 * n),
 
     spawnInterval: Math.max(
       MIN_SPAWN_INTERVAL,

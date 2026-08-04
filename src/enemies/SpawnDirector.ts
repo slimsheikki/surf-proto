@@ -1,7 +1,9 @@
 import { Vector3 } from 'three';
-import { Difficulty, difficultyAt } from './Difficulty';
+import { Difficulty, difficultyAt, ELITE_DAMAGE_MULT, ELITE_HP_MULT } from './Difficulty';
 import { Enemy } from './Enemy';
+import { Lancer } from './Lancer';
 import { Seeder } from './Seeder';
+import { Swarmer } from './Swarmer';
 import { pickPatternPoints } from './SpawnPlacement';
 import { ArchetypeId, drawArchetype, drawPattern, waveAt } from './Waves';
 
@@ -89,31 +91,68 @@ export class SpawnDirector {
     // Archetypes are drawn per-spawn rather than per-batch, so a batch is a
     // mix and the player never gets a lull of "only drones" to relax into.
     for (const position of points) {
-      spawnEnemy(this.buildEnemy(drawArchetype(spec), difficulty, position));
+      const elite = Math.random() < spec.eliteChance;
+      spawnEnemy(this.buildEnemy(drawArchetype(spec), difficulty, position, elite));
     }
   }
 
-  private buildEnemy(archetype: ArchetypeId, difficulty: Difficulty, position: Vector3): Enemy {
+  /**
+   * The single construction site for every spawned enemy. Elite stat
+   * multipliers are applied to the numbers *before* construction and
+   * `markElite` handles only look and drops — that split is what lets the
+   * rewind replay recorded (already-multiplied) stats through the same
+   * constructors without compounding them.
+   */
+  private buildEnemy(
+    archetype: ArchetypeId,
+    difficulty: Difficulty,
+    position: Vector3,
+    elite: boolean,
+  ): Enemy {
+    const hpMult = elite ? ELITE_HP_MULT : 1;
+    const damageMult = elite ? ELITE_DAMAGE_MULT : 1;
+
+    let enemy: Enemy;
     switch (archetype) {
       case 'seeder':
-        return new Seeder(
+        enemy = new Seeder(
           position,
-          difficulty.seederHp,
+          difficulty.seederHp * hpMult,
           difficulty.seederSpeed,
-          difficulty.seederContactDamage,
-          difficulty.blastDamage,
+          difficulty.seederContactDamage * damageMult,
+          difficulty.blastDamage * damageMult,
         );
-      default:
-        // 'drone' — and, until their stages land, the archetypes the wave
-        // tables already name (swarmer/lancer/bulwark/spitter) fall back to
-        // drones so the tables can ship ahead of the classes.
-        return new Enemy(
+        break;
+      case 'swarmer':
+        enemy = new Swarmer(
           position,
-          difficulty.droneHp,
-          difficulty.droneSpeed,
-          difficulty.droneContactDamage,
+          difficulty.swarmerHp * hpMult,
+          difficulty.swarmerSpeed,
+          difficulty.swarmerContactDamage * damageMult,
         );
+        break;
+      case 'lancer':
+        enemy = new Lancer(
+          position,
+          difficulty.lancerHp * hpMult,
+          difficulty.lancerSpeed,
+          difficulty.lancerContactDamage * damageMult,
+        );
+        break;
+      default:
+        // 'drone' — and, until Stage 4 lands, the bulwark/spitter entries the
+        // act-2 tables already name fall back to drones so the tables can
+        // ship ahead of the classes.
+        enemy = new Enemy(
+          position,
+          difficulty.droneHp * hpMult,
+          difficulty.droneSpeed,
+          difficulty.droneContactDamage * damageMult,
+        );
+        break;
     }
+    if (elite) enemy.markElite();
+    return enemy;
   }
 
   /**

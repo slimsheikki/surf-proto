@@ -46,9 +46,9 @@ import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
 
-/** Enemy sphere is r=0.45 and the player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing speed. */
-const CONTACT_RADIUS = 1.3;
 const XP_PER_KILL = 3;
+/** Scatter for multi-orb drops, so a rich kill reads as several orbs rather than one bright one. */
+const ORB_DROP_JITTER = 0.5;
 /**
  * XP for felling a Monolith.
  *
@@ -577,7 +577,7 @@ export class Game {
         const plant = enemy.takePlantedBlast();
         if (plant) this.entityManager.addBlast(new Blast(plant, enemy.blastDamage));
       }
-      if (enemy.canDealContactDamage() && distToPlayer < CONTACT_RADIUS) {
+      if (enemy.canDealContactDamage() && distToPlayer < enemy.contactRadius) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
         contactLanded = true;
@@ -646,7 +646,23 @@ export class Game {
     // passed, splitting one wave's accounting across two ticks.
     this.chorusSites.length = 0;
     this.entityManager.cullDeadEnemies((enemy) => {
-      this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
+      // Elites (and later the Bulwark) pay out several orbs; the jitter is
+      // what makes "several" legible before the magnet gathers them anyway.
+      for (let i = 0; i < enemy.xpOrbCount; i++) {
+        const dropAt =
+          i === 0
+            ? enemy.position
+            : enemy.position
+                .clone()
+                .add(
+                  new Vector3(
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                  ),
+                );
+        this.entityManager.addOrb(new XPOrb(dropAt, XP_PER_KILL));
+      }
       if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
       this.ultimate.registerKill();
       if (this.perks.chorus > 0) {

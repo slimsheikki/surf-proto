@@ -3,8 +3,10 @@ import { Health } from '../combat/Health';
 import { Weapon } from '../combat/Weapon';
 import { Boss } from '../enemies/Boss';
 import { Enemy } from '../enemies/Enemy';
+import { Lancer } from '../enemies/Lancer';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector, SpawnSnapshot } from '../enemies/SpawnDirector';
+import { Swarmer } from '../enemies/Swarmer';
 import { Dash, DashSnapshot } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
@@ -54,8 +56,15 @@ const REWIND_SPEED = 2.5;
  */
 const MIN_USEFUL_SECONDS = 1.5;
 
+/**
+ * The archetype tag. Every spawnable class needs its own value and its own
+ * branch in `applyEnemies`' reconstruction switch, or a rebuilt enemy comes
+ * back as a plain drone — the classes carry behaviour the sample cannot.
+ */
 const ENEMY_KIND_DRONE = 0;
 const ENEMY_KIND_SEEDER = 1;
+const ENEMY_KIND_SWARMER = 2;
+const ENEMY_KIND_LANCER = 3;
 
 interface EnemySample {
   id: number;
@@ -69,6 +78,12 @@ interface EnemySample {
   contactDamage: number;
   /** Seeders only; ignored for drones. */
   blastDamage: number;
+  /**
+   * Recorded stats are already elite-multiplied, so reconstruction feeds them
+   * straight through the constructor; this flag only re-applies the look and
+   * the drop bonus (`markElite` is stat-free by design).
+   */
+  elite: boolean;
 }
 
 interface OrbSample {
@@ -319,7 +334,14 @@ export class Rewind {
       const enemy = enemies[i];
       const sample = frame.enemies[i] ?? (frame.enemies[i] = blankEnemySample());
       sample.id = enemy.rewindId;
-      sample.kind = enemy instanceof Seeder ? ENEMY_KIND_SEEDER : ENEMY_KIND_DRONE;
+      sample.kind =
+        enemy instanceof Seeder
+          ? ENEMY_KIND_SEEDER
+          : enemy instanceof Swarmer
+            ? ENEMY_KIND_SWARMER
+            : enemy instanceof Lancer
+              ? ENEMY_KIND_LANCER
+              : ENEMY_KIND_DRONE;
       sample.x = enemy.position.x;
       sample.y = enemy.position.y;
       sample.z = enemy.position.z;
@@ -328,6 +350,7 @@ export class Rewind {
       sample.moveSpeed = enemy.moveSpeed;
       sample.contactDamage = enemy.contactDamage;
       sample.blastDamage = enemy instanceof Seeder ? enemy.blastDamage : 0;
+      sample.elite = enemy.elite;
     }
 
     const orbs = c.entityManager.orbs;
@@ -497,19 +520,11 @@ export class Rewind {
       let enemy = this.liveEnemies.get(sample.id);
       if (!enemy) {
         this.scratch.set(sample.x, sample.y, sample.z);
-        enemy =
-          sample.kind === ENEMY_KIND_SEEDER
-            ? new Seeder(
-                this.scratch,
-                sample.maxHp,
-                sample.moveSpeed,
-                sample.contactDamage,
-                sample.blastDamage,
-              )
-            : new Enemy(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
+        enemy = this.reconstructEnemy(sample);
         // Stand in for the enemy that was here, so the next frame recognises it
         // instead of destroying and rebuilding it all over again.
         enemy.rewindId = sample.id;
+        if (sample.elite) enemy.markElite();
         // It was fully present when this frame was recorded — no spawn pop-in.
         enemy.finishMaterialize();
         em.addEnemy(enemy);
@@ -518,6 +533,26 @@ export class Rewind {
       enemy.mesh.position.copy(enemy.position);
       enemy.health.maxHp = sample.maxHp;
       enemy.health.hp = sample.hp;
+    }
+  }
+
+  /** `scratch` already holds the sample's position when this is called. */
+  private reconstructEnemy(sample: EnemySample): Enemy {
+    switch (sample.kind) {
+      case ENEMY_KIND_SEEDER:
+        return new Seeder(
+          this.scratch,
+          sample.maxHp,
+          sample.moveSpeed,
+          sample.contactDamage,
+          sample.blastDamage,
+        );
+      case ENEMY_KIND_SWARMER:
+        return new Swarmer(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
+      case ENEMY_KIND_LANCER:
+        return new Lancer(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
+      default:
+        return new Enemy(this.scratch, sample.maxHp, sample.moveSpeed, sample.contactDamage);
     }
   }
 
@@ -560,6 +595,7 @@ function blankEnemySample(): EnemySample {
     moveSpeed: 0,
     contactDamage: 0,
     blastDamage: 0,
+    elite: false,
   };
 }
 
