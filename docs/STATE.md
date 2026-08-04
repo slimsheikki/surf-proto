@@ -4,6 +4,40 @@ Living handoff doc. Read at session start, update before finishing. Keep it shor
 delete anything resolved rather than accumulating history. For the running backlog of
 requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
+## Four choices, rerollable down to two (new)
+
+The power panel opens on **4** cards. **`Q`** rerolls to **3**, once more to **2**, then the
+button disappears. `CHOICE_COUNTS = [4, 3, 2]` in `ui/UpgradeMenu.ts` is the whole ladder —
+`length - 1` is the reroll allowance, so there is no second constant to disagree with it.
+
+**The shrinking is the cost.** A reroll that kept four cards would be free and therefore
+automatic; paying a card makes the second one a real commitment and makes taking a good
+fourth card on sight defensible.
+
+Three things worth knowing before touching it:
+
+- **`show()` takes a *draw function*, not an array** (`(count) => Upgrade[]`, i.e.
+  `drawUpgradeChoices` itself). A reroll has to ask for a fresh set at a new size, and the
+  call sites should not have to know the ladder to allow it. Both sites in `Game.ts` —
+  the tap-of-F/spend path and the shrine path — pass the function bare.
+- **The reroll key is `Q`, and it must not be `R`.** `Input` reads `KeyR` as `ultimateHeld`
+  and `updateGameplay` fires ReWind on its **rising edge**, but the menu does not tick, so
+  `ultimateHeldLastTick` goes stale while it is open. A player still holding the reroll key
+  as they picked would resume into a fresh-looking press and spend an ultimate they never
+  asked for. `Q` is in neither `GAME_KEY_CODES` nor any `InputFrame` field.
+- **`ACCEPT_DELAY_MS` is reset by `render()`, not by `show()`.** A reroll swaps every card
+  under the player's hand, so a digit still on its way down would otherwise take a power
+  nobody had read — the same failure the debounce already existed for, reached by a new route.
+
+`rerollsUsed` resets in `show()`, so every menu of a 5-pick spend opens on four with both
+rerolls back. Nothing here rides `Rewind`: the sim is frozen while the panel is open and the
+pick is the only thing that mutates state.
+
+CSS: `#upgrade-choices` has a **set `width`**, not a `max-width`. The overlay is a centring
+column, so a shrink-to-fit row re-resolves against the card count — two cards stacked
+vertically while four sat in a row. `.upgrade-choice` is capped at 260px or the longest
+description sizes every card and pushes the fourth onto its own line.
+
 ## Revert point
 
 **Commit `ed58d05` is the last build before the free-map editor rework** (modular ramp

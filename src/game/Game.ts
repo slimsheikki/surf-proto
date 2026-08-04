@@ -924,8 +924,7 @@ export class Game {
   }
 
   /**
-   * Pauses the run on a three-way powerup choice, resuming the instant it is
-   * picked.
+   * Pauses the run on a powerup choice, resuming the instant it is picked.
    *
    * The shrine path only, now. It is the one menu that still takes control with
    * no warning — the player flew through a shrine, they did not ask for a
@@ -934,7 +933,9 @@ export class Game {
    */
   private openUpgradeChoice(): void {
     this.state = 'pausedForUpgrade';
-    this.upgradeMenu.show(drawUpgradeChoices(3), (choice) => {
+    // The draw function, not a drawn list: the menu opens on four and rerolls
+    // down to three then two, so it has to be able to ask for a new set itself.
+    this.upgradeMenu.show(drawUpgradeChoices, (choice) => {
       choice.apply(this.upgradeContext());
       this.playerController.grantMomentumBoost();
       this.state = 'playing';
@@ -950,7 +951,7 @@ export class Game {
     };
   }
 
-  /** A tap of F: one banked power, three to choose from. */
+  /** A tap of F: one banked power, four to choose from. */
   private openSinglePick(): void {
     this.state = 'pausedForUpgrade';
     this.runPicks(1, 1);
@@ -983,7 +984,7 @@ export class Game {
     }
     const label = total > 1 ? `Power ${total - remaining + 1} of ${total}` : '';
     this.upgradeMenu.show(
-      drawUpgradeChoices(3),
+      drawUpgradeChoices,
       (choice) => {
         choice.apply(this.upgradeContext());
         this.levelSystem.spendPicks(1);
