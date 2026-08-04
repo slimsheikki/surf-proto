@@ -10,6 +10,7 @@ import { Boss } from '../enemies/Boss';
 import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
+import { waveAt } from '../enemies/Waves';
 import { CameraRig } from '../player/CameraRig';
 import { Dash } from '../player/Dash';
 import { resetMovementConfig } from '../player/MovementConfig';
@@ -61,6 +62,9 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
+
+/** Wave headlines are shorter-lived than the boss one — they recur every couple of levels. */
+const WAVE_BANNER_SECONDS = 3.5;
 
 /**
  * How long F must be held to open the all-in screen instead of cashing one
@@ -202,6 +206,15 @@ export class Game {
 
   /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
   bossesFelled = 0;
+
+  /**
+   * Last wave whose banner has fired, by global index. Pure announcement
+   * state: deliberately not in `Frame`, so after a rewind across a wave
+   * boundary the banner simply doesn't refire — a headline is not worth a
+   * recorded field. Zero means "wave 1 not yet announced", which is what makes
+   * the opening FIRST CONTACT banner fire on a fresh run's first tick.
+   */
+  private lastAnnouncedWave = 0;
 
   /**
    * Rolling identity for "which Monolith encounter is this". Bumped when one
@@ -544,6 +557,7 @@ export class Game {
         playerSpeed: playerVelocity.length(),
         nearbyEnemyCount: this.entityManager.countEnemiesWithin(playerPosition, ENEMY_ENGAGE_RADIUS),
         playerLevel: this.levelSystem.level,
+        bossesFelled: this.bossesFelled,
       },
       (enemy) => this.entityManager.addEnemy(enemy),
     );
@@ -696,6 +710,17 @@ export class Game {
       );
     }
 
+    // Wave headlines fire once the tick's XP has settled, and never over a
+    // Monolith — the duel suspends spawning, so announcing its backdrop wave
+    // would be noise. `fellBoss` hands the next act's opener to its own banner.
+    if (!this.boss) {
+      const wave = waveAt(this.levelSystem.level, this.bossesFelled);
+      if (wave.globalWave > this.lastAnnouncedWave) {
+        this.lastAnnouncedWave = wave.globalWave;
+        this.banner.show(wave.spec.name, `Wave ${wave.globalWave}`, WAVE_BANNER_SECONDS);
+      }
+    }
+
     // Last in the tick, and in this order. The meter is charged from the state
     // this tick produced, and the recording is written from the state the
     // player will be handed back if they rewind to here — which must be the
@@ -834,9 +859,14 @@ export class Game {
     // Granted after the counter, so an award that levels the player straight
     // past the next boss threshold still finds `bossesFelled` correct.
     this.levelSystem.addXp(XP_PER_BOSS);
+    // The next act starts this same tick. Its opening wave rides the boss
+    // banner — announced here and marked as such, so the wave check in the
+    // gameplay tick doesn't stomp MONOLITH DOWN with a second headline.
+    const wave = waveAt(this.levelSystem.level, this.bossesFelled);
+    this.lastAnnouncedWave = wave.globalWave;
     this.banner.show(
       'MONOLITH DOWN',
-      `${this.bossesFelled} felled — the next one is coming at level ${bossLevelFor(this.bossesFelled)}`,
+      `${this.bossesFelled} felled — ${wave.spec.name} begins, next Monolith at level ${bossLevelFor(this.bossesFelled)}`,
       BOSS_BANNER_SECONDS,
     );
   }
@@ -1096,6 +1126,7 @@ export class Game {
     this.rewind.clear();
     this.ultFx.reset();
     this.bossEpoch = 0;
+    this.lastAnnouncedWave = 0;
     this.countdownRemaining = 0;
     this.ultimateHeldLastTick = false;
     this.bankHoldSeconds = 0;
@@ -1148,6 +1179,7 @@ export class Game {
       xpFraction: this.levelSystem.progress,
       level: this.levelSystem.level,
       elapsedSeconds: this.spawnDirector.elapsedSeconds,
+      wave: waveAt(this.levelSystem.level, this.bossesFelled).globalWave,
       bossesFelled: this.bossesFelled,
       dashFraction: this.dash.fraction,
       dashCharges: this.dash.charges,

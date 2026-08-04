@@ -14,14 +14,15 @@
  * worse than a level-20 one. Level is the right axis for the late game because
  * the player's own power comes from levels too, so both sides of the fight
  * scale off the same clock.
+ *
+ * This file owns *how hard*; `Waves.ts` owns *made of what*. Archetype mix,
+ * batch arrangement and elite frequency are wave composition, not difficulty,
+ * and moved there when the wave system landed.
  */
 
 /** Level at which the first Monolith arrives, and the gap between each one after. */
 export const FIRST_BOSS_LEVEL = 10;
 export const BOSS_LEVEL_INTERVAL = 10;
-
-/** Level the AoE seeders start appearing at. Before this the run is pure drones. */
-const SEEDER_FIRST_LEVEL = 4;
 
 /**
  * Ceiling on drone speed, and it is a design constraint rather than a tuning
@@ -63,8 +64,6 @@ export interface Difficulty {
   seederSpeed: number;
   seederContactDamage: number;
   blastDamage: number;
-  /** Probability that any one spawn is a seeder rather than a drone. 0 before `SEEDER_FIRST_LEVEL`. */
-  seederChance: number;
   spawnInterval: number;
   batchSize: number;
   liveCap: number;
@@ -92,11 +91,6 @@ export function difficultyAt(level: number, elapsedSeconds: number): Difficulty 
     seederSpeed: Math.min(MAX_SEEDER_SPEED, 7 + 0.15 * n),
     seederContactDamage: 3 * (1 + 0.1 * n),
     blastDamage: 16 * (1 + 0.1 * n),
-    // Ramps in slowly and tops out well short of half: seeders are pressure,
-    // and a wave made mostly of them would be a wave the auto-weapon has
-    // nothing to shoot at while blasts pile up on the surf line.
-    seederChance:
-      level < SEEDER_FIRST_LEVEL ? 0 : Math.min(0.35, 0.06 * (level - SEEDER_FIRST_LEVEL + 1)),
 
     spawnInterval: Math.max(
       MIN_SPAWN_INTERVAL,

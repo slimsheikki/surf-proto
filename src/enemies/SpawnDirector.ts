@@ -2,7 +2,8 @@ import { Vector3 } from 'three';
 import { Difficulty, difficultyAt } from './Difficulty';
 import { Enemy } from './Enemy';
 import { Seeder } from './Seeder';
-import { pickSpawnPoint } from './SpawnPlacement';
+import { pickPatternPoints } from './SpawnPlacement';
+import { ArchetypeId, drawArchetype, drawPattern, waveAt } from './Waves';
 
 export interface SpawnContext {
   playerPosition: Vector3;
@@ -23,6 +24,12 @@ export interface SpawnContext {
    * ramps have topped out — which is what makes an endless run stay a run.
    */
   playerLevel: number;
+  /**
+   * Monoliths felled — the act index for `Waves`. Needs no rewind state of its
+   * own: `bossEpoch` truncates the rewind window at any boss transition, so
+   * this is constant across every reachable frame.
+   */
+  bossesFelled: number;
 }
 
 export interface SpawnSnapshot {
@@ -61,38 +68,52 @@ export class SpawnDirector {
     this.timeSinceLastSpawn += dt;
 
     const difficulty = difficultyAt(ctx.playerLevel, this.survivalTime);
-    if (this.timeSinceLastSpawn < difficulty.spawnInterval) return;
+    const { spec } = waveAt(ctx.playerLevel, ctx.bossesFelled);
+    if (this.timeSinceLastSpawn < difficulty.spawnInterval * spec.cadenceScale) return;
     this.timeSinceLastSpawn = 0;
 
     const capacity = difficulty.liveCap - ctx.nearbyEnemyCount;
     if (capacity <= 0) return;
 
-    const batchSize = Math.min(difficulty.batchSize, capacity);
-    for (let i = 0; i < batchSize; i++) {
-      spawnEnemy(this.spawnOne(ctx, difficulty));
+    // The wave decides the batch's *shape*; the difficulty curve still owns
+    // its size, except that a drawn cluster is sized like a cluster — and the
+    // capacity cap binds either way, so a pattern can never bust the budget.
+    const pattern = drawPattern(spec);
+    let desired = difficulty.batchSize;
+    if (pattern === 'cluster' && spec.clusterSize) {
+      const [min, max] = spec.clusterSize;
+      desired = min + Math.floor(Math.random() * (max - min + 1));
+    }
+    const points = pickPatternPoints(ctx, pattern, Math.min(desired, capacity));
+
+    // Archetypes are drawn per-spawn rather than per-batch, so a batch is a
+    // mix and the player never gets a lull of "only drones" to relax into.
+    for (const position of points) {
+      spawnEnemy(this.buildEnemy(drawArchetype(spec), difficulty, position));
     }
   }
 
-  private spawnOne(ctx: SpawnContext, difficulty: Difficulty): Enemy {
-    const position = pickSpawnPoint(ctx);
-
-    // Seeders are drawn per-spawn rather than as a scheduled wave, so a batch
-    // is a mix and the player never gets a lull of "only drones" to relax into.
-    if (Math.random() < difficulty.seederChance) {
-      return new Seeder(
-        position,
-        difficulty.seederHp,
-        difficulty.seederSpeed,
-        difficulty.seederContactDamage,
-        difficulty.blastDamage,
-      );
+  private buildEnemy(archetype: ArchetypeId, difficulty: Difficulty, position: Vector3): Enemy {
+    switch (archetype) {
+      case 'seeder':
+        return new Seeder(
+          position,
+          difficulty.seederHp,
+          difficulty.seederSpeed,
+          difficulty.seederContactDamage,
+          difficulty.blastDamage,
+        );
+      default:
+        // 'drone' — and, until their stages land, the archetypes the wave
+        // tables already name (swarmer/lancer/bulwark/spitter) fall back to
+        // drones so the tables can ship ahead of the classes.
+        return new Enemy(
+          position,
+          difficulty.droneHp,
+          difficulty.droneSpeed,
+          difficulty.droneContactDamage,
+        );
     }
-    return new Enemy(
-      position,
-      difficulty.droneHp,
-      difficulty.droneSpeed,
-      difficulty.droneContactDamage,
-    );
   }
 
   /**
