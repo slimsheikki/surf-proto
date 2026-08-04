@@ -97,18 +97,31 @@ export class Shrine {
    * shrine's position must re-read it rather than caching — which is also why
    * it is part of `ShrineSnapshot`.
    */
-  readonly position: Vector3;
+  readonly position = new Vector3();
 
   /** Ramp heading the ring faces, so the line through it is the line down the ramp. */
   readonly forward = new Vector3(0, 0, 1);
+
+  /**
+   * False until this slot has stood somewhere in the current run.
+   *
+   * `position` is a real coordinate either way, so it cannot answer this on its
+   * own — and the answer matters, because "do not come back to where you were
+   * taken from" must not be read off a never-used slot sitting at the origin.
+   */
+  private placed = false;
 
   private respawnRemaining = 0;
   private readonly ringMaterial: MeshStandardMaterial;
   private readonly glowMaterial: MeshBasicMaterial;
   private bobPhase = 0;
 
-  constructor(anchor: BlessingAnchor) {
-    this.position = anchor.position.clone();
+  /**
+   * Built dormant and unplaced. Where a blessing hangs is the game loop's call,
+   * every time — including the very first one of a run, which is what stops a
+   * course from opening on the same five rings it opened on last time.
+   */
+  constructor() {
     this.ringMaterial = new MeshStandardMaterial({
       color: SHRINE_COLOR,
       emissive: SHRINE_EMISSIVE,
@@ -128,7 +141,7 @@ export class Shrine {
 
     this.group.add(new Mesh(RING_GEOMETRY, this.ringMaterial));
     this.group.add(new Mesh(GLOW_GEOMETRY, this.glowMaterial));
-    this.placeAt(anchor.position, anchor.forward);
+    this.reset(0);
   }
 
   /**
@@ -162,6 +175,17 @@ export class Shrine {
     return this.collected && this.respawnRemaining <= 0;
   }
 
+  /**
+   * Where this blessing last stood, or null if it has not stood anywhere yet.
+   *
+   * The spot a blessing was taken from is the one place it must not reappear —
+   * a ring that blinks back on over the same ramp is the thing that makes the
+   * five read as fixtures of the map instead of something to go and find.
+   */
+  get lastSpot(): Vector3 | null {
+    return this.placed ? this.position : null;
+  }
+
   /** Brings a blessing into the world at a fresh spot. */
   respawnAt(anchor: BlessingAnchor): void {
     this.collected = false;
@@ -178,10 +202,14 @@ export class Shrine {
    * owns where a blessing goes, so a slot that is due simply reports
    * `needsRespawn` and is given a spot. A run resets every slot to zero, which
    * puts the full complement up on the first tick.
+   *
+   * Clearing `placed` is part of that: a fresh run may hang a blessing anywhere
+   * the map allows, including wherever the last run happened to leave this slot.
    */
   reset(delaySeconds: number): void {
     this.collected = true;
     this.respawnRemaining = delaySeconds;
+    this.placed = false;
     this.setVisible(false);
   }
 
@@ -215,6 +243,7 @@ export class Shrine {
   }
 
   private placeAt(position: Vector3, forward: Vector3): void {
+    this.placed = true;
     this.position.copy(position);
     this.group.position.copy(position);
     this.forward.copy(forward);

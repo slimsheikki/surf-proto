@@ -50,6 +50,31 @@ const MIN_SEPARATION = 70;
  */
 const MIN_PLAYER_DISTANCE = 45;
 
+/**
+ * How far a returning blessing must land from the spot it was taken from.
+ *
+ * Without this the pool is free to hand a slot its own anchor straight back,
+ * and a blessing that reappears where it was collected reads as a fixture of
+ * the map on a timer rather than something that moved. Deliberately smaller
+ * than `MIN_SEPARATION`: it only has to break the *sense* of returning, and
+ * making it as strict as the separation rule would thin the pool for no gain.
+ */
+const MIN_RETURN_DISTANCE = 55;
+
+/**
+ * What fraction of the best score an anchor must reach to be drawn from when
+ * nothing is outright eligible.
+ *
+ * Only the fallback path uses this, and it exists because a strict argmax is a
+ * *pure function of where the other blessings are*. Take one and let it come
+ * back while the other four have not moved, and the same anchor wins again —
+ * the exact "it respawned where it was" bug, dressed up as a scoring rule. A
+ * band plus a draw keeps the graceful-degradation promise and still moves.
+ * Relative rather than absolute so it stays a *near-best* band on a map with
+ * real spread instead of quietly widening to the whole pool.
+ */
+const FALLBACK_SCORE_FRACTION = 0.8;
+
 export interface BlessingAnchor {
   position: Vector3;
   /**
@@ -110,23 +135,35 @@ export interface BlessingSpotContext {
   playerPosition: Vector3;
   /** Blessings still standing, so a new one is never planted on top of one. */
   occupied: readonly Vector3[];
+  /**
+   * Where the blessing being placed last stood, when it has stood anywhere.
+   * Kept out of `occupied` on purpose — that list is about not stacking two
+   * rings, this is about a returning one visibly having moved.
+   */
+  avoid?: Vector3 | null;
 }
 
 /**
  * Picks where the next blessing appears, or null when the map offers nowhere.
  *
- * Both rules are preferences with a graceful floor rather than hard rejects: a
+ * Every rule is a preference with a graceful floor rather than a hard reject: a
  * cramped map, or a player parked in the middle of the only clear space, must
- * still get a blessing somewhere. Every anchor is scored by its distance to the
- * nearest thing it should avoid, so when nothing satisfies both rules the
- * least-bad spot still wins — the constraint degrades to "as far away as this
+ * still get a blessing somewhere. Each anchor is scored by its distance to the
+ * nearest thing it should avoid, so when nothing satisfies all three the
+ * least-bad spots still win — the constraint degrades to "as far away as this
  * map allows" instead of failing to place anything.
+ *
+ * **Both paths draw at random, and that is the point.** The fallback used to
+ * take the single highest score, which is deterministic given the other
+ * blessings — so a slot that came back while its neighbours stood still was
+ * handed its own anchor again, every time. A blessing that reappears where it
+ * was collected is indistinguishable from one that never moved.
  */
 export function pickBlessingSpot(ctx: BlessingSpotContext): BlessingAnchor | null {
   if (ctx.anchors.length === 0) return null;
 
   const eligible: BlessingAnchor[] = [];
-  let best: BlessingAnchor | null = null;
+  const scored: { anchor: BlessingAnchor; score: number }[] = [];
   let bestScore = -Infinity;
 
   for (const anchor of ctx.anchors) {
@@ -135,18 +172,31 @@ export function pickBlessingSpot(ctx: BlessingSpotContext): BlessingAnchor | nul
       nearestOccupied = Math.min(nearestOccupied, anchor.position.distanceTo(other));
     }
     const playerDistance = anchor.position.distanceTo(ctx.playerPosition);
+    const returnDistance = ctx.avoid ? anchor.position.distanceTo(ctx.avoid) : Infinity;
 
-    if (nearestOccupied >= MIN_SEPARATION && playerDistance >= MIN_PLAYER_DISTANCE) {
+    if (
+      nearestOccupied >= MIN_SEPARATION &&
+      playerDistance >= MIN_PLAYER_DISTANCE &&
+      returnDistance >= MIN_RETURN_DISTANCE
+    ) {
       eligible.push(anchor);
     }
 
-    const score = Math.min(nearestOccupied, playerDistance);
-    if (score > bestScore) {
-      bestScore = score;
-      best = anchor;
-    }
+    // Scaled against its own rule before they are combined, so the weakest of
+    // the three by *proportion* decides — otherwise the return rule, being the
+    // shortest distance, would look worst at every anchor and swamp the rest.
+    const score = Math.min(
+      nearestOccupied / MIN_SEPARATION,
+      playerDistance / MIN_PLAYER_DISTANCE,
+      returnDistance / MIN_RETURN_DISTANCE,
+    );
+    scored.push({ anchor, score });
+    bestScore = Math.max(bestScore, score);
   }
 
   if (eligible.length > 0) return eligible[Math.floor(Math.random() * eligible.length)];
-  return best;
+
+  const band = bestScore * FALLBACK_SCORE_FRACTION;
+  const nearBest = scored.filter((entry) => entry.score >= band);
+  return nearBest[Math.floor(Math.random() * nearBest.length)].anchor;
 }
