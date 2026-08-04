@@ -127,6 +127,12 @@ const FIELDS: Field[] = [
     label: 'landing redirect',
     help: 'Off = CS:S. On = this project’s house rule that keeps speed when you drop onto a ramp.',
   },
+  {
+    kind: 'toggle',
+    key: 'AIR_FORWARD_INPUT',
+    label: 'W/S in air',
+    help: 'Off = W and S only work on flat ground, so you cannot throw a surf line away by holding W. On = CS:S, live everywhere.',
+  },
 ];
 
 export class MovementPanel {
