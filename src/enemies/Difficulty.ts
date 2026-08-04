@@ -14,14 +14,15 @@
  * worse than a level-20 one. Level is the right axis for the late game because
  * the player's own power comes from levels too, so both sides of the fight
  * scale off the same clock.
+ *
+ * This file owns *how hard*; `Waves.ts` owns *made of what*. Archetype mix,
+ * batch arrangement and elite frequency are wave composition, not difficulty,
+ * and moved there when the wave system landed.
  */
 
 /** Level at which the first Monolith arrives, and the gap between each one after. */
 export const FIRST_BOSS_LEVEL = 10;
 export const BOSS_LEVEL_INTERVAL = 10;
-
-/** Level the AoE seeders start appearing at. Before this the run is pure drones. */
-const SEEDER_FIRST_LEVEL = 4;
 
 /**
  * Ceiling on drone speed, and it is a design constraint rather than a tuning
@@ -29,9 +30,23 @@ const SEEDER_FIRST_LEVEL = 4;
  * met head-on and becomes a thing that hounds them from behind, which is
  * exactly the "stop surfing to fight" failure the whole combat layer exists to
  * avoid. Anything above about 22 starts keeping pace with a mediocre line.
+ *
+ * The law reads: no *sustained pursuit* above this. Every archetype's cruise
+ * speed is min()'d against it. The one sanctioned exception is the Lancer's
+ * dash — a telegraphed, non-tracking straight line with a long recovery,
+ * which can exceed the ceiling precisely because it cannot pursue.
  */
 const MAX_DRONE_SPEED = 22;
 const MAX_SEEDER_SPEED = 16;
+
+/**
+ * The elite affix's stat side, applied by the spawner before construction so
+ * the rewind can replay recorded (already-multiplied) numbers through the
+ * constructor and then `markElite` without compounding. Visual/drop side
+ * lives on `Enemy.markElite`.
+ */
+export const ELITE_HP_MULT = 3;
+export const ELITE_DAMAGE_MULT = 1.4;
 
 /** Population ceiling. Raised with level, but bounded — this is a frame-time budget, not a difficulty dial. */
 const BASE_LIVE_CAP = 32;
@@ -63,8 +78,19 @@ export interface Difficulty {
   seederSpeed: number;
   seederContactDamage: number;
   blastDamage: number;
-  /** Probability that any one spawn is a seeder rather than a drone. 0 before `SEEDER_FIRST_LEVEL`. */
-  seederChance: number;
+  swarmerHp: number;
+  swarmerSpeed: number;
+  swarmerContactDamage: number;
+  lancerHp: number;
+  lancerSpeed: number;
+  lancerContactDamage: number;
+  bulwarkHp: number;
+  bulwarkSpeed: number;
+  bulwarkContactDamage: number;
+  spitterHp: number;
+  spitterSpeed: number;
+  spitterContactDamage: number;
+  boltDamage: number;
   spawnInterval: number;
   batchSize: number;
   liveCap: number;
@@ -83,20 +109,47 @@ export function difficultyAt(level: number, elapsedSeconds: number): Difficulty 
   // Levels *past the first*, so a level-1 player sees exactly the original numbers.
   const n = Math.max(0, level - 1);
 
+  // The drone's curves are the reference the newer archetypes derive from, so
+  // the whole roster inherits both ramps and the uncapped level term at once.
+  const droneHp = (10 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n);
+  const droneSpeed = Math.min(MAX_DRONE_SPEED, 9 + Math.min(t / 40, 6) + 0.22 * n);
+
   return {
-    droneHp: (10 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
-    droneSpeed: Math.min(MAX_DRONE_SPEED, 9 + Math.min(t / 40, 6) + 0.22 * n),
+    droneHp,
+    droneSpeed,
     droneContactDamage: 5 * (1 + 0.1 * n),
 
     seederHp: (18 + Math.min(t * 0.3, 30)) * (1 + 0.16 * n),
     seederSpeed: Math.min(MAX_SEEDER_SPEED, 7 + 0.15 * n),
     seederContactDamage: 3 * (1 + 0.1 * n),
     blastDamage: 16 * (1 + 0.1 * n),
-    // Ramps in slowly and tops out well short of half: seeders are pressure,
-    // and a wave made mostly of them would be a wave the auto-weapon has
-    // nothing to shoot at while blasts pile up on the surf line.
-    seederChance:
-      level < SEEDER_FIRST_LEVEL ? 0 : Math.min(0.35, 0.06 * (level - SEEDER_FIRST_LEVEL + 1)),
+
+    // Swarmers matter through numbers: cheap to kill, a touch faster and much
+    // twitchier than the drone (turn rate lives on the class), gentle contact.
+    swarmerHp: droneHp * 0.4,
+    swarmerSpeed: Math.min(MAX_DRONE_SPEED, droneSpeed + 2),
+    swarmerContactDamage: 3 * (1 + 0.1 * n),
+
+    // The lancer's declared speed is its *drift* input (the class halves it in
+    // flight); the dash speed is the class's own constant, not a curve — a
+    // telegraph that got faster with level would stop being learnable.
+    lancerHp: (14 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
+    lancerSpeed: Math.min(MAX_DRONE_SPEED, 10 + 0.2 * n),
+    lancerContactDamage: 7 * (1 + 0.1 * n),
+
+    // The wall: four drones' worth of HP moving at a crawl that never
+    // meaningfully rises — a bulwark that sped up with level would stop being
+    // terrain and start being a chaser, which is the drone's job.
+    bulwarkHp: droneHp * 4,
+    bulwarkSpeed: Math.min(12, 7.5 + 0.1 * n),
+    bulwarkContactDamage: 12 * (1 + 0.1 * n),
+
+    // Seeder-class mobility for the other support enemy; the bolt is the
+    // threat, so the body stays catchable.
+    spitterHp: (16 + Math.min(t * 0.25, 30)) * (1 + 0.16 * n),
+    spitterSpeed: Math.min(MAX_SEEDER_SPEED, 8 + 0.15 * n),
+    spitterContactDamage: 3 * (1 + 0.1 * n),
+    boltDamage: 10 * (1 + 0.1 * n),
 
     spawnInterval: Math.max(
       MIN_SPAWN_INTERVAL,

@@ -1,5 +1,6 @@
 import { PerspectiveCamera, Scene, Vector3 } from 'three';
 import { Blast } from '../combat/Blast';
+import { Bolt } from '../combat/Bolt';
 import { Health } from '../combat/Health';
 import { applySoundBlast, SoundBlastFx } from '../combat/SoundBlast';
 import { SolarWave } from '../combat/SolarWave';
@@ -10,6 +11,13 @@ import { Boss } from '../enemies/Boss';
 import { bossLevelFor, bossScaleFor } from '../enemies/Difficulty';
 import { Seeder } from '../enemies/Seeder';
 import { SpawnDirector } from '../enemies/SpawnDirector';
+import {
+  pickSpawnPoint,
+  REPOSITION_COOLDOWN,
+  REPOSITION_DISTANCE,
+} from '../enemies/SpawnPlacement';
+import { Spitter } from '../enemies/Spitter';
+import { waveAt } from '../enemies/Waves';
 import { CameraRig } from '../player/CameraRig';
 import { Dash } from '../player/Dash';
 import { resetMovementConfig } from '../player/MovementConfig';
@@ -45,9 +53,12 @@ import { CourseStage } from '../world/SurfCourse';
 import { EntityManager } from './EntityManager';
 import { GameState } from './GameState';
 
-/** Enemy sphere is r=0.45 and the player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing speed. */
-const CONTACT_RADIUS = 1.3;
 const XP_PER_KILL = 3;
+/** Scatter for multi-orb drops, so a rich kill reads as several orbs rather than one bright one. */
+const ORB_DROP_JITTER = 0.5;
+
+/** Scratch for the straggler behind-check; the enemy loop is the hottest path in the tick. */
+const scratchToEnemy = new Vector3();
 /**
  * XP for felling a Monolith.
  *
@@ -61,6 +72,9 @@ const XP_PER_BOSS = 45;
 
 /** How long the "Monolith down" headline stays up. Long enough to read mid-air, short enough not to sit on the HUD. */
 const BOSS_BANNER_SECONDS = 4.5;
+
+/** Wave headlines are shorter-lived than the boss one — they recur every couple of levels. */
+const WAVE_BANNER_SECONDS = 3.5;
 
 /**
  * How many blessings may stand on the map at once.
@@ -120,10 +134,12 @@ const BASE_MAX_HP = 100;
 const OUT_OF_BOUNDS_MARGIN = 30;
 
 /**
- * Nothing is despawned by distance any more — not orbs (PR #24) and not
- * enemies: Vampire-Survivors persistence, a straggler chases forever and
- * re-engages when the course loops back through it. Two radii remain, neither
- * of which deletes anything:
+ * Nothing is despawned by distance — not orbs (PR #24) and not enemies:
+ * Vampire-Survivors persistence. A straggler left far *behind* the travel
+ * direction is ring-relocated back into the fight instead of persisting in
+ * place (`REPOSITION_DISTANCE` in SpawnPlacement, checked in the enemy loop) —
+ * a relocation, never a deletion. Two radii remain here, neither of which
+ * deletes anything either:
  *
  * - `ENEMY_ENGAGE_RADIUS` bounds the spawn director's concurrency count, so
  *   far stragglers cannot eat the live cap and starve the fight around the
@@ -218,6 +234,15 @@ export class Game {
 
   /** How many Monoliths this run has felled. Drives boss scaling and the game-over stats. */
   bossesFelled = 0;
+
+  /**
+   * Last wave whose banner has fired, by global index. Pure announcement
+   * state: deliberately not in `Frame`, so after a rewind across a wave
+   * boundary the banner simply doesn't refire — a headline is not worth a
+   * recorded field. Zero means "wave 1 not yet announced", which is what makes
+   * the opening FIRST CONTACT banner fire on a fresh run's first tick.
+   */
+  private lastAnnouncedWave = 0;
 
   /**
    * Rolling identity for "which Monolith encounter is this". Bumped when one
@@ -580,14 +605,21 @@ export class Game {
       this.spawnBoss();
     }
 
+    // Shared by the spawner's context and the straggler recycling below.
+    const travelDir = this.travelDirection();
+    const placement = {
+      playerPosition,
+      travelDirection: travelDir,
+      playerSpeed: playerVelocity.length(),
+    };
+
     this.spawnDirector.tick(
       dt,
       {
-        playerPosition,
-        travelDirection: this.travelDirection(),
-        playerSpeed: playerVelocity.length(),
+        ...placement,
         nearbyEnemyCount: this.entityManager.countEnemiesWithin(playerPosition, ENEMY_ENGAGE_RADIUS),
         playerLevel: this.levelSystem.level,
+        bossesFelled: this.bossesFelled,
       },
       (enemy) => this.entityManager.addEnemy(enemy),
     );
@@ -597,7 +629,22 @@ export class Game {
     let contactLanded = false;
     for (const enemy of this.entityManager.enemies) {
       enemy.tick(dt, playerPosition, playerVelocity);
-      const distToPlayer = enemy.distanceToPlayer(playerPosition);
+      let distToPlayer = enemy.distanceToPlayer(playerPosition);
+      // Straggler recycling. An enemy left far behind the direction of travel
+      // re-enters the spawn ring — same entity, same rewind identity, grace
+      // and materialize re-armed (see Enemy.relocateTo). Behind only: a far
+      // enemy *ahead* is one the player is still flying toward, and it keeps
+      // its ambush. On the old ring course stragglers re-engaged when the
+      // loop came back through them; on a one-way descent they never do, so
+      // persisting in place had become pure sim-and-rewind cost.
+      if (
+        distToPlayer > REPOSITION_DISTANCE &&
+        enemy.repositionCooldown <= 0 &&
+        scratchToEnemy.copy(enemy.position).sub(playerPosition).dot(travelDir) < 0
+      ) {
+        enemy.relocateTo(pickSpawnPoint(placement), REPOSITION_COOLDOWN);
+        distToPlayer = enemy.distanceToPlayer(playerPosition);
+      }
       // Persistence makes far stragglers routine; past the fog wall they are
       // invisible anyway, so stop paying their draw call. Simulation continues.
       enemy.mesh.visible = distToPlayer < ENEMY_RENDER_DISTANCE;
@@ -607,7 +654,12 @@ export class Game {
         const plant = enemy.takePlantedBlast();
         if (plant) this.entityManager.addBlast(new Blast(plant, enemy.blastDamage));
       }
-      if (enemy.canDealContactDamage() && distToPlayer < CONTACT_RADIUS) {
+      // Same polling contract for the spitter's shots.
+      if (enemy instanceof Spitter) {
+        const shot = enemy.takePendingShot();
+        if (shot) this.entityManager.addBolt(new Bolt(shot.origin, shot.velocity, enemy.boltDamage));
+      }
+      if (enemy.canDealContactDamage() && distToPlayer < enemy.contactRadius) {
         this.playerHealth.takeDamage(enemy.contactDamage);
         enemy.triggerContactCooldown();
         contactLanded = true;
@@ -627,6 +679,13 @@ export class Game {
     // not something the auto-weapon should waste a lock on.
     for (const blast of this.entityManager.blasts) {
       blast.tick(dt, playerPosition, this.damagePlayer);
+    }
+
+    // Bolts fly after the spitters that fired them, same ordering logic as
+    // blasts-after-seeders; they use the same damage route, so Mirror Array
+    // (contact-only) correctly ignores them too.
+    for (const bolt of this.entityManager.bolts) {
+      bolt.tick(dt, playerPosition, this.damagePlayer);
     }
 
     this.boss?.tick(dt, playerPosition, this.damagePlayer);
@@ -676,7 +735,23 @@ export class Game {
     // passed, splitting one wave's accounting across two ticks.
     this.chorusSites.length = 0;
     this.entityManager.cullDeadEnemies((enemy) => {
-      this.entityManager.addOrb(new XPOrb(enemy.position, XP_PER_KILL));
+      // Elites (and later the Bulwark) pay out several orbs; the jitter is
+      // what makes "several" legible before the magnet gathers them anyway.
+      for (let i = 0; i < enemy.xpOrbCount; i++) {
+        const dropAt =
+          i === 0
+            ? enemy.position
+            : enemy.position
+                .clone()
+                .add(
+                  new Vector3(
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                    (Math.random() * 2 - 1) * ORB_DROP_JITTER,
+                  ),
+                );
+        this.entityManager.addOrb(new XPOrb(dropAt, XP_PER_KILL));
+      }
       if (this.perks.healOnKill > 0) this.playerHealth.heal(this.perks.healOnKill);
       this.ultimate.registerKill();
       if (this.perks.chorus > 0) {
@@ -710,6 +785,7 @@ export class Game {
       this.levelSystem.addXp(Math.round(orb.value * this.perks.xpMultiplier));
     });
     this.entityManager.cullSpentBlasts();
+    this.entityManager.cullSpentBolts();
 
     // Player death is resolved first: a simultaneous kill is a loss, and the
     // boss dying must not rescue a player the beam already finished off. Death
@@ -738,6 +814,17 @@ export class Game {
       this.levelSystem.addXp(
         (flowPct / 100) * this.levelSystem.xpToNextLevel * this.perks.xpMultiplier * dt,
       );
+    }
+
+    // Wave headlines fire once the tick's XP has settled, and never over a
+    // Monolith — the duel suspends spawning, so announcing its backdrop wave
+    // would be noise. `fellBoss` hands the next act's opener to its own banner.
+    if (!this.boss) {
+      const wave = waveAt(this.levelSystem.level, this.bossesFelled);
+      if (wave.globalWave > this.lastAnnouncedWave) {
+        this.lastAnnouncedWave = wave.globalWave;
+        this.banner.show(wave.spec.name, `Wave ${wave.globalWave}`, WAVE_BANNER_SECONDS);
+      }
     }
 
     // Last in the tick, and in this order. The meter is charged from the state
@@ -846,6 +933,7 @@ export class Game {
     this.spawnDirector.suspended = true;
     this.entityManager.clearEnemies();
     this.entityManager.clearBlasts();
+    this.entityManager.clearBolts();
   }
 
   /** Tears the boss down completely; safe to call when there is no boss. */
@@ -878,9 +966,14 @@ export class Game {
     // Granted after the counter, so an award that levels the player straight
     // past the next boss threshold still finds `bossesFelled` correct.
     this.levelSystem.addXp(XP_PER_BOSS);
+    // The next act starts this same tick. Its opening wave rides the boss
+    // banner — announced here and marked as such, so the wave check in the
+    // gameplay tick doesn't stomp MONOLITH DOWN with a second headline.
+    const wave = waveAt(this.levelSystem.level, this.bossesFelled);
+    this.lastAnnouncedWave = wave.globalWave;
     this.banner.show(
       'MONOLITH DOWN',
-      `${this.bossesFelled} felled — the next one is coming at level ${bossLevelFor(this.bossesFelled)}`,
+      `${this.bossesFelled} felled — ${wave.spec.name} begins, next Monolith at level ${bossLevelFor(this.bossesFelled)}`,
       BOSS_BANNER_SECONDS,
     );
   }
@@ -1145,6 +1238,7 @@ export class Game {
     this.rewind.clear();
     this.ultFx.reset();
     this.bossEpoch = 0;
+    this.lastAnnouncedWave = 0;
     this.countdownRemaining = 0;
     this.ultimateHeldLastTick = false;
     this.bankHoldSeconds = 0;
@@ -1197,6 +1291,7 @@ export class Game {
       xpFraction: this.levelSystem.progress,
       level: this.levelSystem.level,
       elapsedSeconds: this.spawnDirector.elapsedSeconds,
+      wave: waveAt(this.levelSystem.level, this.bossesFelled).globalWave,
       bossesFelled: this.bossesFelled,
       dashFraction: this.dash.fraction,
       dashCharges: this.dash.charges,

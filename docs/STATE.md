@@ -1,4 +1,4 @@
-# State — 2026-08-03
+# State — 2026-08-04
 
 Living handoff doc. Read at session start, update before finishing. Keep it short:
 delete anything resolved rather than accumulating history. For the running backlog of
@@ -50,6 +50,88 @@ ray ring, and ducking. Two smaller ones with reasons attached, both in the v2 lo
   Worth knowing it would **not** have fixed the seam bug — `WalkMove` returns early rather than
   stepping when airborne, and a surfer on a 51.34° face is never grounded. It would fix the
   1.4-unit vertical sides of the platform pads, and nothing else.
+
+## Enemy rework — ring spawning + Megabonk waves (new)
+
+The forward-cone spawner is gone. It placed everything 22–42u dead ahead along travel —
+at surf speed that was contact within a second of the enemy existing, which play reported
+as unavoidable damage for surfing fast. Owner-approved redesign, three decisions asked and
+answered: stragglers recycle, telegraphed dashes may break the speed ceiling, full
+four-archetype roster + elites.
+
+**Placement** (`src/enemies/SpawnPlacement.ts`): enemies materialize on a ring band
+16–28u (+speed lead) around the player. Candidates inside the projected 1.5 s collision
+corridor are rejected (`pointSegmentDistance` against the velocity segment, half-width 6),
+draws bias toward the rear half as speed rises (up to 50 %), points inside geometry are
+rejected (`isInsideAnyCollider`, 12 attempts, corridor-safe side/rear fallback — the
+lateral axis is perpendicular to velocity by construction, so a side point can never sit
+in the corridor). A still player (<10 u/s) gets the full 360° and no corridor: camping
+means encirclement, the seeder rule generalized.
+
+**The hard no-instant-hit guarantee is the spawn grace, not the geometry.** A legal spawn
+6u off the corridor can still brush a 40 u/s player in ~0.35 s, and widening the corridor
+until that can't happen deletes the ring. So `Enemy` starts with `contactCooldown = 1.2 s`
+(`SPAWN_CONTACT_GRACE`) — exact, unconditional, covers fallback and recycled spawns — plus
+a 0.6 s scale-in with an emissive flare so arrivals announce themselves. Placement buys
+visibility and dodgeability; the grace buys the number. Graced enemies are still
+weapon-targetable (awareness is rewarded).
+
+**Waves** (`src/enemies/Waves.ts`): an act is the ten levels between Monoliths
+(`act = bossesFelled`); each act is five authored waves of two levels each. Act 1 walks
+the roster in one archetype at a time (FIRST CONTACT → SEEDFALL → THE FLOOD → LANCEFALL →
+VANGUARD), act 2 adds the heavy and the ranged (BULWARK MARCH → SPITFIRE → PINCER →
+SEEDSTORM → VANGUARD II), acts 3+ remix the authored slots (other act's weights at half
+strength, elites +0.06/act capped 0.4, clusters grow) so nothing is ever authored again.
+A `WaveSpec` owns composition only — archetype weights, batch pattern
+(ring/cluster/flankPair), cluster size, elite chance, a cadence multiplier floored at 1 —
+while `Difficulty` keeps owning every scaled number. The wave index is a pure function of
+level + bossesFelled, both already rewind-safe: **waves rewind for free, no new Frame
+state**. Wave changes announce through the `Banner` ("THE FLOOD / Wave 3"); never over a
+boss — `fellBoss` folds the next act's opener into MONOLITH DOWN. `#wave-readout` shows
+`clock · W<n>`.
+
+**Roster** (all via the `EnemyVisual` seam, steering untouched): **Swarmer** — acid-green
+tetra, 0.4× drone HP, +2 speed, turnRate 2.6, arrives in clusters of 4–6; The Flood is a
+placement phenomenon, not a class. **Lancer** — bone-white spike; drift at half speed →
+0.5 s flare aimed *once* at windup start → committed 34 u/s straight dash for 0.8 s →
+2.5 s recover (also its spawn state, so it can never open with a dash). The dash is the
+one sanctioned exception to the 22 u/s law — it exceeds the ceiling precisely because it
+cannot pursue; the constraint comment in `Difficulty.ts` now spells out
+"no *sustained pursuit* above 22". **Bulwark** — cobalt boulder, 4× drone HP at a crawl,
+2.2× scale with contactRadius 2.4 (contact radius is per-enemy now, the one real engine
+seam it needed), 2 orbs. **Spitter** — emerald disc, holds a 25–35u standoff band
+(support-enemy logic, same as SEED_RANGE), sidles, lobs 18 u/s **Bolts** at the intercept
+point re-aimed for bolt speed. Bolts live in `EntityManager.bolts` with the blast
+lifecycle: cleared on boss arrival and at rewind begin, never restored, fizzle on terrain
+(`isInsideAnyCollider`) instead of a fire-time LoS ray; damage through `damagePlayer` so
+Mirror Array stays contact-only. **Elite** — an affix, not a class: spawner multiplies
+HP ×3 / damage ×1.4 *before* construction, `markElite` adds only scale ×1.5, white-lifted
+glow, +2 orbs — the split that lets Rewind replay recorded (already-multiplied) stats
+through the constructors and then `markElite` without compounding.
+
+**Composition moved out of `Difficulty`**: `seederChance` is deleted; seeders now enter at
+level 3 (wave 2's boundary) at a flat .15 draw instead of the old level-4 6 %→35 % ramp —
+wave boundaries and the old onset could not both hold, and a clean boundary won. The
+composition rails from its comment carried over into `Waves.ts`: drones ≥ .25 in every
+wave, seeder+spitter ≤ .6 combined. The five-number `difficultyAt(1,120)` contract is
+untouched and probed (below).
+
+**Rewind**: `EnemySample` gains kind tags (0 drone / 1 seeder / 2 swarmer / 3 lancer /
+4 bulwark / 5 spitter), an `elite` flag, and `blastDamage` became the kind-generic `aux`
+(seeder blast / spitter bolt damage). Reconstruction goes through the right constructor,
+then `markElite`, then `finishMaterialize` (no pop-in replay mid-playback). Deliberately
+not rewound, extending the existing list: materialize progress, the spawn grace (rides
+`contactCooldown`), the Lancer's phase machine (rebuilds in recover-drift), the Spitter's
+shot timer, live Bolts, `repositionCooldown`, and the wave-banner latch (after a rewind
+across a boundary the headline simply doesn't refire).
+
+**Straggler recycling** (owner decision): an enemy >120u *behind* the travel direction
+with its 3 s per-enemy cooldown clear is ring-relocated (`Enemy.relocateTo`) — same
+entity, same `rewindId`, health kept, grace + materialize re-armed, heading reset. The old
+"persists in place, re-engages when the loop returns" rationale was written for the ring
+course; on the one-way descent a dropped straggler never re-engages and only accrued sim
+and 32 Hz rewind cost. Far enemies *ahead* keep their ambush. This also converges the
+global live count toward the cap, which softens the persistent-straggler cost note below.
 
 ## The solarpunk/sound batch — ten passive powerups (new)
 
@@ -136,14 +218,16 @@ Verified: `.probe-seeder.ts` — plant lands exactly 15u ahead at 30 u/s and 8u 
 sphere edge, on-player under 5 u/s, no damage before the full fuse, a 30 u/s straight line
 through the claim takes zero damage, a parked player inside takes it exactly once at 2 s.
 
-## Enemies persist forever (new)
+## Enemies persist forever (amended by the enemy rework above)
 
-The 55-unit enemy despawn is gone — same Vampire-Survivors rule the orbs got: a drone the
-player outruns falls behind, drops past the fog wall, and keeps solving its intercept
-forever. It re-engages when the course loops back through it. Enemies leave the world by
-dying, by a Monolith's arrival (`clearEnemies` — a duel rule, not a distance rule), by
-rewind reconciliation, or by the run ending. `EntityManager.cullDistantEnemies` no longer
-exists and the probe asserts the absence.
+The 55-unit enemy despawn is gone — same Vampire-Survivors rule the orbs got. Enemies
+leave the world by dying, by a Monolith's arrival (`clearEnemies` — a duel rule, not a
+distance rule), by rewind reconciliation, or by the run ending.
+`EntityManager.cullDistantEnemies` no longer exists and the probe asserts the absence.
+**Amendment (2026-08-04):** "persists in place" became "persists, ring-relocated when left
+>120u behind" — see the recycling paragraph in the enemy-rework section; still never a
+deletion. The old .probe-enemies "300u behind persists in place" assertion describes the
+pre-recycling contract; the new `.probe-reposition` covers the current one.
 
 Two radii remain, neither of which deletes anything:
 
@@ -1177,9 +1261,11 @@ the kill usually lands mid-air on a ramp and a modal there would drop the player
 course as its reward for winning.
 
 - **`src/enemies/Difficulty.ts` is the single source of truth for scaling.** `difficultyAt(level,
-  elapsedSeconds)` returns drone/seeder stats, spawn interval, batch size, and the live cap.
-  Time carries the first minute (those ramps are the original tuning, unchanged), level
-  carries everything after and is never capped out.
+  elapsedSeconds)` returns every archetype's stats (drone/seeder/swarmer/lancer/bulwark/
+  spitter — the newer four derive from the drone's curves), spawn interval, batch size, and
+  the live cap. Time carries the first minute (those ramps are the original tuning,
+  unchanged), level carries everything after and is never capped out. *Composition* — who
+  spawns, in what formation, with what elite chance — lives in `src/enemies/Waves.ts`.
 - **Verify against level 1 when touching that file.** At `t=120, level=1` it must still read
   `hp 40, speed 12, interval 1.2, batch 2, cap 32` — the pre-endless numbers. A first draft
   divided an unfloored time term by the level term and silently tripled the early-game spawn
@@ -1473,12 +1559,37 @@ the pyramid's four faces converging on the apex, both trapezoid tapers, and both
    agent assigned to it died. Either write it or drop the reference.
 5. Free mode wants a human pass on the palette: six presets is a guess, and whether the
    26° descent and the 50-unit level ramp are the right two defaults is an aesthetic call.
+6. The enemy rework wants a human balance pass: ring radii (16–28), the 1.2 s grace, wave
+   weights, the Lancer's 34 u/s dash and the Spitter's 2.5 s cadence are first-pass
+   numbers, and the four new silhouettes/colours are proposals the aesthetic authority
+   has not seen in motion yet.
 
 ## Probes
 
 Throwaway verification harnesses live at `.probe-*.ts` / `.probe-*.mjs` (gitignored,
 esbuild-bundled and run under node). The SAT overlap + approach-flow probe was deleted;
 rewrite from the numbers above if needed.
+
+The enemy-rework probes (2026-08-04), all green at commit time — rewrite from these specs
+if needed:
+
+- **`.probe-waves`** — `difficultyAt(1,120)` === {hp 40, speed 12, interval 1.2, batch 2,
+  cap 32} exactly; wave-1 cadence overlay leaves it at 1.2; `waveAt` boundaries incl. the
+  boss-overshoot clamp and act-2 handoff; 1k wave-1 draws are 100 % drones; act-7 remix
+  specs valid with elites ≤ 0.4.
+- **`.probe-spawnring`** — 10k `pickSpawnPoint` draws at speeds {0, 8, 25, 40}: all in the
+  band, zero corridor violations at speed, rear-bias fraction rises with speed, full 360°
+  when slow, fallback fires when the whole band is buried in a collider.
+- **`.probe-contact`** — adversarial spawns on the corridor boundary against a 40 u/s
+  straight-line player using real `Enemy` steering: zero damage before the 1.2 s grace
+  (exact, by construction); reports min time-to-overlap (the dodge window the corridor
+  buys); graced enemies still weapon-targetable.
+- **`.probe-rewind-kinds`** — one of each archetype (+ elite, + spitter aux) written to a
+  stub-context Frame, cleared, and reconstructed: right class per kind, elite flag without
+  stat re-multiplication, aux faithful, full scale (no pop-in replay).
+- **`.probe-reposition`** — a 300u-behind enemy relocates into the band with the same
+  `rewindId` and hp, grace re-armed, no re-trigger inside the 3 s cooldown; a 300u-*ahead*
+  enemy never relocates.
 
 Two things now bite anything written against the current tree, neither of which existed when
 the earlier probes were:

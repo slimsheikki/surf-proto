@@ -140,6 +140,17 @@ scaled. The seeder (`src/enemies/Seeder.ts`) claims a patch of the line a medium
 still player gets it planted on them instead, which keeps it the enemy that punishes *not*
 surfing.
 
+**Enemies spawn on a ring around the player, never in the flight path** —
+`src/enemies/SpawnPlacement.ts` rejects the projected collision corridor, and the hard
+no-instant-hit guarantee is the 1.2 s spawn contact grace in `Enemy`, not the geometry.
+*Composition* is waves (`src/enemies/Waves.ts`): five per act, act = `bossesFelled`, wave
+= f(level) — rewinds free, no Frame field. Scaling stays in `Difficulty`, composition in
+`Waves`; don't merge them. The speed law reads **no sustained pursuit above 22 u/s**; the
+Lancer's telegraphed straight dash is the one sanctioned exception (it cannot pursue).
+Stragglers left >120u *behind* travel are ring-relocated (`Enemy.relocateTo`) — a
+relocation, never a despawn; there is still no distance cull. A new archetype needs a
+`Rewind.ts` kind tag + reconstruction branch or it rebuilds as a plain drone.
+
 `window.__surf` is a dev-only handle on the live `Game` (stripped from prod) — the late game
 is otherwise unreachable by scripted input. See `docs/STATE.md`.
 

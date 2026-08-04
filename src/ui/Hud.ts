@@ -11,6 +11,8 @@ export interface HudState {
   xpFraction: number;
   level: number;
   elapsedSeconds: number;
+  /** Global wave index (5 per act) — rides the clock cell. */
+  wave: number;
   /** Monoliths felled this run. Shown only once it is non-zero — see `update`. */
   bossesFelled: number;
   /** 0..1 fill — whole dash charges plus progress toward the next one. */
@@ -63,7 +65,9 @@ export class Hud {
     this.hpFillEl.style.width = `${Math.max(0, Math.min(1, state.hpFraction)) * 100}%`;
     this.xpFillEl.style.width = `${Math.max(0, Math.min(1, state.xpFraction)) * 100}%`;
     this.levelEl.textContent = `Lv ${state.level}`;
-    this.waveEl.textContent = formatClock(state.elapsedSeconds);
+    // The element finally earns its id: run clock and wave share the cell —
+    // the clock is the run stat, the wave says what the horde is made of.
+    this.waveEl.textContent = `${formatClock(state.elapsedSeconds)} · W${state.wave}`;
     // Hidden at zero rather than shown as "0": the counter is a trophy shelf,
     // and an empty one on every early run is noise on a HUD read at 35 u/s.
     this.felledEl.textContent =

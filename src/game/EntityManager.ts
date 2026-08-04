@@ -1,5 +1,6 @@
 import { Scene, Vector3 } from 'three';
 import { Blast } from '../combat/Blast';
+import { Bolt } from '../combat/Bolt';
 import { Enemy } from '../enemies/Enemy';
 import { XPOrb } from '../progression/XPOrb';
 
@@ -14,6 +15,8 @@ export class EntityManager {
    * what is already ticking.
    */
   readonly blasts: Blast[] = [];
+  /** Live spitter projectiles. Apart from `enemies` for the same reasons as blasts, which they outlive-their-shooter exactly like. */
+  readonly bolts: Bolt[] = [];
 
   constructor(private readonly scene: Scene) {}
 
@@ -27,19 +30,31 @@ export class EntityManager {
     this.scene.add(blast.group);
   }
 
+  addBolt(bolt: Bolt): void {
+    this.bolts.push(bolt);
+    this.scene.add(bolt.mesh);
+  }
+
   addOrb(orb: XPOrb): void {
     this.orbs.push(orb);
     this.scene.add(orb.mesh);
   }
 
   get entityCount(): number {
-    return this.enemies.length + this.orbs.length + this.blasts.length;
+    return this.enemies.length + this.orbs.length + this.blasts.length + this.bolts.length;
   }
 
   /** Drops blasts that have finished detonating. They expire on their own clock, so there is no distance cull. */
   cullSpentBlasts(): void {
     for (let i = this.blasts.length - 1; i >= 0; i--) {
       if (this.blasts[i].finished) this.removeBlastAt(i);
+    }
+  }
+
+  /** Drops bolts that hit, fizzled on terrain, or timed out. */
+  cullSpentBolts(): void {
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      if (this.bolts[i].finished) this.removeBoltAt(i);
     }
   }
 
@@ -63,12 +78,15 @@ export class EntityManager {
     }
   }
 
-  // Enemies deliberately have no distance cull, same design rule as orbs below:
-  // Vampire-Survivors persistence. A drone the player outruns falls behind, drops
-  // past the fog wall, and keeps solving its intercept forever — it re-engages
-  // when the course loops back through it. Enemies leave the world by dying, by
-  // a Monolith's arrival (`clearEnemies`, a duel rule, not a distance rule), by
-  // rewind reconciliation, or by the run ending. See docs/STATE.md.
+  // Enemies deliberately have no distance cull — Vampire-Survivors persistence:
+  // an enemy leaves the world by dying, by a Monolith's arrival (`clearEnemies`,
+  // a duel rule, not a distance rule), by rewind reconciliation, or by the run
+  // ending. What changed with the wave rework is what "left behind" means: a
+  // straggler far *behind* the travel direction is ring-relocated back to the
+  // fight (`Enemy.relocateTo`, same entity and rewind identity, health kept).
+  // The original rule — persist in place, it re-engages when the loop returns —
+  // was written for the ring course; on a one-way descent a dropped straggler
+  // never re-engages and only accrues sim and rewind cost. See docs/STATE.md.
 
   /**
    * Enemies inside the local fight, for the spawn director's concurrency cap.
@@ -118,6 +136,7 @@ export class EntityManager {
     this.clearEnemies();
     for (let i = this.orbs.length - 1; i >= 0; i--) this.removeOrbAt(i);
     this.clearBlasts();
+    this.clearBolts();
   }
 
   /**
@@ -127,6 +146,11 @@ export class EntityManager {
    */
   clearBlasts(): void {
     for (let i = this.blasts.length - 1; i >= 0; i--) this.removeBlastAt(i);
+  }
+
+  /** Same occasions as `clearBlasts`, same reasoning — in-flight shots don't survive an arena change. */
+  clearBolts(): void {
+    for (let i = this.bolts.length - 1; i >= 0; i--) this.removeBoltAt(i);
   }
 
   /**
@@ -157,5 +181,11 @@ export class EntityManager {
   private removeOrbAt(index: number): void {
     this.scene.remove(this.orbs[index].mesh);
     this.orbs.splice(index, 1);
+  }
+
+  /** Bolts share geometry+material like orbs — unparenting is the whole teardown. */
+  private removeBoltAt(index: number): void {
+    this.scene.remove(this.bolts[index].mesh);
+    this.bolts.splice(index, 1);
   }
 }

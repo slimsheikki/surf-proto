@@ -1,4 +1,4 @@
-import { BufferGeometry, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import { BufferGeometry, Color, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
 import { Health } from '../combat/Health';
 
 const GEOMETRY = new SphereGeometry(0.45, 12, 10);
@@ -15,6 +15,21 @@ const BASE_EMISSIVE_INTENSITY = 0.85;
 const FLASH_EMISSIVE = 0xffcc55;
 const CONTACT_COOLDOWN = 0.5;
 const FLASH_DURATION = 0.12;
+/** Scale-in time for a fresh spawn — the visual announcement that something just arrived. */
+export const MATERIALIZE_SECONDS = 0.6;
+const MATERIALIZE_START_SCALE = 0.15;
+/** Emissive boost at the start of the materialize, fading to the visual's base. */
+const MATERIALIZE_EMISSIVE_BOOST = 2.5;
+/**
+ * How long a fresh spawn cannot deal contact damage. This — not spawn
+ * placement — is the hard "no instant hit" guarantee: the corridor rejection
+ * in `SpawnPlacement` keeps enemies out of the windshield, but a legal spawn
+ * beside the path can still brush a 40 u/s player in ~0.35 s, faster than
+ * anyone can react. Riding the contact cooldown makes the window exact and
+ * unconditional (fallback spawns included), and keeps it inside the one field
+ * the rewind already deliberately declines to restore.
+ */
+export const SPAWN_CONTACT_GRACE = 1.2;
 /** Don't aim further ahead than this — a long lead against a curving ramp run just flies off into space. */
 const MAX_LEAD_SECONDS = 1.6;
 /**
@@ -30,6 +45,20 @@ const MIN_AIM_ERROR = 1.2;
 const MAX_AIM_ERROR = 4;
 /** Range over which that aim error fades to zero as the drone closes in. */
 const AIM_ERROR_FADE_DIST = 3;
+/**
+ * How close counts as touching the player. Enemy sphere is r=0.45 and the
+ * player capsule r=0.4; the rest is slack for a 128 Hz tick at 40 u/s closing
+ * speed. An instance field (not a game-wide constant) because a physically
+ * bigger body — the Bulwark, any elite — has to reach further or it visually
+ * overlaps the player without ever hitting.
+ */
+const DEFAULT_CONTACT_RADIUS = 1.3;
+/** The elite affix: bigger, brighter, richer — stats are multiplied by the spawner, not here. */
+const ELITE_SCALE = 1.5;
+const ELITE_BONUS_ORBS = 2;
+/** How far an elite's glow is pulled toward white — the type colour must stay dominant. */
+const ELITE_EMISSIVE_LIFT = 0.35;
+const ELITE_EMISSIVE_INTENSITY_MULT = 1.6;
 
 /**
  * How an enemy looks. Split out so a subclass can be a different shape and
@@ -92,8 +121,21 @@ export class Enemy {
   rewindId = nextRewindId();
 
   protected readonly material: MeshStandardMaterial;
-  private contactCooldown = 0;
+  /** Starts at the spawn grace — a fresh enemy is visible before it is dangerous. */
+  private contactCooldown = SPAWN_CONTACT_GRACE;
   private flashTimer = 0;
+  /**
+   * Scale-in progress. Deliberately not rewound: `finishMaterialize` is called
+   * on rewind reconstruction so rebuilt enemies stand at full size instead of
+   * replaying the pop-in mid-playback.
+   */
+  private materializeRemaining = MATERIALIZE_SECONDS;
+  /**
+   * Resting mesh scale. Subclasses that are physically bigger (the Bulwark)
+   * set this instead of writing `mesh.scale`, so the materialize ramp and the
+   * elite affix compose with it instead of fighting over the transform.
+   */
+  protected baseScale = 1;
   /**
    * Standing Wave's resonance slow. Transient and deliberately NOT rewound —
    * the same documented limit as heading, aim error and contact cooldown: it
@@ -106,10 +148,31 @@ export class Enemy {
   private slowRemaining = 0;
   private slowFactor = 1;
   private bobPhase = Math.random() * Math.PI * 2;
-  private readonly baseEmissive: number;
-  /** Current heading; steered toward the intercept solution at a bounded rate. */
-  private readonly heading = new Vector3();
+  /**
+   * Resting glow. Protected and mutable: subclasses ramp against it for their
+   * own telegraphs (the Lancer's windup), and `markElite` lifts it — anything
+   * that restores the material afterwards must read these, not the visual.
+   */
+  protected baseEmissive: number;
+  protected baseEmissiveIntensity: number;
+  /** Current heading; steered toward the intercept solution at a bounded rate. Protected so a subclass can orient its mesh along it. */
+  protected readonly heading = new Vector3();
   private readonly aimError: Vector3;
+
+  /**
+   * Steering limit, radians/second — see `TURN_RATE` for why it exists. An
+   * instance field so an archetype can be twitchier (the Swarmer) without the
+   * drone's dodge tuning moving.
+   */
+  protected turnRate = TURN_RATE;
+  /** How close this enemy has to get for contact damage. */
+  contactRadius = DEFAULT_CONTACT_RADIUS;
+  /** XP orbs dropped on death. */
+  xpOrbCount = 1;
+  /** Set by `markElite`; recorded by the rewind so a rebuilt elite stays one. */
+  elite = false;
+  /** Seconds until this enemy may be ring-relocated again — see `relocateTo` and the game loop's straggler recycling. */
+  repositionCooldown = 0;
 
   constructor(
     position: Vector3,
@@ -121,13 +184,15 @@ export class Enemy {
     this.position = position.clone();
     this.health = new Health(hp);
     this.baseEmissive = visual.emissive;
+    this.baseEmissiveIntensity = visual.emissiveIntensity;
     this.material = new MeshStandardMaterial({
       color: visual.color,
       emissive: visual.emissive,
-      emissiveIntensity: visual.emissiveIntensity,
+      emissiveIntensity: visual.emissiveIntensity * MATERIALIZE_EMISSIVE_BOOST,
     });
     this.mesh = new Mesh(visual.geometry, this.material);
     this.mesh.position.copy(this.position);
+    this.mesh.scale.setScalar(MATERIALIZE_START_SCALE);
     this.aimError = new Vector3(
       Math.random() - 0.5,
       Math.random() - 0.5,
@@ -143,7 +208,11 @@ export class Enemy {
    * no interception exists (the usual case for a player faster than the drone
    * and heading away), in which case the caller falls back to a direct chase.
    */
-  private interceptSeconds(playerPosition: Vector3, playerVelocity: Vector3): number | null {
+  protected interceptSeconds(
+    playerPosition: Vector3,
+    playerVelocity: Vector3,
+    speed = this.moveSpeed,
+  ): number | null {
     const rx = playerPosition.x - this.position.x;
     const ry = playerPosition.y - this.position.y;
     const rz = playerPosition.z - this.position.z;
@@ -152,7 +221,7 @@ export class Enemy {
       playerVelocity.x * playerVelocity.x +
       playerVelocity.y * playerVelocity.y +
       playerVelocity.z * playerVelocity.z -
-      this.moveSpeed * this.moveSpeed;
+      speed * speed;
     const b = 2 * (rx * playerVelocity.x + ry * playerVelocity.y + rz * playerVelocity.z);
     const c = rx * rx + ry * ry + rz * rz;
 
@@ -214,9 +283,9 @@ export class Enemy {
       if (this.heading.lengthSq() < 1e-6) {
         this.heading.copy(desired);
       } else {
-        // Rotate the heading toward the desired direction, at most TURN_RATE*dt.
+        // Rotate the heading toward the desired direction, at most turnRate*dt.
         const angle = Math.acos(Math.min(1, Math.max(-1, this.heading.dot(desired))));
-        const maxTurn = TURN_RATE * dt;
+        const maxTurn = this.turnRate * dt;
         if (angle <= maxTurn || angle < 1e-6) {
           this.heading.copy(desired);
         } else {
@@ -247,6 +316,20 @@ export class Enemy {
     this.mesh.position.copy(this.position);
     this.mesh.position.y += Math.sin(this.bobPhase) * 0.15;
 
+    if (this.materializeRemaining > 0) {
+      this.materializeRemaining -= dt;
+      if (this.materializeRemaining <= 0) {
+        this.finishMaterialize();
+      } else {
+        const t = 1 - this.materializeRemaining / MATERIALIZE_SECONDS;
+        this.mesh.scale.setScalar(
+          this.baseScale * (MATERIALIZE_START_SCALE + (1 - MATERIALIZE_START_SCALE) * t),
+        );
+        this.material.emissiveIntensity =
+          this.baseEmissiveIntensity * (MATERIALIZE_EMISSIVE_BOOST - (MATERIALIZE_EMISSIVE_BOOST - 1) * t);
+      }
+    }
+
     // Decremented here rather than in `tick`, deliberately: `Seeder` overrides
     // `tick` and every subclass funnels through this method, so the slow can
     // never silently stop expiring on a subclass.
@@ -256,10 +339,64 @@ export class Enemy {
     }
 
     if (this.contactCooldown > 0) this.contactCooldown -= dt;
+    if (this.repositionCooldown > 0) this.repositionCooldown -= dt;
     if (this.flashTimer > 0) {
       this.flashTimer -= dt;
       this.material.emissive.setHex(this.flashTimer > 0 ? FLASH_EMISSIVE : this.baseEmissive);
     }
+  }
+
+  /**
+   * Snaps to full size and resting glow. Called by `Rewind` when it rebuilds
+   * an enemy from a recorded frame — a reconstructed enemy was already fully
+   * present when the frame was recorded, so it must not replay the scale-in.
+   */
+  finishMaterialize(): void {
+    this.materializeRemaining = 0;
+    this.mesh.scale.setScalar(this.baseScale);
+    this.material.emissiveIntensity = this.baseEmissiveIntensity;
+  }
+
+  /**
+   * Ring relocation for a straggler the player has left far behind.
+   *
+   * Not a despawn and not a fresh spawn: same entity, same `rewindId`, health
+   * and stats kept — the enemy never stops existing, it stops being *lost*.
+   * The spawn grace and the materialize are re-armed so the re-entry
+   * announces itself exactly like an arrival, and the heading resets so it
+   * steers in fresh instead of resuming a chase vector from 120 units ago.
+   */
+  relocateTo(position: Vector3, cooldownSeconds: number): void {
+    this.position.copy(position);
+    this.mesh.position.copy(this.position);
+    this.heading.set(0, 0, 0);
+    this.contactCooldown = Math.max(this.contactCooldown, SPAWN_CONTACT_GRACE);
+    this.materializeRemaining = MATERIALIZE_SECONDS;
+    this.repositionCooldown = cooldownSeconds;
+  }
+
+  /**
+   * The elite affix: half again the size, a glow lifted toward white, and a
+   * richer drop. Visual and drop only, on purpose — the stat multipliers are
+   * applied by the spawner *before* construction, so the rewind (which records
+   * final numbers and replays them through the constructor) can call this on a
+   * rebuilt elite without multiplying anything twice.
+   */
+  markElite(): void {
+    if (this.elite) return;
+    this.elite = true;
+    this.baseScale *= ELITE_SCALE;
+    this.contactRadius *= ELITE_SCALE;
+    this.xpOrbCount += ELITE_BONUS_ORBS;
+    this.baseEmissive = new Color(this.baseEmissive)
+      .lerp(new Color(0xffffff), ELITE_EMISSIVE_LIFT)
+      .getHex();
+    this.baseEmissiveIntensity *= ELITE_EMISSIVE_INTENSITY_MULT;
+    this.material.emissive.setHex(this.baseEmissive);
+    this.material.emissiveIntensity = this.baseEmissiveIntensity;
+    // Mid-materialize the ramp re-derives scale/intensity next tick; done
+    // after it, snap straight to the new resting look.
+    if (this.materializeRemaining <= 0) this.mesh.scale.setScalar(this.baseScale);
   }
 
   distanceToPlayer(playerPosition: Vector3): number {

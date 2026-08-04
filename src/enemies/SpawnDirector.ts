@@ -1,18 +1,13 @@
 import { Vector3 } from 'three';
-import { Difficulty, difficultyAt } from './Difficulty';
+import { Bulwark } from './Bulwark';
+import { Difficulty, difficultyAt, ELITE_DAMAGE_MULT, ELITE_HP_MULT } from './Difficulty';
 import { Enemy } from './Enemy';
+import { Lancer } from './Lancer';
 import { Seeder } from './Seeder';
-
-/** How far ahead along the travel direction drones appear, so they're met head-on. */
-const BASE_FORWARD_DIST = 22;
-const FORWARD_DIST_PER_SPEED = 0.5;
-const MAX_SPEED_LEAD = 12;
-const FORWARD_DIST_JITTER = 8;
-/** Kept tight so spawns land near the player's actual path, inside the weapon's envelope. */
-const LATERAL_SPREAD = 8;
-const VERTICAL_SPREAD = 4;
-
-const UP = new Vector3(0, 1, 0);
+import { Spitter } from './Spitter';
+import { Swarmer } from './Swarmer';
+import { pickPatternPoints } from './SpawnPlacement';
+import { ArchetypeId, drawArchetype, drawPattern, waveAt } from './Waves';
 
 export interface SpawnContext {
   playerPosition: Vector3;
@@ -33,26 +28,32 @@ export interface SpawnContext {
    * ramps have topped out — which is what makes an endless run stay a run.
    */
   playerLevel: number;
+  /**
+   * Monoliths felled — the act index for `Waves`. Needs no rewind state of its
+   * own: `bossEpoch` truncates the rewind window at any boss transition, so
+   * this is constant across every reachable frame.
+   */
+  bossesFelled: number;
 }
 
-/**
- * Spawns drones ahead of the player's direction of travel, like obstacles in
- * a runner, rather than ringing a static arena — this keeps most of a ramp
- * run clear for pure surfing and turns combat into punctuation, not a
- * constant distraction.
- *
- * Spawn distance scales with the player's speed so a 35 u/s surfer still gets
- * roughly the same fraction of a second of approach time as a 10 u/s one, and
- * both batch size and the *local* population are capped — the cap counts only
- * enemies near the fight, because enemies persist forever once spawned and a
- * cap on the global count would starve the fight as stragglers accumulate.
- */
 export interface SpawnSnapshot {
   survivalTime: number;
   timeSinceLastSpawn: number;
   suspended: boolean;
 }
 
+/**
+ * Spawns the horde on a ring around the player — near enough to be felt
+ * immediately, never inside the corridor the player is about to fly through
+ * (`SpawnPlacement` holds that geometry and its rationale). A moving player
+ * reads it as wading through a field of threats the intercept AI arcs in from
+ * the sides; a still player gets encircled, which keeps the combat layer's
+ * pressure pointed at its one commandment: keep surfing.
+ *
+ * Both batch size and the *local* population are capped — the cap counts only
+ * enemies near the fight, because enemies persist once spawned and a cap on
+ * the global count would starve the fight as stragglers accumulate.
+ */
 export class SpawnDirector {
   /**
    * Halts new drones without stopping the run clock — set while a Monolith is
@@ -71,56 +72,103 @@ export class SpawnDirector {
     this.timeSinceLastSpawn += dt;
 
     const difficulty = difficultyAt(ctx.playerLevel, this.survivalTime);
-    if (this.timeSinceLastSpawn < difficulty.spawnInterval) return;
+    const { spec } = waveAt(ctx.playerLevel, ctx.bossesFelled);
+    if (this.timeSinceLastSpawn < difficulty.spawnInterval * spec.cadenceScale) return;
     this.timeSinceLastSpawn = 0;
 
     const capacity = difficulty.liveCap - ctx.nearbyEnemyCount;
     if (capacity <= 0) return;
 
-    const batchSize = Math.min(difficulty.batchSize, capacity);
-    for (let i = 0; i < batchSize; i++) {
-      spawnEnemy(this.spawnOne(ctx, difficulty));
+    // The wave decides the batch's *shape*; the difficulty curve still owns
+    // its size, except that a drawn cluster is sized like a cluster — and the
+    // capacity cap binds either way, so a pattern can never bust the budget.
+    const pattern = drawPattern(spec);
+    let desired = difficulty.batchSize;
+    if (pattern === 'cluster' && spec.clusterSize) {
+      const [min, max] = spec.clusterSize;
+      desired = min + Math.floor(Math.random() * (max - min + 1));
+    }
+    const points = pickPatternPoints(ctx, pattern, Math.min(desired, capacity));
+
+    // Archetypes are drawn per-spawn rather than per-batch, so a batch is a
+    // mix and the player never gets a lull of "only drones" to relax into.
+    for (const position of points) {
+      const elite = Math.random() < spec.eliteChance;
+      spawnEnemy(this.buildEnemy(drawArchetype(spec), difficulty, position, elite));
     }
   }
 
-  private spawnOne(ctx: SpawnContext, difficulty: Difficulty): Enemy {
-    const forward = ctx.travelDirection;
-    // Lateral basis from the horizontal component of travel, so spread stays
-    // level with the world even when the player is plunging down a 78° ramp.
-    const lateral = new Vector3().crossVectors(UP, forward);
-    if (lateral.lengthSq() < 1e-6) lateral.set(1, 0, 0);
-    lateral.normalize();
+  /**
+   * The single construction site for every spawned enemy. Elite stat
+   * multipliers are applied to the numbers *before* construction and
+   * `markElite` handles only look and drops — that split is what lets the
+   * rewind replay recorded (already-multiplied) stats through the same
+   * constructors without compounding them.
+   */
+  private buildEnemy(
+    archetype: ArchetypeId,
+    difficulty: Difficulty,
+    position: Vector3,
+    elite: boolean,
+  ): Enemy {
+    const hpMult = elite ? ELITE_HP_MULT : 1;
+    const damageMult = elite ? ELITE_DAMAGE_MULT : 1;
 
-    const forwardDist =
-      BASE_FORWARD_DIST +
-      Math.min(ctx.playerSpeed * FORWARD_DIST_PER_SPEED, MAX_SPEED_LEAD) +
-      Math.random() * FORWARD_DIST_JITTER;
-    const lateralOffset = (Math.random() - 0.5) * LATERAL_SPREAD;
-    const verticalOffset = (Math.random() - 0.35) * VERTICAL_SPREAD;
-
-    const position = ctx.playerPosition
-      .clone()
-      .addScaledVector(forward, forwardDist)
-      .addScaledVector(lateral, lateralOffset)
-      .add(new Vector3(0, verticalOffset, 0));
-
-    // Seeders are drawn per-spawn rather than as a scheduled wave, so a batch
-    // is a mix and the player never gets a lull of "only drones" to relax into.
-    if (Math.random() < difficulty.seederChance) {
-      return new Seeder(
-        position,
-        difficulty.seederHp,
-        difficulty.seederSpeed,
-        difficulty.seederContactDamage,
-        difficulty.blastDamage,
-      );
+    let enemy: Enemy;
+    switch (archetype) {
+      case 'seeder':
+        enemy = new Seeder(
+          position,
+          difficulty.seederHp * hpMult,
+          difficulty.seederSpeed,
+          difficulty.seederContactDamage * damageMult,
+          difficulty.blastDamage * damageMult,
+        );
+        break;
+      case 'swarmer':
+        enemy = new Swarmer(
+          position,
+          difficulty.swarmerHp * hpMult,
+          difficulty.swarmerSpeed,
+          difficulty.swarmerContactDamage * damageMult,
+        );
+        break;
+      case 'lancer':
+        enemy = new Lancer(
+          position,
+          difficulty.lancerHp * hpMult,
+          difficulty.lancerSpeed,
+          difficulty.lancerContactDamage * damageMult,
+        );
+        break;
+      case 'bulwark':
+        enemy = new Bulwark(
+          position,
+          difficulty.bulwarkHp * hpMult,
+          difficulty.bulwarkSpeed,
+          difficulty.bulwarkContactDamage * damageMult,
+        );
+        break;
+      case 'spitter':
+        enemy = new Spitter(
+          position,
+          difficulty.spitterHp * hpMult,
+          difficulty.spitterSpeed,
+          difficulty.spitterContactDamage * damageMult,
+          difficulty.boltDamage * damageMult,
+        );
+        break;
+      case 'drone':
+        enemy = new Enemy(
+          position,
+          difficulty.droneHp * hpMult,
+          difficulty.droneSpeed,
+          difficulty.droneContactDamage * damageMult,
+        );
+        break;
     }
-    return new Enemy(
-      position,
-      difficulty.droneHp,
-      difficulty.droneSpeed,
-      difficulty.droneContactDamage,
-    );
+    if (elite) enemy.markElite();
+    return enemy;
   }
 
   /**
