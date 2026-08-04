@@ -145,6 +145,8 @@ class Frame {
   echoChamber = 0;
   standingWaveSlow = 0;
   chorus = 0;
+  volleySpores = 0;
+  volleyPhoton = 0;
   magnetRadius = 0;
   maxGroundSpeed = 0;
   maxAirWishSpeed = 0;
@@ -304,6 +306,8 @@ export class Rewind {
     frame.echoChamber = c.perks.echoChamber;
     frame.standingWaveSlow = c.perks.standingWaveSlow;
     frame.chorus = c.perks.chorus;
+    frame.volleySpores = c.perks.volleySpores;
+    frame.volleyPhoton = c.perks.volleyPhoton;
     frame.magnetRadius = XP_MAGNET.radius;
     frame.maxGroundSpeed = MovementConfig.MAX_GROUND_SPEED;
     frame.maxAirWishSpeed = MovementConfig.MAX_AIR_WISH_SPEED;
@@ -463,6 +467,8 @@ export class Rewind {
     c.perks.echoChamber = frame.echoChamber;
     c.perks.standingWaveSlow = frame.standingWaveSlow;
     c.perks.chorus = frame.chorus;
+    c.perks.volleySpores = frame.volleySpores;
+    c.perks.volleyPhoton = frame.volleyPhoton;
     XP_MAGNET.radius = frame.magnetRadius;
     MovementConfig.MAX_GROUND_SPEED = frame.maxGroundSpeed;
     MovementConfig.MAX_AIR_WISH_SPEED = frame.maxAirWishSpeed;

@@ -4,6 +4,53 @@ Living handoff doc. Read at session start, update before finishing. Keep it shor
 delete anything resolved rather than accumulating history. For the running backlog of
 requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
+## The volley — a second weapon (new)
+
+`src/combat/Volley.ts`. A fan of homing green spores thrown at the pack every 1.4 s, acquire
+radius 34 (the gun's is 22), 0.55x the gun's damage each, 90 u/s, 1.2 s of life, pool of 96.
+Two pool entries drive it: **Spore Volley** (rare, +1 stack → `2 + floor(0.55·n)` spores) and
+**Photon Lens** (common → speed, turn rate, `+1 pierce per 3`). Photon grants a volley if
+drawn first, the Subwoofer/Standing Wave no-dead-pick rule.
+
+Deliberately a **second** weapon, not a change to `Weapon`. The gun's sticky-target rule
+exists because retargeting sprayed partial damage across a stream of drones and killed
+nothing; leaving it alone gives the two distinct jobs — gun is the single-target sniper,
+volley is the crowd.
+
+Three things it rests on:
+
+- **Homing, with the seek `XPOrb` uses.** A straight shot at a 3D target from a shooter doing
+  35 u/s misses nearly always, and a proportional lerp fails at speed for the reason
+  `CLAUDE.md` records. Spores fly at constant speed and *steer*, turn-rate limited.
+- **No velocity inheritance.** Inheriting would make forward shots fast and backward shots
+  crawl, and every enemy intercepts from behind or beside.
+- **Acquire by `distanceToPlayer`, order by *true* distance.** The Monolith's reported
+  distance lies (point-blank from anywhere on the loop) so it stays engageable; sorting by
+  the lie instead would put it at the head of every volley and starve the crowd weapon of
+  crowds. `WeaponTarget.hitRadius` is new and optional — absent means "point", `Boss`
+  returns its 5.5 body radius so spores stop at the body.
+
+**Spores are cleared on rewind, never restored** — the blast/wake-point contract. Only the
+two perk stacks ride `Frame`.
+
+### Measured, and two findings
+
+- **Hit rate is 100% at every speed tested** (player 15/35/60 u/s, chasers at their 22 u/s
+  cap): hits-per-spore came out at exactly the pierce value, 1.0 / 2.0 / 2.87 for photon
+  0 / 3 / 8. The predicted failure — homing collapsing at speed — does not happen. **The
+  opposite is now the open question: spores never miss, so Photon's turn-rate term is inert
+  and the item reads as a pierce upgrade.** Lowering `BASE_TURN_RATE` (6 rad/s) would make it
+  matter; that is a feel call, not a coding one.
+- **Photon's speed term does real work, just not on accuracy — on reach.** Measured against a
+  stand-in Monolith: base spores stop connecting past ~120 u, photon-8 spores past ~160 u.
+  The real boss sits ~91 u off the loop, comfortably inside base reach.
+- At 60 u/s the volley **holds fire** most of the time, because chasers fall out of the 34 u
+  radius and it refuses to spend a volley on nothing. Correct by design, but it means the
+  weapon quietens exactly when you are fastest. Worth playing before deciding.
+
+Spores are 0.35 units and read as a small dot at range — whether that is legible enough at
+speed is an aesthetic call nobody has made yet.
+
 ## Four choices, rerollable down to two (new)
 
 The power panel opens on **4** cards. **`Q`** rerolls to **3**, once more to **2**, then the

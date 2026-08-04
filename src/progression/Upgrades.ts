@@ -44,6 +44,10 @@ export interface RunPerks {
   standingWaveSlow: number;
   /** Chorus: 1 = every 8th kill sings a free blast at the victim's position. */
   chorus: number;
+  /** Spore Volley stacks. 0 = no volley. Spores per volley: see `volleySporeCount`. */
+  volleySpores: number;
+  /** Photon Lens stacks: spore speed, turn rate and pierce. See `Volley`. */
+  volleyPhoton: number;
 }
 
 const PERK_DEFAULTS: RunPerks = {
@@ -61,6 +65,8 @@ const PERK_DEFAULTS: RunPerks = {
   echoChamber: 0,
   standingWaveSlow: 0,
   chorus: 0,
+  volleySpores: 0,
+  volleyPhoton: 0,
 };
 
 export function createRunPerks(): RunPerks {
@@ -259,6 +265,27 @@ export const UPGRADE_POOL: Upgrade[] = [
         ctx.perks.standingWaveSlow === 0
           ? 0.3
           : Math.min(0.55, ctx.perks.standingWaveSlow + 0.1);
+    },
+  },
+  {
+    id: 'spore-volley',
+    name: 'Spore Volley',
+    description: 'Every 1.4 s, throw homing spores at the pack (stacks)',
+    rarity: 'rare',
+    apply: (ctx) => {
+      ctx.perks.volleySpores += 1;
+    },
+  },
+  {
+    id: 'photon-lens',
+    name: 'Photon Lens',
+    description: 'Spores fly faster and turn harder; +1 pierce per 3 (stacks)',
+    rarity: 'common',
+    apply: (ctx) => {
+      // Same no-dead-pick rule as Subwoofer and Standing Wave: drawn before the
+      // volley itself, it brings a volley with it rather than doing nothing.
+      if (ctx.perks.volleySpores === 0) ctx.perks.volleySpores += 1;
+      ctx.perks.volleyPhoton += 1;
     },
   },
   {

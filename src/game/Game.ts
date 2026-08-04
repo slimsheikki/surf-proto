@@ -3,6 +3,7 @@ import { Blast } from '../combat/Blast';
 import { Health } from '../combat/Health';
 import { applySoundBlast, SoundBlastFx } from '../combat/SoundBlast';
 import { SolarWave } from '../combat/SolarWave';
+import { Volley } from '../combat/Volley';
 import { Weapon, WeaponTarget } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { degToRad } from '../engine/MathUtils';
@@ -279,6 +280,8 @@ export class Game {
   private readonly remoteBlastFx = new SoundBlastFx();
   /** The burning wake. Owns its bounded point pool; see `SolarWave`. */
   readonly solarWave = new SolarWave();
+  /** The spore volley. Owns its bounded projectile pool; see `Volley`. */
+  readonly volley = new Volley();
 
   /**
    * Echo Chamber's pending repeat. Transient on purpose — cleared on restart
@@ -339,6 +342,7 @@ export class Game {
     scene.add(this.soundBlastFx.mesh);
     scene.add(this.remoteBlastFx.mesh);
     scene.add(this.solarWave.group);
+    scene.add(this.volley.group);
     scene.add(this.playerModel.root);
     this.rebuildShrines();
     // Built last: it captures references to every subsystem above, and the
@@ -642,6 +646,18 @@ export class Game {
       this.perks.dopplerAps,
     );
 
+    // Shares `weaponTargets` with the gun — the boss included, unlike the
+    // shockwave: a spore has a real position and has to physically cross the
+    // gap, so it cannot reach across the arena the way an area attack would.
+    this.volley.tick(
+      dt,
+      playerPosition,
+      this.weaponTargets,
+      this.weapon.damage,
+      this.perks.volleySpores,
+      this.perks.volleyPhoton,
+    );
+
     // After the auto-weapon, before the kill pass, so a chaser burned down by
     // the wake this tick still drops its XP on this tick. Drones and seeders
     // only, same reasoning as the sound blast above. Standing Wave rides in as
@@ -774,6 +790,7 @@ export class Game {
     // the moment play resumes. A pending echo is the same class — 0.35 s of
     // life, re-armed by the next dash.
     this.solarWave.clear();
+    this.volley.clear();
     this.pendingEchoSeconds = 0;
     this.state = 'rewinding';
     this.ultFx.beginRewind();
@@ -1136,6 +1153,7 @@ export class Game {
     this.soundBlastFx.hide();
     this.remoteBlastFx.hide();
     this.solarWave.clear();
+    this.volley.clear();
     this.pendingEchoSeconds = 0;
     this.chorusKills = 0;
     this.viewModel.reset();

@@ -179,6 +179,15 @@ pierce ricochets once to the nearest unhit enemy.
 
 ### The volley weapon
 
+> **Shipped**, ahead of the Tome machinery and exactly as § 6 recommended —
+> `src/combat/Volley.ts`, driven by two ordinary pool entries (**Spore Volley**,
+> rare; **Photon Lens**, common). Folding them into tiered Tomes later is a
+> rename plus a curve swap. Measurements and the two findings that came out of
+> building it are in `docs/STATE.md` § The volley; the short version is that
+> **hit rate is 100% at every speed tested**, so the predicted homing failure
+> does not happen and Photon's turn-rate term is currently inert. Its speed term
+> earns its place on *reach* instead (~120 u base, ~160 u at photon 8).
+
 What Spore grants. A second auto-weapon on its own timer, sharing nothing with
 `Weapon` but the `damage` stat.
 

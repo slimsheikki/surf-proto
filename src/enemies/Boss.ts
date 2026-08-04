@@ -384,6 +384,8 @@ export class Boss {
   /** Hover anchor. The body bobs around this; `firePoint` is where beams start. */
   readonly position: Vector3;
   readonly firePoint: Vector3;
+  /** See `WeaponTarget.hitRadius`. Travelling shots stop at the body, not the centre. */
+  readonly hitRadius = BODY_RADIUS;
 
   private readonly body: Mesh;
   private readonly halo: Mesh;

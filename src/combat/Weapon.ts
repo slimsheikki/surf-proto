@@ -24,6 +24,14 @@ export interface WeaponTarget {
    * the call site means it needs nothing.
    */
   applySlow?(seconds: number, factor: number): void;
+  /**
+   * Optional: body radius, for things that travel rather than hit instantly.
+   * The hitscan gun never needs it — it resolves at range, not at a position —
+   * but a `Volley` spore has to know that a drone is a point and the Monolith is
+   * a 5.5-unit sphere, or it flies into the boss's middle before registering.
+   * Absent means "treat me as a point", which is right for every enemy but one.
+   */
+  readonly hitRadius?: number;
 }
 
 /**
