@@ -174,10 +174,10 @@ export class Shrine {
    * Puts the shrine back to dormant for a fresh run, due to appear in
    * `delaySeconds`.
    *
-   * A run starts with no blessings standing and fills to the cap one at a time:
-   * every slot resets collected-and-counting, staggered by the caller, so the
-   * first thing a player sees is the course rather than five gates already
-   * hanging over it.
+   * Dormant-and-counting rather than placed, even at zero delay: the game loop
+   * owns where a blessing goes, so a slot that is due simply reports
+   * `needsRespawn` and is given a spot. A run resets every slot to zero, which
+   * puts the full complement up on the first tick.
    */
   reset(delaySeconds: number): void {
     this.collected = true;

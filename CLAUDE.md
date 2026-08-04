@@ -180,9 +180,14 @@ wrong on a free map, where those are the boss pillar and its engagement radius, 
 
 **There are exactly `BLESSING_SLOTS` (5) `Shrine` objects and the count may never change
 mid-run**, because `Rewind` pairs shrines with snapshots *by array index*; blessings appear
-and disappear by flipping slots dormant, never by resizing the list. A run starts with all
-five dormant, staggered 30 s apart, so the map fills one at a time. Position *and facing* are
-mutable, so both ride in `Rewind`'s `Frame`.
+and disappear by flipping slots dormant, never by resizing the list. Position *and facing*
+are mutable, so both ride in `Rewind`'s `Frame`.
+
+A run **opens with all five standing** — `restart` resets every slot to a zero delay and the
+gameplay loop places them on the first tick, each seeing the ones already up so the ≥70 u
+separation still holds. Staggering them 30 s apart instead (the literal reading of "one every
+30 seconds") left the player looking at an empty sky for the first half minute;
+`SHRINE_RESPAWN_SECONDS` governs only how long a *collected* blessing stays gone.
 
 ## Free mode
 

@@ -356,10 +356,17 @@ this map allows" instead of failing to place anything.
 allocated once and cycled between standing and dormant — they are never
 allocated or freed mid-run, because `Rewind` pairs shrines with their snapshots
 **by array index** and a list that resized would restore each one onto a
-different shrine's history. A run starts with all five dormant, staggered by
-`SHRINE_RESPAWN_SECONDS`, so the map fills one blessing every 30 s rather than
-opening with five gates already hanging over it. Facing rides in
-`ShrineSnapshot` alongside position — a restored blessing must face as it did.
+different shrine's history. Facing rides in `ShrineSnapshot` alongside position
+— a restored blessing must face as it did.
+
+**The course opens with all five standing.** `restart` resets every slot to a
+zero delay, which makes each one `needsRespawn` immediately; `updateGameplay`'s
+loop places them on the first tick, one at a time, each seeing the ones already
+up — so the separation rule holds on the opening arrangement exactly as it does
+mid-run. It was briefly staggered 30 s apart instead, which is the literal
+reading of "one every 30 seconds" and meant a player who loaded the course
+looked at an empty sky for half a minute. `SHRINE_RESPAWN_SECONDS` now governs
+only the thing it is named for: how long a *collected* blessing stays gone.
 
 Visuals: a `BackSide`, `depthWrite: false` halo torus at 0.17 opacity breathing
 ±0.07, and a 0.18-unit hover. Normal blending, per the usual rule. The old
@@ -370,9 +377,11 @@ Verified by `.probe-blessings.ts` against the shipped course (61 pieces, 3412
 convex colliders): **165 anchors, 165 of them with ramp directly beneath
 (100%), 0 buried in geometry**, clearance 8.00–15.03; sampling the ring rim at
 16 points per anchor gives **0 buried rim points**, tightest gap 1.60. Over 200
-placements of five, the closest pair was never under 70.0 (median ~105). Ticked
-at a real 128 Hz with the player parked out of reach, appearances land at
-**t = 30.0, 60.0, 90.0, 120.0, 150.0** and peak active count is **5**.
+placements of five, the closest pair was never under 70.0 (median ~110). Ticked
+at a real 128 Hz with the player parked out of reach, all five stand up on the
+**first tick (t = 0.008)**, peak active count is **5**, and the closest pair in
+the opening arrangement is **120.2** — resolving all five from one player
+position does not crowd them.
 
 ## Purple glass UI (new)
 

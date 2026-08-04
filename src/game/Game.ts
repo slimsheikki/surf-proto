@@ -33,7 +33,7 @@ import { COUNTDOWN_SECONDS, Countdown } from '../ui/Countdown';
 import { DashEffect } from '../ui/DashEffect';
 import { GameOverScreen } from '../ui/GameOverScreen';
 import { FlowXP } from './FlowXP';
-import { Shrine, SHRINE_RESPAWN_SECONDS } from './Shrine';
+import { Shrine } from './Shrine';
 import { Rewind } from './Rewind';
 import { getSettings } from './Settings';
 import { Ultimate } from './Ultimate';
@@ -1114,11 +1114,14 @@ export class Game {
     this.playerHealth.regenPerSecond = 0;
     resetRunPerks(this.perks);
     resetXpMagnet();
-    // Staggered, so the map fills to its cap one blessing every
-    // `SHRINE_RESPAWN_SECONDS` instead of all five hanging there from the first
-    // frame. Each slot's countdown then carries the same cadence for the rest
-    // of the run: take one, and that slot is back a spawn interval later.
-    this.shrines.forEach((shrine, index) => shrine.reset(SHRINE_RESPAWN_SECONDS * (index + 1)));
+    // Zero delay on every slot, so the course opens with its full complement of
+    // blessings rather than an empty sky the player has to wait out. They are
+    // not placed here: a zero countdown makes each slot `needsRespawn` at once,
+    // and `updateGameplay`'s loop places them on the first tick — one at a time,
+    // each seeing the ones already standing, so the separation rule holds
+    // exactly as it does mid-run. `SHRINE_RESPAWN_SECONDS` still governs the
+    // thing it is named for: how long a *collected* blessing stays gone.
+    for (const shrine of this.shrines) shrine.reset(0);
     this.playerController.teleport(this.course.spawnPoint.clone());
     // Yaw too, not just position. A free map can start the player on any
     // heading, and `restart` is also the path `setCourse` takes — leaving the
