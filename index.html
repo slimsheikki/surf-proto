@@ -43,7 +43,10 @@
       <h1>Choose a Power</h1>
       <p id="upgrade-progress"></p>
       <div id="upgrade-choices"></div>
-      <p class="overlay-hint">Press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> to choose</p>
+      <!-- Both filled in by UpgradeMenu: the key list tracks how many cards are
+           on offer, and the reroll button disappears once the last one is spent. -->
+      <p class="overlay-hint" id="upgrade-hint"></p>
+      <button class="countdown-toggle" id="upgrade-reroll"></button>
       <button class="countdown-toggle" id="upgrade-countdown-toggle"></button>
     </div>
     <!-- Banked powers. Two pages in one overlay, the same way the front menu

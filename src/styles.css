@@ -380,12 +380,27 @@ h2,
   text-shadow: var(--glow-text);
 }
 
+/* Four cards now, so the row has to be bounded rather than sized by its longest
+   description. Capping the card at 260px keeps 4 x 260 + 3 x 16 = 1088 inside
+   the container, which is one row on any normal window; below that it wraps to
+   a 2x2 instead of running off the edge. Without the cap the widest description
+   ("Sound Blast radius +2; grants the blast at +15 damage if unowned") sets the
+   width for everyone and pushes the fourth card onto its own line. */
 #upgrade-choices {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 16px;
+  /* A set width, not a max: the overlay is a centring column, so a shrink-to-fit
+     row re-resolves its width against the card count and wrapped two cards into
+     a stack while four sat happily in a row. Fixing the track and centring
+     within it means 2, 3 and 4 all lay out the same way. */
+  width: min(1120px, 92vw);
 }
 
 .upgrade-choice {
+  flex: 1 1 200px;
+  max-width: 260px;
   min-width: 180px;
   padding: 16px 20px;
   background: var(--glass);

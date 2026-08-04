@@ -94,8 +94,8 @@ export class BankMenu {
     this.countEl.textContent = `${picks} ${plural(picks)} banked`;
     this.spendBodyEl.textContent =
       picks === 1
-        ? 'One pick, three to choose from'
-        : `${picks} picks, three to choose from each time`;
+        ? 'One pick, four to choose from'
+        : `${picks} picks, four to choose from each time`;
 
     if (this.gambleAllowed) {
       const odds = gambleOdds(picks);
