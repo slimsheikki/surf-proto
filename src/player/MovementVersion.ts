@@ -10,8 +10,8 @@
  * both together, always.
  */
 export const MOVEMENT_VERSION = {
-  id: 'v3',
-  name: 'Strafe Only',
+  id: 'v4',
+  name: 'Training Wheels',
 } as const;
 
 export const MOVEMENT_VERSION_LABEL = `MOVE ${MOVEMENT_VERSION.id} · ${MOVEMENT_VERSION.name}`;

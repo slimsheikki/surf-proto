@@ -174,7 +174,9 @@ order mirrors Source's `CGameMovement::FullWalkMove`:
 1. **Look** — apply yaw/pitch deltas, clamp pitch to ±89°.
 2. **Wish direction** — WASD as a local vector, normalized, rotated by yaw. The forward axis
    is dropped unless the player is grounded (`MovementConfig.AIR_FORWARD_INPUT`, off), so W
-   and S only steer on a flat surface and never while surfing. See the v3 log.
+   and S only steer on a flat surface and never while surfing. In Beginner Mode
+   (`SURF_ASSIST`) a held W with no strafe key of its own is answered with the strafe key
+   that climbs the face being ridden, through this same path. See the v3 and v4 logs.
 3. **Jump** — *before* anything reads ground state. In Source, `CheckJumpButton()` clears the
    ground entity and the friction check that follows is gated on still being grounded, so the
    tick you jump on pays **no ground friction** and takes the air path. That is exactly why

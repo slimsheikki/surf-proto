@@ -127,6 +127,24 @@ export const MovementConfig = {
    * way their muscle memory already does.
    */
   AIR_FORWARD_INPUT: false,
+  /**
+   * Beginner Mode's training wheel. On, and airborne, and holding W with neither
+   * strafe key down, the wish direction is synthesized as the strafe that climbs
+   * the face being ridden — the A or D a surfer would be holding, read off the
+   * ramp itself rather than guessed from the player.
+   *
+   * It teaches rather than carries. The synthesized direction is a plain unit
+   * vector fed to the ordinary `airAccelerate`: a beginner gains speed under
+   * exactly the same law as anyone else, they are only spared the keyboard half
+   * of it. The thing that actually makes the speed — sweeping the view — is
+   * still entirely theirs, so graduating is just pressing A or D themselves,
+   * which takes over instantly and changes nothing about the physics.
+   *
+   * Owned by `Settings`, which persists it and writes it through here. Ignored
+   * when `AIR_FORWARD_INPUT` is on, because there W is a real input again and
+   * two meanings for one key is no meaning at all.
+   */
+  SURF_ASSIST: false,
 };
 
 /**

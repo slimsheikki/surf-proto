@@ -47,7 +47,7 @@ the game: `git checkout ed58d05`.
 
 ## Movement — under active review
 
-`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v3 · Strafe Only`** is what is deployed.
+`docs/MOVEMENT_VERSIONS.md` is the log; **`MOVE v4 · Training Wheels`** is what is deployed.
 The controller is now a full port of `CGameMovement::FullWalkMove` / `TryPlayerMove` rather
 than a sketch of it: split gravity, 4 bumps with plane accumulation and crease handling,
 Source's ground-state rules, and the CS:S constants. Two behaviour changes the user will
@@ -61,6 +61,19 @@ notice immediately and is reviewing:
 with Hammer units alongside). Panel values are *preferences* and survive a run reset —
 `setMovementPreference` keeps them apart from the upgrade pool's writes to the same object,
 which must not survive.
+
+**v4 (Training Wheels) is Beginner Mode**, the switch under the map grid (`MainMenu`, both
+modes named either side, `B` toggles, persisted in `Settings` as `beginnerMode`, **default
+on**). Holding W airborne with no strafe key down makes `PlayerController.assistStrafe`
+supply one — and it supplies a *key*, fed through the same view-relative path a real press
+takes, so the physics is untouched and the mouse is still the only thing making speed. Which
+key comes off the face being ridden (negated horizontal part of its normal = uphill),
+remembered from the collision with a 0.35 s hold. Two things that must not be "simplified"
+back, both tried and both wrong: deriving the key from the **view sweep** (a beginner who
+sweeps the wrong way gets the wrong key and still falls off — the one case it exists for),
+and returning a world-space **uphill vector** instead of a key (holds the line, pays out zero
+speed, teaches that the mouse is irrelevant). Advanced Mode is v3 bit-for-bit; the build
+stamp carries `· BEGINNER` so no speed figure is ambiguous.
 
 **v3 (Strafe Only) gates W/S on being grounded.** `PlayerController.wishDir` zeroes
 `input.moveForward` unless `this.grounded` — which is the game's own definition of a flat
@@ -1616,6 +1629,12 @@ Throwaway verification harnesses live at `.probe-*.ts` / `.probe-*.mjs` (gitigno
 esbuild-bundled and run under node). The SAT overlap + approach-flow probe was deleted;
 rewrite from the numbers above if needed.
 
+- **`.probe-assist`** (2026-08-04, 10 green) — Beginner Mode against a 51.34° slab:
+  unassisted W is off the low edge in 1.13 s, assisted is still riding at 3 s within 0.11u of
+  the hand-held uphill key and 35.8u from the other one; bit-identical to no assist with W
+  released, off a ramp, or under `AIR_FORWARD_INPUT`; bit-identical to the player's own key
+  whenever one is down. Cannot show speed *gain* — an 18-wide slab has no descent — so it
+  does not assert any.
 - **`.probe-wsflat`** (2026-08-04, 14 green) — the v3 W/S gate, against a flat floor and one
   51.34° banked slab: the ramp never grounds the player; W+A and S+A ride bit-identically to
   A alone (position delta 0); W alone in the air equals no keys; W/S still walk on flat

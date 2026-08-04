@@ -7,11 +7,15 @@ import { MovementConfig, setMovementPreference } from '../player/MovementConfig'
  * `O`.
  *
  * That panel is a workbench for the CS convars and it changes what the movement
- * *is*. These two change nothing about the simulation; they are the settings a
- * player expects to find before they will judge anything else, and they are the
- * reason this is persisted to `localStorage` while the tuning panel's values are
- * not. Somebody who has dialled in their sensitivity should not have to do it
- * again tomorrow.
+ * *is*. What is kept here instead is what a player expects to be remembered
+ * about them, which is why this is persisted to `localStorage` while the tuning
+ * panel's values are not. Somebody who has dialled in their sensitivity should
+ * not have to do it again tomorrow.
+ *
+ * `beginnerMode` is the one entry that does change the simulation. It is here
+ * rather than on the workbench because it is chosen on the map picker by a
+ * player who has never heard of a convar, and because forgetting it overnight
+ * would strand exactly the person it exists for.
  *
  * Sensitivity lives here but is *stored* in `MovementConfig`, because that is
  * where `InputSystem` reads it. This module owns the number and writes it
@@ -51,6 +55,20 @@ export interface SettingsState {
    * itself, where it is actually noticed.
    */
   countdownOnResume: boolean;
+  /**
+   * Beginner Mode: W holds your line on a ramp instead of doing nothing.
+   *
+   * The one setting here that *does* change the simulation, which is why it is
+   * written through to `MovementConfig.SURF_ASSIST` the way sensitivity is
+   * rather than being read from here by the controller. It lives in this module
+   * anyway because it has to survive a session — the player who needs it is
+   * exactly the one who will not think to go and find it again tomorrow — and
+   * because the map picker is where it is chosen, not the convar workbench.
+   *
+   * Defaults ON. A first-time player cannot ask for help they do not know
+   * exists, and it is one click on the screen they just came through to leave.
+   */
+  beginnerMode: boolean;
 }
 
 const state: SettingsState = {
@@ -59,6 +77,7 @@ const state: SettingsState = {
   musicVolume: DEFAULT_MUSIC_VOLUME,
   musicMuted: false,
   countdownOnResume: true,
+  beginnerMode: true,
 };
 
 const listeners: ((s: SettingsState) => void)[] = [];
@@ -105,13 +124,23 @@ export function setCountdownOnResume(enabled: boolean): void {
   commit();
 }
 
+export function setBeginnerMode(enabled: boolean): void {
+  state.beginnerMode = enabled;
+  // A preference, like sensitivity: `resetMovementConfig` runs on every restart
+  // to strip a run's upgrade buffs, and the mode must not be stripped with them.
+  setMovementPreference('SURF_ASSIST', enabled);
+  commit();
+}
+
 export function resetSettings(): void {
   state.fov = DEFAULT_FOV;
   state.sensitivity = DEFAULT_SENSITIVITY;
   state.musicVolume = DEFAULT_MUSIC_VOLUME;
   state.musicMuted = false;
   state.countdownOnResume = true;
+  state.beginnerMode = true;
   setMovementPreference('SENSITIVITY', DEFAULT_SENSITIVITY);
+  setMovementPreference('SURF_ASSIST', true);
   commit();
 }
 
@@ -145,11 +174,16 @@ export function loadSettings(): void {
       if (typeof parsed.countdownOnResume === 'boolean') {
         state.countdownOnResume = parsed.countdownOnResume;
       }
+      // Absent from a blob written before Beginner Mode existed, which leaves
+      // the default above standing — an existing player is a new player as far
+      // as this feature is concerned, and they can switch it off on the way in.
+      if (typeof parsed.beginnerMode === 'boolean') state.beginnerMode = parsed.beginnerMode;
     }
   } catch {
     // Unreadable or corrupt storage: the defaults above are already correct.
   }
   setMovementPreference('SENSITIVITY', state.sensitivity);
+  setMovementPreference('SURF_ASSIST', state.beginnerMode);
   for (const listener of listeners) listener(state);
 }
 
