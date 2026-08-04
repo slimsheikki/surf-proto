@@ -322,29 +322,66 @@ position drift 0.000, and the scene child count comes back exactly, so nothing
 leaks. Browser pass: charge → ready flames → activation → countdown → resume,
 no console errors.
 
-## Blessings respawn (new)
+## Blessings are rings over the ramps (new)
 
-A collected blessing vanishes rather than dimming in place, and 30 s later
-(`SHRINE_RESPAWN_SECONDS`) returns at a random point on the endless ring.
+**MegaFlow Demo V1 had no blessings at all, and the reason was structural.**
+`buildFreeWorld` never set `course.shrines`, so `rebuildShrines` built an empty
+list on every free map — including the course the game actually opens on. The
+old `ShrineRespawn.ts` could not have fixed it either: it sampled an annulus
+around `islandCenter` at `trackRadius`, and on a free map those are the *boss
+pillar* and a clamped *boss engagement radius*, not a track. It is deleted.
 
-`ShrineRespawn.ts` answers "reachable" **by construction** rather than by testing
-a candidate: every draw lands in the envelope the course's own hand-placed ring
-shrines occupy (track radius −3..+8, 11..17 above the track plane). If a point
-there were unreachable, the authored shrines would be too. Candidates only ever
-come from the ring, never the approach — the approach is one-way, so a blessing
-respawned there is gone for the run. Additional rules: at least 70 u from the
-player (about an eighth of a lap), at least 25 u from any standing blessing, and
-a furthest-of-24-draws fallback so a cornered player cannot hang the loop.
+A blessing is now a **ring the player surfs through** — one torus, `RING_RADIUS`
+4.6, faced along the ramp heading so the natural line down the ramp goes through
+the opening rather than across it. The octahedron crystal is gone. The collect
+test is a point-vs-sphere at the ring's own radius, so the pickup volume is the
+thing the player can see. Safe against tunnelling at 128 Hz: even a very fast
+player advances a fraction of a unit per tick through a 9-unit gate.
 
-The countdown runs inside `updateGameplay`, so it obeys the same pause the rest
-of the sim does — time spent in the upgrade menu is not time waiting for a
-shrine. A shrine's position is mutable now, which means it travels in `Rewind`'s
-`Frame` alongside the collected flag: rewinding across a pickup has to put the
-blessing back *where it was taken from*.
+`BlessingSpots.ts` answers "reachable" **by construction**, and now literally:
+every candidate is derived from a ramp piece the map contains, hung
+`RIDE_CLEARANCE` (8) above that piece's own high edge. A blessing can only
+appear over something rideable because the ramp under it is what generated it.
+The bank rise is `sin(roll) · width/2`, except on a `full` A-frame where the
+stored path *is* the ridge and adding it would hang the ring a face-height too
+high. Pyramids are skipped — their anchor is the base centre and the apex rises
+by a different rule.
 
-Verified in the live game loop: an approach shrine at radius 630 / +159 was
-collected, vanished, and came back exactly 30.00 s later at radius 93 / +16 — off
-the one-way start and onto the ring.
+Placement rules are preferences with a graceful floor rather than hard rejects
+(≥70 u apart, ≥45 u from the player); every anchor is scored by distance to the
+nearest thing it should avoid, so a cramped map degrades to "as far apart as
+this map allows" instead of failing to place anything.
+
+**Five slots, fixed for the run.** `BLESSING_SLOTS` `Shrine` objects are
+allocated once and cycled between standing and dormant — they are never
+allocated or freed mid-run, because `Rewind` pairs shrines with their snapshots
+**by array index** and a list that resized would restore each one onto a
+different shrine's history. Facing rides in `ShrineSnapshot` alongside position
+— a restored blessing must face as it did.
+
+**The course opens with all five standing.** `restart` resets every slot to a
+zero delay, which makes each one `needsRespawn` immediately; `updateGameplay`'s
+loop places them on the first tick, one at a time, each seeing the ones already
+up — so the separation rule holds on the opening arrangement exactly as it does
+mid-run. It was briefly staggered 30 s apart instead, which is the literal
+reading of "one every 30 seconds" and meant a player who loaded the course
+looked at an empty sky for half a minute. `SHRINE_RESPAWN_SECONDS` now governs
+only the thing it is named for: how long a *collected* blessing stays gone.
+
+Visuals: a `BackSide`, `depthWrite: false` halo torus at 0.17 opacity breathing
+±0.07, and a 0.18-unit hover. Normal blending, per the usual rule. The old
+0.5-unit bob was enough to make a committed line miss a gate the player is
+aiming through.
+
+Verified by `.probe-blessings.ts` against the shipped course (61 pieces, 3412
+convex colliders): **165 anchors, 165 of them with ramp directly beneath
+(100%), 0 buried in geometry**, clearance 8.00–15.03; sampling the ring rim at
+16 points per anchor gives **0 buried rim points**, tightest gap 1.60. Over 200
+placements of five, the closest pair was never under 70.0 (median ~110). Ticked
+at a real 128 Hz with the player parked out of reach, all five stand up on the
+**first tick (t = 0.008)**, peak active count is **5**, and the closest pair in
+the opening arrangement is **120.2** — resolving all five from one player
+position does not crowd them.
 
 ## Purple glass UI (new)
 

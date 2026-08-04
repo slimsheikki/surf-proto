@@ -487,6 +487,21 @@ export function piecePath(piece: FreePiece): PiecePath {
   };
 }
 
+/**
+ * The piece's centre-path frames, in world space — sampled points carrying the
+ * surface normal and lateral axis at each.
+ *
+ * Exported because the frames are the only honest answer to "where is this
+ * piece": `x/y/z` is a path *midpoint* (see `FreePiece`), and a swept piece's
+ * surface wanders a long way from it. Anything that needs to hang something
+ * above a ramp reads these rather than guessing from the stored anchor. Same
+ * walk the meshes and colliders take, so a point derived here cannot drift off
+ * the geometry it was derived from.
+ */
+export function pieceFrames(piece: FreePiece): RampFrame[] {
+  return computeRampFrames(centreParams(piece, piecePath(piece).entry), pieceMode(piece)).frames;
+}
+
 export interface RampBuildOptions {
   colliders: boolean;
   color: number;
