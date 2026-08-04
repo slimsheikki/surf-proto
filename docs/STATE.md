@@ -1,7 +1,8 @@
 # State — 2026-08-03
 
 Living handoff doc. Read at session start, update before finishing. Keep it short:
-delete anything resolved rather than accumulating history.
+delete anything resolved rather than accumulating history. For the running backlog of
+requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
 ## Revert point
 
