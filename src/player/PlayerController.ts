@@ -80,6 +80,25 @@ const MOMENTUM_BOOST_ACCEL = 3; // u/s^2
 const DASH_IMPULSE_SPEED = 8; // u/s, added instantly
 
 /**
+ * How long Beginner Mode remembers the face it was last riding.
+ *
+ * A rider is not in contact every tick — they clip the ramp, fly for a few
+ * ticks, clip it again — so the assist has to bridge the gaps or it would
+ * strobe on and off, which is a strafe key being hammered rather than held, and
+ * the gain law pays out on neither. Short enough that leaving a ramp for good
+ * drops the assist within a few ticks of the last touch.
+ */
+const ASSIST_RIDE_HOLD = 0.35; // seconds
+
+/**
+ * How square-on to the fall line the view has to be before the assist will
+ * change its mind about which key climbs. 0.2 is about 12 degrees either side
+ * of looking straight up or down the slope — the only place the two keys are
+ * genuinely ambiguous.
+ */
+const ASSIST_SIDE_DEAD_BAND = 0.2;
+
+/**
  * Tolerance on the walkable-slope test, expressed in normal.y (1e-4 of normal.y
  * is ~0.008 deg of slope at the 45 deg limit — small enough not to retune the
  * angle, large enough to swamp floating-point noise in the collider quaternions).
@@ -237,6 +256,11 @@ export class PlayerController {
   groundNormal = new Vector3(0, 1, 0);
   private jumpHeldLastTick = false;
   private momentumBoostTimer = 0;
+  /** The face Beginner Mode is holding the player onto. See `noteRideSurface`. */
+  private readonly assistRideNormal = new Vector3();
+  private assistRideHold = 0;
+  /** Which strafe key the assist last settled on. See `assistStrafe`. */
+  private assistSide = 0;
 
   /** Scratch reused by `tryPlayerMove` so the hot path allocates nothing per bump. */
   private readonly clipPlanes: Vector3[] = Array.from({ length: MAX_CLIP_PLANES }, () => new Vector3());
@@ -265,9 +289,77 @@ export class PlayerController {
    */
   private wishDir(input: InputFrame): Vector3 {
     const forward = this.grounded || MovementConfig.AIR_FORWARD_INPUT ? input.moveForward : 0;
-    const local = new Vector3(input.moveRight, 0, -forward);
+    const right = input.moveRight || this.assistStrafe(input);
+    const local = new Vector3(right, 0, -forward);
     if (local.lengthSq() > 1e-6) local.normalize();
     return local.applyAxisAngle(UP, this.yaw);
+  }
+
+  /**
+   * Beginner Mode: the strafe the player would be holding if they knew to.
+   *
+   * **Which key holds you on a ramp is decided by the ramp, not by the player.**
+   * That was measured, and it is the whole reason this reads a surface rather
+   * than the mouse: an earlier version derived the strafe from which way the
+   * view was sweeping, on the theory that a surfer turns into the key they
+   * hold. They do — but a beginner who sweeps the *wrong* way then gets the
+   * matching wrong key and slides off exactly as before, which is the one case
+   * the assist exists for. The face's own fall line has no such opinion.
+   *
+   * A surface's normal leans downhill, so the horizontal part of the normal,
+   * negated, is the direction that climbs it. Which of the two strafe keys
+   * points that way depends on where the player is looking, so this returns a
+   * **key**, not a direction: the caller feeds it through the same
+   * view-relative path a real keypress takes.
+   *
+   * That indirection is the difference between a training wheel and an
+   * autopilot. Handing back the world-space uphill vector instead was tried,
+   * and it holds the player on the ramp beautifully while paying out *no speed
+   * at all* — a wish direction that does not turn with the view cannot
+   * compound, so sweeping the mouse changes nothing and the player learns
+   * nothing. Routed through the view, an assisted rider gains exactly what an
+   * advanced one does, from exactly the same act: turning the mouse.
+   *
+   * Returns 0 unless the assist applies, and it is never consulted while the
+   * player is pressing a strafe key of their own, so taking the wheel back
+   * mid-ramp needs no transition.
+   *
+   * Gated on W being held, which is the design: the key a new player wrongly
+   * reaches for becomes the one that saves them, and "hands off the keyboard
+   * means you slide off" stays true, because that is the lesson.
+   */
+  private assistStrafe(input: InputFrame): number {
+    if (!MovementConfig.SURF_ASSIST || MovementConfig.AIR_FORWARD_INPUT) return 0;
+    if (this.grounded || input.moveForward <= 0) return 0;
+    if (this.assistRideHold <= 0) return 0;
+
+    const uphill = new Vector3(-this.assistRideNormal.x, 0, -this.assistRideNormal.z);
+    if (uphill.lengthSq() < 1e-8) return 0; // a level surface has no uphill
+    const right = new Vector3(1, 0, 0).applyAxisAngle(UP, this.yaw);
+    const towardUphill = uphill.normalize().dot(right);
+
+    // Looking straight along the fall line leaves both keys equally (un)uphill,
+    // and re-deciding every tick there would chatter between them. Hold the last
+    // answer through the dead band instead; the ramp will resolve it as soon as
+    // the view moves off the crease.
+    if (Math.abs(towardUphill) > ASSIST_SIDE_DEAD_BAND) {
+      this.assistSide = towardUphill > 0 ? 1 : -1;
+    }
+    return this.assistSide;
+  }
+
+  /**
+   * Remembers a face as one the player is riding, for `assistWish`.
+   *
+   * Walls and walkable ground are both rejected: shoving a player sideways
+   * along a wall is absurd, and a walkable surface is one they are standing on,
+   * where W is a real input again. `SURF_LANDING_MIN_NORMAL_Y` is reused as the
+   * wall cutoff rather than a second constant that could drift from it.
+   */
+  private noteRideSurface(normal: Vector3, isWall: boolean): void {
+    if (isWall || normal.y < SURF_LANDING_MIN_NORMAL_Y || isWalkableNormal(normal.y)) return;
+    this.assistRideNormal.copy(normal);
+    this.assistRideHold = ASSIST_RIDE_HOLD;
   }
 
   /**
@@ -364,6 +456,10 @@ export class PlayerController {
       }
       this.clipPlanes[numPlanes].copy(hit.normal);
       numPlanes++;
+
+      // Beginner Mode watches what the player is riding from here, because this
+      // is the one place that knows: it is the surface the move actually struck.
+      if (!this.grounded) this.noteRideSurface(hit.normal, hit.collider.isWall === true);
 
       // Optional house rule; see the flag. Measured on the velocity as it was
       // *before* the clip, because the clip is precisely what destroys it.
@@ -508,6 +604,7 @@ export class PlayerController {
    */
   tick(dt: number, input: InputFrame): void {
     this.applyLook(input.yawDelta, input.pitchDelta);
+    this.assistRideHold = Math.max(this.assistRideHold - dt, 0);
 
     const wishDir = this.wishDir(input);
     const wishSpeed = wishDir.lengthSq() > 1e-6 ? MovementConfig.MAX_GROUND_SPEED : 0;
@@ -611,5 +708,9 @@ export class PlayerController {
     this.velocity.set(0, 0, 0);
     this.grounded = false;
     this.momentumBoostTimer = 0;
+    // A remembered face from before the teleport would spend its hold pushing
+    // the player sideways out of a spawn nowhere near it.
+    this.assistRideHold = 0;
+    this.assistSide = 0;
   }
 }

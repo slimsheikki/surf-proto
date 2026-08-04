@@ -260,6 +260,21 @@
       <div id="menu-play" class="menu-page hidden">
         <h1 class="menu-title">Play</h1>
         <div id="menu-map-grid"></div>
+        <!-- Applies to whichever map is picked below it: the mode is a property
+             of the run about to start, not of a map. -->
+        <div id="menu-mode" class="mode-row">
+          <span class="mode-side" data-side="advanced">Advanced</span>
+          <button
+            type="button"
+            id="menu-mode-switch"
+            class="surf-switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Beginner Mode"
+          ></button>
+          <span class="mode-side" data-side="beginner">Beginner</span>
+          <p id="menu-mode-explain" class="mode-explain"></p>
+        </div>
         <p id="menu-play-empty" class="overlay-hint hidden">
           No maps saved yet &mdash; build one in the Editor and it will show up here.
         </p>

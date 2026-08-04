@@ -186,7 +186,18 @@ export class App {
     this.camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
     this.input = new InputSystem(canvas);
 
-    document.getElementById('movement-tag')!.textContent = MOVEMENT_VERSION_LABEL;
+    // The build stamp, plus the mode when it is not the default one. A review
+    // note is only usable if it can be attached to a specific build, and
+    // Beginner Mode changes what the air control *is* — a speed figure from an
+    // assisted run has to say so on its face.
+    const movementTag = document.getElementById('movement-tag')!;
+    const stampMode = (beginner: boolean) => {
+      movementTag.textContent = beginner
+        ? `${MOVEMENT_VERSION_LABEL} · BEGINNER`
+        : MOVEMENT_VERSION_LABEL;
+    };
+    stampMode(getSettings().beginnerMode);
+    onSettingsChanged((settings) => stampMode(settings.beginnerMode));
     // The start screen's wordmark. Mounted at boot rather than when the overlay
     // first shows, so the image is decoded and turning by the time a run opens
     // on it instead of popping in a frame late.

@@ -22,6 +22,64 @@ Open questions I could not settle from here are listed at the bottom.
 
 ---
 
+## v4 — Training Wheels
+
+**Beginner Mode**, picked on the map screen: hold W on a ramp and the game supplies the
+strafe key that keeps you on it. Advanced Mode is v3 unchanged, bit for bit.
+
+The switch sits under the map grid with both modes named either side and the live one lit —
+it applies to whichever map you then pick, because the mode is a property of the run, not of
+a map. `B` toggles it, it persists across sessions, and it **defaults on**: a first-time
+player cannot ask for help they do not know exists. The build stamp reads
+`MOVE v4 · TRAINING WHEELS · BEGINNER` while it is on, so a speed figure can never be
+mistaken for an unassisted one.
+
+### The assist supplies the key, nothing else
+
+`PlayerController.assistStrafe` returns a **strafe key**, not a direction, and the caller
+feeds it through the same view-relative path a real keypress takes. So an assisted rider is
+running the ordinary `airAccelerate` on an ordinary unit wish direction: same gain law, same
+ceiling, same everything. Pressing A or D drops the assist mid-ramp with no transition,
+because the player's own input is simply read first.
+
+Which key it is comes off **the ramp**, not the player: a surface's normal leans downhill, so
+the negated horizontal part of the normal is the direction that climbs it, and whichever
+strafe key points nearest that is the one a surfer would be holding. The face is remembered
+from the collision itself (`noteRideSurface`, off the hit in `tryPlayerMove`) with a 0.35 s
+hold, because a rider is not in contact every tick — clip, fly, clip again — and an assist
+that strobed would be a key hammered rather than held, which the gain law pays out on
+neither.
+
+### Two dead ends worth recording
+
+**Deriving the key from which way the view is sweeping.** This was the original design, on
+the theory that a surfer turns into the key they hold. They do — but a beginner who sweeps
+the *wrong* way then gets the matching wrong key and slides off exactly as before, which is
+the single case the mode exists for. Measured: wrong key against a wrong-way sweep, off the
+low edge in 0.83 s. The ramp has no such opinion, so the ramp decides.
+
+**Handing back the world-space uphill vector instead of a key.** It holds the player on the
+face beautifully and pays out **no speed at all** — a wish direction that does not turn with
+the view cannot compound, so sweeping the mouse changes nothing. That is an autopilot, not a
+training wheel: it would keep a beginner alive while teaching them that the mouse does not
+matter, which is the opposite of the lesson. Routed through the view instead, the mouse is
+still the only thing making speed, and graduating is just pressing the key yourself.
+
+### Verified
+
+`.probe-assist.ts`, 10 green against a 51.34° face. Unassisted, W held: off the low edge in
+1.13 s. Assisted: still riding at 3 s, within 0.11u of the same line as the uphill key held
+by hand — and 35.8u from where the *other* key ends up. W released, or no ramp under you, or
+`AIR_FORWARD_INPUT` on, and it is bit-identical to no assist at all; press a strafe key and it
+is bit-identical to that key alone, wrong key included.
+
+One thing this rig cannot show, so nothing here claims it: **speed gain**. The test slab is
+18 units wide, so a correct strafe climbs it and runs out of ramp in a second or two with no
+descent to give the height back — every correct line reads as a speed *loss* on a slab that
+short. Gain needs a real ramp and a human; that is what the mode has to be judged on in play.
+
+---
+
 ## v3 — Strafe Only
 
 **W and S are only live when you are standing on a flat surface.** In the air — which is

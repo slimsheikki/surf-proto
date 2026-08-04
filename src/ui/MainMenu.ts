@@ -1,8 +1,19 @@
 import { FreeMap } from '../editor/MapData';
 import { DEFAULT_COURSE_BLURB, DEFAULT_COURSE_NAME } from '../world/DefaultCourse';
 import { listMapNames, loadMap } from '../editor/MapStorage';
+import { getSettings, setBeginnerMode } from '../game/Settings';
 import { mountLogo } from './Logo';
 import { renderMapThumbnails } from './MapThumbnails';
+
+/**
+ * What the switch says it does, in the player's words rather than the
+ * controller's. Read by somebody who has never surfed, on the screen where they
+ * are about to try.
+ */
+const MODE_EXPLAIN = {
+  beginner: 'Hold W on a ramp and it strafes to keep you on it. Sweep the mouse to build speed.',
+  advanced: 'A and D only in the air. W and S do nothing once you leave the ground.',
+};
 
 /**
  * The stacked front menu — PLAY / EDITOR / SETTINGS — and the play screen
@@ -38,6 +49,11 @@ export class MainMenu {
   private readonly playPage = document.getElementById('menu-play')!;
   private readonly grid = document.getElementById('menu-map-grid')!;
   private readonly emptyHint = document.getElementById('menu-play-empty')!;
+  private readonly modeSwitch = document.getElementById('menu-mode-switch')!;
+  private readonly modeExplain = document.getElementById('menu-mode-explain')!;
+  private readonly modeSides = Array.from(
+    document.querySelectorAll<HTMLElement>('#menu-mode .mode-side'),
+  );
   private readonly rootItems = Array.from(
     document.querySelectorAll<HTMLElement>('#menu-stack [data-action]'),
   );
@@ -63,6 +79,7 @@ export class MainMenu {
       item.addEventListener('click', () => this.runRootAction(item.dataset.action));
     }
     document.getElementById('menu-play-back')!.addEventListener('click', () => this.showPage('root'));
+    this.modeSwitch.addEventListener('click', () => this.toggleMode());
 
     // Registered once rather than per show(), so repeated visits cannot stack
     // listeners.
@@ -72,6 +89,15 @@ export class MainMenu {
       if (this.page === 'play' && (event.key === 'Escape' || event.key === 'Backspace')) {
         event.preventDefault();
         this.showPage('root');
+        return;
+      }
+
+      // `B` for the mode switch. A letter rather than a digit because the digits
+      // are the map tiles, and every panel in this game stays reachable without
+      // a cursor — see the class comment.
+      if (this.page === 'play' && (event.key === 'b' || event.key === 'B')) {
+        event.preventDefault();
+        this.toggleMode();
         return;
       }
 
@@ -116,7 +142,26 @@ export class MainMenu {
     this.page = page;
     this.rootPage.classList.toggle('hidden', page !== 'root');
     this.playPage.classList.toggle('hidden', page !== 'play');
-    if (page === 'play') this.buildPlayPage();
+    if (page === 'play') {
+      // Re-read rather than trusting the DOM: Settings can reset the mode from
+      // its own screen while this page is built but hidden behind it.
+      this.renderMode(getSettings().beginnerMode);
+      this.buildPlayPage();
+    }
+  }
+
+  private toggleMode(): void {
+    const beginner = !getSettings().beginnerMode;
+    setBeginnerMode(beginner);
+    this.renderMode(beginner);
+  }
+
+  private renderMode(beginner: boolean): void {
+    this.modeSwitch.setAttribute('aria-checked', String(beginner));
+    this.modeExplain.textContent = beginner ? MODE_EXPLAIN.beginner : MODE_EXPLAIN.advanced;
+    for (const side of this.modeSides) {
+      side.classList.toggle('is-active', (side.dataset.side === 'beginner') === beginner);
+    }
   }
 
   private runRootAction(action: string | undefined): void {
