@@ -3,15 +3,22 @@ import { BOLT_SPEED } from '../combat/Bolt';
 import { Enemy, EnemyVisual } from './Enemy';
 
 /**
- * A flat emerald disc — nothing else in the roster is flat, and the deep
- * green pairs it with the bright green bolts it fires, the same colour-rhyme
- * that binds a seeder to its violet blasts.
+ * A flat amber disc — nothing else in the roster is flat, and the warm body
+ * pairs it with the pale gold bolts it fires, the same colour-rhyme that binds
+ * every enemy to what it throws.
+ *
+ * **It was emerald, and the Swarmer is already green.** One is a harmless cloud
+ * you fly through and the other is the thing shooting at you from thirty units
+ * out; they cannot share a hue. Amber also says what the thing it lobs is —
+ * hot. It sits near the Monolith's orange ring shots, which is survivable for
+ * one specific reason: a Monolith's arrival calls `clearEnemies`, so the two
+ * are never on screen together.
  */
 const GEOMETRY = new CylinderGeometry(0.78, 0.78, 0.26, 10);
 const SPITTER_VISUAL: EnemyVisual = {
   geometry: GEOMETRY,
-  color: 0x1f9e60,
-  emissive: 0x0e6b3c,
+  color: 0xff9e2c,
+  emissive: 0xc96a00,
   emissiveIntensity: 1.0,
 };
 

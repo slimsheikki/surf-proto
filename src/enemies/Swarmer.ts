@@ -3,7 +3,7 @@ import { Enemy, EnemyVisual } from './Enemy';
 
 /**
  * Deliberately the smallest silhouette in the roster, and acid-green — a
- * colour nothing else in the game owns (red drone, violet seeder, gold shrine,
+ * colour nothing else in the game owns (red drone, magenta seeder, gold shrine,
  * teal XP), because at 35 u/s colour is the only channel that reads. Small
  * and sharp-cornered where the drone is round: a pack of these must scan as
  * "many little" rather than "several drones" in peripheral vision.

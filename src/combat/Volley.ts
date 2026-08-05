@@ -108,15 +108,20 @@ const GEOMETRY = new SphereGeometry(VISUAL_RADIUS, 8, 6);
 const SHELL_GEOMETRY = new SphereGeometry(HIT_RADIUS * 0.62, 8, 6);
 
 /**
- * Normal blending, not additive.
+ * Violet, because violet means *yours*.
  *
- * The project has paid for this one already: against the bright sky additive
- * desaturates to white, and a saturated emissive at high intensity clips the
- * same way. A seed has to stay readable as a *green* thing over a green
- * horizon.
+ * These first shipped green and that was a mistake: the Swarmer is acid green,
+ * the Spitter's bolts are bright, and a player's own projectiles must never be
+ * mistaken for something incoming. Violet is the hue the crosshair, the
+ * wordmark and every panel already use, and it is now the player's alone — the
+ * Seeder gave it up in the same change.
+ *
+ * Normal blending, not additive. The project has paid for that one already:
+ * against the bright sky additive desaturates to white, and a saturated
+ * emissive at high intensity clips the same way.
  */
-const CORE_COLOR = 0xc8f55e;
-const SHELL_COLOR = 0x86e02c;
+const CORE_COLOR = 0xd9a5ff;
+const SHELL_COLOR = 0xb45cff;
 
 class Seed {
   readonly mesh: Mesh;

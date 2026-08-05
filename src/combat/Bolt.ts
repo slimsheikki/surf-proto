@@ -13,13 +13,20 @@ const BOLT_TTL = 3;
 const BOLT_HIT_RADIUS = 1.1;
 
 /**
- * Bright and unlit so it reads against the sky at range; the venomous green
- * ties it to the spitter's emerald body the way violet ties a blast to its
- * seeder. Shared geometry *and* material — bolts never animate their look, so
- * removal is unparent-only, the XPOrb teardown rule.
+ * Bright and unlit so it reads against the sky at range; the pale gold ties it
+ * to the spitter's amber body, the same colour-rhyme every enemy has with what
+ * it throws. Shared geometry *and* material — bolts never animate their look,
+ * so removal is unparent-only, the XPOrb teardown rule.
  */
 const GEOMETRY = new SphereGeometry(0.22, 8, 6);
-const MATERIAL = new MeshBasicMaterial({ color: 0x86ff9e });
+/*
+ * Pale gold, to rhyme with the amber Spitter that fires it.
+ *
+ * Deliberately *lighter* than `Blast`'s orange fill: a bolt in flight and a
+ * seeder's ground charge are both warm hazards, and at speed the only thing
+ * separating them is value. The bolt is the bright one.
+ */
+const MATERIAL = new MeshBasicMaterial({ color: 0xffd166 });
 
 /**
  * A spitter's projectile: position, velocity, a short fuse, one hit.
