@@ -34,6 +34,19 @@ is used only to replace the *text* of an entry git already put in the list. Toke
 GitHub down, request refused — every entry keeps its PR title and the panel stays correct and
 current. `BACKFILL` still covers #33–#39.
 
+**Both merge styles are read**, and deliberately not via `git log --merges`:
+
+| | commit subject | where the title is |
+|---|---|---|
+| Create a merge commit | `Merge pull request #50 from owner/branch` | first line of the body |
+| Squash and merge | `The PR title (#50)` | the subject itself |
+
+A squash produces an *ordinary* commit, so filtering to merges would find nothing the day that
+button is clicked — the panel would freeze and look exactly like the bug this rewrite was for.
+Scanning all commits means one PR can be reachable twice (a squashed commit plus the merge that
+carried it), so entries are de-duplicated by number, newest kept. **Rebase and merge leaves no
+PR number anywhere in the history and cannot be supported** — that is the one strategy to avoid.
+
 **`actions/checkout` needs `fetch-depth: 0`.** The default depth of 1 leaves exactly one commit
 and therefore at most one merge; verified against a real shallow clone, where the generator
 finds zero merges and writes an empty list rather than failing the deploy.

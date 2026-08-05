@@ -183,9 +183,13 @@ function mergedPullsFromGit() {
   const REC = '\u001e';
   let out;
   try {
+    // Deliberately **not** `--merges`. A "Squash and merge" produces an
+    // ordinary commit, not a merge commit, so filtering to merges would find
+    // nothing the day the button is clicked — the panel would silently freeze
+    // and look exactly like the bug this whole rewrite was for.
     out = execFileSync(
       'git',
-      ['log', '--merges', '--format=%H%x1f%cI%x1f%s%x1f%b%x1e', '-n', '200'],
+      ['log', '--format=%H%x1f%cI%x1f%s%x1f%b%x1e', '-n', '400'],
       { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
     );
   } catch (error) {
@@ -197,18 +201,41 @@ function mergedPullsFromGit() {
   for (const record of out.split(REC)) {
     const [, iso, subject, body] = record.split(SEP);
     if (!subject) continue;
-    const matched = /^Merge pull request #(\d+) /.exec(subject.trim());
-    if (!matched) continue;
+    const line = subject.trim();
+    const firstBodyLine = (body ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+
+    // Both ways GitHub can land a PR:
+    //
+    //   merge commit   subject "Merge pull request #50 from owner/branch"
+    //                  body    "The PR title"
+    //   squash merge   subject "The PR title (#50)"
+    //                  body    the squashed commit messages
+    //
+    // Rebase-and-merge leaves no PR number anywhere and cannot be detected;
+    // it is the one strategy this cannot support, and it is noted in STATE.md.
+    const asMerge = /^Merge pull request #(\d+) /.exec(line);
+    const asSquash = /^(.*?)\s*\(#(\d+)\)$/.exec(line);
+    if (!asMerge && !asSquash) continue;
+
     pulls.push({
-      number: Number(matched[1]),
+      number: Number(asMerge ? asMerge[1] : asSquash[2]),
       mergedAt: iso.trim(),
-      // GitHub puts the PR title on the first non-empty line of the body.
-      title: (body ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '',
+      title: asMerge ? firstBodyLine : asSquash[1],
     });
   }
   // Already newest-first out of git log, but sorted explicitly so a rebase or a
   // hand-written merge cannot quietly reorder the panel.
-  return pulls.sort((a, b) => new Date(b.mergedAt) - new Date(a.mergedAt));
+  pulls.sort((a, b) => new Date(b.mergedAt) - new Date(a.mergedAt));
+
+  // One PR, one entry. Scanning every commit rather than only merges means a
+  // squashed PR commit can also be reachable through the merge that carried it,
+  // and the panel must never list the same number twice.
+  const seen = new Set();
+  return pulls.filter((pull) => {
+    if (seen.has(pull.number)) return false;
+    seen.add(pull.number);
+    return true;
+  });
 }
 
 /**
