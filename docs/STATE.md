@@ -10,34 +10,44 @@ A chip in the bottom-left corner of the root menu page — `LATEST PATCH #39` an
 what changed — opening upward into the last five merges. `src/ui/PatchNotes.ts`, styles under
 the `patch notes` banner in `styles.css`, an empty `#patch-notes` div in `index.html`.
 
-**Every merged PR appears.** `scripts/patch-notes.mjs` reads a `## Patch Notes` heading from the
-body at deploy time and writes `public/patch-notes.json`; with no such heading the **PR title**
-is used instead. The heading is an override, not a requirement — it was a requirement at first
-and the panel went stale twice in four merges (#41 and #43 both shipped without one and were
-silently skipped, so the chip sat on an older merge). There is still deliberately **no fallback
-to the body**: every body in this repo opens on a technical write-up, so that fallback fails on
-the screen instead of in the parser, whereas a title is short and already written for a person.
-`BACKFILL` covers #33–#39, which merged before any of this existed; nothing new is added to it.
+**The list comes from `git log`, not from the API, and that is the whole point.** GitHub writes
+the PR title into the merge commit body:
 
-Two parser bugs found while making the change, both of which had reached the screen: a `---`
-under the note was collected and rendered as a trailing rule, and a first pass at stripping
-reviewer prefixes from titles took any word before a colon — turning "Cartridges: tier-scaled
-upgrades" into "Tier-scaled upgrades". Only the conventional-commit set is stripped now.
+```
+Merge pull request #43 from slimsheikki/claude/upgrades-...
+Cartridges: tier-scaled upgrades with step-based progression
+```
 
-**Why the panel ran exactly one merge behind**, which is the thing the title fallback actually
-fixes. Notes are baked at deploy, and **the only thing that triggers a deploy is a push to
-`main`** — editing a PR body does not. So the loop was: merge (deploy fires, body has no
-heading, PR skipped) → notice the chip did not move → add the heading → *nothing redeploys* →
-next merge → the previous PR finally shows up. Permanently one behind. Deriving the note from
-the **title** removes the post-merge step entirely: everything the generator needs already
-exists at the instant the merge fires the deploy. `workflow_dispatch` is on the workflow for
-the rare case where a body really is edited after the fact.
+The merge commit that triggers the deploy *is* `HEAD` of the checkout, so the newest merge is in
+the list **by construction** — it cannot be a request that has not landed, it cannot be rate
+limited, and it needs no token. `.probe-notes` asserts exactly this: the newest merge in the
+repo is the newest entry in the file.
 
-`PatchNotes.load` fetches with `cache: 'no-cache'`. This is the one file in the build whose
-name never changes — everything else Vite emits carries a content hash, so a new deploy is a
-new URL — and `patch-notes.json` is copied out of `public/` verbatim, so a returning player
-could hold a cached copy and see the previous deploy's notes. That reads as the same
-one-merge-behind symptom from a completely different cause.
+**Why the API version ran a merge behind, every time.** Not because the API lagged — the deploy
+fires within seconds of the merge and the API had it. Because the *note* did not exist yet: a PR
+with no `## Patch Notes` heading was skipped, and adding the heading afterwards **triggers no
+deploy**, so the entry only surfaced when the next merge redeployed. #43 is the worked example
+— merged 15:46:09, `npm run notes` ran at 15:46:33, heading added an hour later.
+
+A hand-written `## Patch Notes` heading is still honoured, as a **pure enrichment**: the network
+is used only to replace the *text* of an entry git already put in the list. Token missing,
+GitHub down, request refused — every entry keeps its PR title and the panel stays correct and
+current. `BACKFILL` still covers #33–#39.
+
+**`actions/checkout` needs `fetch-depth: 0`.** The default depth of 1 leaves exactly one commit
+and therefore at most one merge; verified against a real shallow clone, where the generator
+finds zero merges and writes an empty list rather than failing the deploy.
+
+Two parser bugs found on the way, both of which had reached the screen: a `---` under a note was
+collected and rendered as a trailing rule, and a first pass at stripping reviewer prefixes from
+titles took any word before a colon — turning "Cartridges: tier-scaled upgrades" into
+"Tier-scaled upgrades". Only the conventional-commit set is stripped now.
+
+`PatchNotes.load` fetches with `cache: 'no-cache'`. This is the one file in the build whose name
+never changes — everything else Vite emits carries a content hash, so a new deploy is a new URL
+— and it is copied out of `public/` verbatim, so a returning player could hold a cached copy and
+read the previous deploy's notes. That reads as the same one-merge-behind symptom from a
+completely different cause.
 
 **Generated at deploy, not fetched in the browser.** One workflow step between `npm ci` and
 `npm run build`. A runtime fetch of api.github.com costs a loading state, a failure state, a

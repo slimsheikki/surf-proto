@@ -295,18 +295,18 @@ overwrites the recipient's own map of that name), and the hash is cleared after 
 
 ## Patch notes
 
-The front menu's bottom-left chip shows the last five merges, one line each. **Every merged PR
-appears — the `## Patch Notes` heading is an override, not a requirement.** Write one when a
-change deserves the player-facing voice (one sentence for the core change, more sentences and
-never bigger words if it did several things); skip it and the PR *title* is used instead.
+The front menu's bottom-left chip shows the last five merges, one line each, and **it is built
+from `git log` at deploy time** — GitHub puts the PR title in the merge commit body, so the
+merge that triggers the deploy is in the list by construction and the panel can never lag a
+merge behind. No token, no API, no timing window.
 
-It was mandatory once, and that is exactly why the panel kept going stale: of the four PRs that
-merged after the convention landed, two had no heading and were silently skipped, so the chip
-sat on an older merge and read like a changelog that had stopped updating. A convention that
-must be remembered on every PR — including the ones opened from a UI that has never heard of
-it — is one that gets missed about half the time. **There is still no fallback to the body**, and
-that distinction is the whole point: every body here opens on a technical write-up, while a
-title is short, always present and already written for a person.
+**Writing a `## Patch Notes` heading is optional.** With one, that text is used; without one,
+the PR title is. The heading is a network-only enrichment, so if GitHub is unreachable every
+entry simply keeps its title. It used to be mandatory, and that is exactly why the panel ran one
+merge behind forever: a PR without the heading was skipped, and adding it afterwards triggers no
+deploy, so it only appeared when the *next* merge redeployed.
+
+`actions/checkout` must keep `fetch-depth: 0` or there is no history to read.
 
 The voice is blunt and non-technical, near caveman: *"XP bar sits ON the HP frame now. Before it
 floated. Looked wrong."* Not the mechanism, not the file, not the constant — what is different
