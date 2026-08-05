@@ -7,11 +7,13 @@ import {
   MIN_MUSIC_VOLUME,
   MIN_SENSITIVITY,
   resetSettings,
+  setEnemiesEnabled,
   setFov,
   setMusicVolume,
   setSensitivity,
 } from '../game/Settings';
 import { MovementPanel } from './MovementPanel';
+import { createSwitchRow } from './SurfSwitch';
 
 /**
  * The in-run settings screen, on `Escape`. It doubles as the pause screen,
@@ -31,12 +33,26 @@ import { MovementPanel } from './MovementPanel';
  * two answer different questions: a slider is for finding a feel by sweeping,
  * a number field is for typing in the sensitivity you already know you use.
  *
+ * Every on/off entry here is a `SurfSwitch` — the same control the map picker's
+ * mode row uses — so a boolean is asked the same way everywhere in the game.
+ *
  * **Advanced Settings** folds the CS convar bench (`MovementPanel`) in
  * underneath, collapsed by default. It used to be a floating panel of its own on
  * `O`, and two independent screens that both released the pointer lock and both
  * paused the sim was two of everything to keep in agreement. `O` now opens this
  * screen with that section already expanded.
  */
+
+/**
+ * Shared by the two places it is drawn — the main body and the Advanced
+ * Settings section — so the wording of the one setting is written once.
+ */
+const ENEMIES_SWITCH = {
+  label: 'Enemies',
+  hint: 'Off is movement only: no drones, no seeders, no Monoliths. Takes effect immediately, mid-run included.',
+  get: () => getSettings().enemiesEnabled,
+  set: setEnemiesEnabled,
+};
 
 interface Row {
   label: string;
@@ -50,10 +66,10 @@ interface Row {
 }
 
 /**
- * Mute is the one control here that is not a number, so it is a button beside
- * Reset rather than a row — and it is driven through `MusicManager` rather than
- * the settings store, because the manager owns the live audio elements and the
- * store only remembers what it settled on.
+ * Music on/off is drawn as a switch like every other boolean, but it is driven
+ * through `MusicManager` rather than the settings store, because the manager
+ * owns the live audio elements and the store only remembers what it settled on.
+ * The switch reads "Music", so it is on when the game is *not* muted.
  */
 export interface MusicControls {
   isMuted: () => boolean;
@@ -124,22 +140,21 @@ export class SettingsPanel {
     ];
     for (const row of rows) card.appendChild(this.buildRow(row));
 
+    // The combat layer's master switch, and music's. Both are booleans, so both
+    // are switches; mute used to be a button beside Reset whose label flipped,
+    // which reads as an action rather than as the state it actually shows.
+    card.appendChild(this.buildSwitch(ENEMIES_SWITCH));
+    card.appendChild(
+      this.buildSwitch({
+        label: 'Music',
+        hint: 'Background music. A new track is drawn at the start of every run.',
+        get: () => !this.music.isMuted(),
+        set: () => this.music.toggleMute(),
+      }),
+    );
+
     const actions = document.createElement('div');
     actions.className = 'settings-actions';
-
-    const mute = document.createElement('button');
-    mute.type = 'button';
-    const syncMute = () => {
-      const muted = this.music.isMuted();
-      mute.textContent = muted ? 'Unmute music' : 'Mute music';
-      mute.classList.toggle('active', muted);
-    };
-    mute.addEventListener('click', () => {
-      this.music.toggleMute();
-      syncMute();
-    });
-    syncMute();
-    this.refreshers.push(syncMute);
 
     const reset = document.createElement('button');
     reset.type = 'button';
@@ -155,7 +170,7 @@ export class SettingsPanel {
     this.closeButton.textContent = 'Resume';
     this.closeButton.addEventListener('click', () => this.onClose());
 
-    actions.append(mute, reset, this.closeButton);
+    actions.append(reset, this.closeButton);
 
     // Collapsed by default and out of the tab order of a first-time player's
     // attention: these are convars, and someone who wants them is looking for
@@ -170,6 +185,15 @@ export class SettingsPanel {
 
     this.advanced = document.createElement('div');
     this.advanced.className = 'settings-advanced hidden';
+    // Repeated here as well as above, deliberately: this is the section a player
+    // opens when they are looking for the switches that change what the game
+    // *is*, and both copies read the same store, so they cannot drift.
+    const advancedGameplay = document.createElement('div');
+    advancedGameplay.className = 'settings-advanced-gameplay';
+    const advancedHeading = document.createElement('h2');
+    advancedHeading.textContent = 'Gameplay';
+    advancedGameplay.append(advancedHeading, this.buildSwitch(ENEMIES_SWITCH));
+    this.advanced.appendChild(advancedGameplay);
     this.advanced.appendChild(this.movementPanel.element);
     card.appendChild(this.advanced);
 
@@ -192,6 +216,30 @@ export class SettingsPanel {
     this.advancedToggle.classList.toggle('is-open', open);
     this.advancedToggle.textContent = open ? '▾  Advanced Settings' : '▸  Advanced Settings';
     if (open) this.movementPanel.refresh();
+  }
+
+  /**
+   * Every switch on this screen repaints the whole screen when it is flipped.
+   * Enemies is drawn twice — in the body and under Advanced Settings — and a
+   * switch that only repainted itself left the other copy showing the old
+   * state, which is the exact "two controls over one value drift apart" trap
+   * the sliders were kept out of.
+   */
+  private buildSwitch(spec: {
+    label: string;
+    hint: string;
+    get: () => boolean;
+    set: (on: boolean) => void;
+  }): HTMLElement {
+    const row = createSwitchRow({
+      ...spec,
+      set: (on) => {
+        spec.set(on);
+        this.refresh();
+      },
+    });
+    this.refreshers.push(row.sync);
+    return row.element;
   }
 
   private buildRow(row: Row): HTMLElement {

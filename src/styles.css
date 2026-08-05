@@ -1219,11 +1219,59 @@ h2,
   background: linear-gradient(180deg, #ffffff, #f0e2ff);
 }
 
+/* The compact track, for rows that are already dense: the convar bench and the
+   countdown line on the power screens. Same control, same materials — only the
+   two custom properties the geometry is written in terms of change. */
+.surf-switch-sm {
+  --track-w: 38px;
+  --track-h: 21px;
+  --knob: 15px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .surf-switch,
   .surf-switch::after {
     transition: none;
   }
+}
+
+/* ------------------------------------------------------------ switch rows
+ *
+ * The labelled form of the switch: name and hint on the left, control on the
+ * right. Used by every boolean on the settings screen, so an on/off question is
+ * asked the same way wherever it appears.
+ */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.switch-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.switch-label {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.switch-hint {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.62;
+}
+
+/* A whole row that is itself one button (`CountdownToggle`), where the switch
+   inside is decoration and the click target is the line. */
+.switch-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* ------------------------------------------------------------- map tiles */
@@ -1652,6 +1700,22 @@ h2,
   display: none;
 }
 
+/* The gameplay switches above the convar bench. Separated by a rule rather than
+   a card, so the section reads as part of one scrolling column. */
+.settings-advanced-gameplay {
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.18);
+}
+
+.settings-advanced-gameplay h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
 /* ------------------------------------------------------- milestone banner */
 
 /* Not an overlay: felling a Monolith happens mid-air on a ramp, so the
@@ -1880,8 +1944,9 @@ h2,
   margin-bottom: 9px;
 }
 
-.movement-panel-row-toggle input {
-  accent-color: var(--accent);
+/* The switch sits in the value column, right-aligned with the numbers above it. */
+.movement-panel-row-toggle .surf-switch {
+  justify-self: end;
 }
 
 .movement-panel-name {

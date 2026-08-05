@@ -236,6 +236,13 @@ export class Game {
   bossesFelled = 0;
 
   /**
+   * Last seen value of the Enemies setting, so the tick it changes on is the
+   * tick the world is brought in line with it. Not run state and deliberately
+   * not in `Frame`: the setting is a property of the player, not of the run.
+   */
+  private enemiesEnabledLastTick = getSettings().enemiesEnabled;
+
+  /**
    * Last wave whose banner has fired, by global index. Pure announcement
    * state: deliberately not in `Frame`, so after a rewind across a wave
    * boundary the banner simply doesn't refire — a headline is not worth a
@@ -600,9 +607,13 @@ export class Game {
       return;
     }
 
+    // Read live, before anything that spawns: the tick after the switch is
+    // flipped is already a tick with the combat layer in its new state.
+    const enemiesEnabled = this.applyEnemiesSetting();
+
     // Checked before the spawn director runs, so the tick a Monolith arrives on
     // is already a tick with drone spawning suspended.
-    if (!this.boss && this.levelSystem.level >= bossLevelFor(this.bossesFelled)) {
+    if (enemiesEnabled && !this.boss && this.levelSystem.level >= bossLevelFor(this.bossesFelled)) {
       this.spawnBoss();
     }
 
@@ -909,6 +920,40 @@ export class Game {
     this.countdown.end();
     // A no-op when no rewind lit the flames — the effect is already off.
     this.ultFx.end();
+  }
+
+  /**
+   * Keeps the world in step with the Enemies setting, and answers whether the
+   * combat layer is live this tick.
+   *
+   * Turning it off empties the world immediately rather than only stopping new
+   * spawns — a "no enemies" setting that leaves a dozen drones chasing you is
+   * not the setting anyone asked for. Everything the horde put in the world
+   * goes with it: live drones, planted blasts (which outlive their seeder and
+   * would otherwise detonate under a player who has just switched combat off),
+   * spitter bolts, and any Monolith standing. XP orbs are left alone — they are
+   * earned, and the same rule the boss arrival follows.
+   *
+   * The rewind history is cleared on the flip in both directions. `Rewind`
+   * records enemies as state, so without this, rewinding across the flip would
+   * resurrect a horde into a run that has none — or delete one from a run that
+   * has just got them back.
+   */
+  private applyEnemiesSetting(): boolean {
+    const enabled = getSettings().enemiesEnabled;
+    if (enabled === this.enemiesEnabledLastTick) return enabled;
+    this.enemiesEnabledLastTick = enabled;
+    this.spawnDirector.disabled = !enabled;
+    if (!enabled) {
+      this.despawnBoss();
+      this.entityManager.clearEnemies();
+      this.entityManager.clearBlasts();
+      this.entityManager.clearBolts();
+    }
+    // Bumped so a rewind cannot straddle the flip even if the history survives.
+    this.bossEpoch += 1;
+    this.rewind.clear();
+    return enabled;
   }
 
   /**
@@ -1232,6 +1277,10 @@ export class Game {
     this.playerController.yaw = degToRad(this.course.spawnYawDeg);
     this.playerController.pitch = 0;
     this.spawnDirector.reset();
+    // `reset` clears run state only, so the setting has to be re-stamped here —
+    // a restart must not hand the horde back to someone who switched it off.
+    this.enemiesEnabledLastTick = getSettings().enemiesEnabled;
+    this.spawnDirector.disabled = !this.enemiesEnabledLastTick;
     this.levelSystem.reset();
     this.weapon.reset();
     this.soundBlastFx.hide();
