@@ -10,13 +10,19 @@ A chip in the bottom-left corner of the root menu page — `LATEST PATCH #39` an
 what changed — opening upward into the last five merges. `src/ui/PatchNotes.ts`, styles under
 the `patch notes` banner in `styles.css`, an empty `#patch-notes` div in `index.html`.
 
-**The text comes from the PR body, under a `## Patch Notes` heading, and from nowhere else.**
-`scripts/patch-notes.mjs` reads it at deploy time and writes `public/patch-notes.json`; a PR
-with no such heading does not appear. There is deliberately **no fallback to the first
-paragraph** — every body in this repo opens on a technical write-up, so a fallback fails on the
-screen instead of in the parser, and it makes the heading optional, which is the same as making
-it stop being written. `BACKFILL` in that script covers #33–#39, which merged before the
-convention existed; nothing new is ever added to it.
+**Every merged PR appears.** `scripts/patch-notes.mjs` reads a `## Patch Notes` heading from the
+body at deploy time and writes `public/patch-notes.json`; with no such heading the **PR title**
+is used instead. The heading is an override, not a requirement — it was a requirement at first
+and the panel went stale twice in four merges (#41 and #43 both shipped without one and were
+silently skipped, so the chip sat on an older merge). There is still deliberately **no fallback
+to the body**: every body in this repo opens on a technical write-up, so that fallback fails on
+the screen instead of in the parser, whereas a title is short and already written for a person.
+`BACKFILL` covers #33–#39, which merged before any of this existed; nothing new is added to it.
+
+Two parser bugs found while making the change, both of which had reached the screen: a `---`
+under the note was collected and rendered as a trailing rule, and a first pass at stripping
+reviewer prefixes from titles took any word before a colon — turning "Cartridges: tier-scaled
+upgrades" into "Tier-scaled upgrades". Only the conventional-commit set is stripped now.
 
 **Generated at deploy, not fetched in the browser.** One workflow step between `npm ci` and
 `npm run build`. A runtime fetch of api.github.com costs a loading state, a failure state, a

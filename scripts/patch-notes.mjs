@@ -2,6 +2,10 @@
  * Builds `public/patch-notes.json` — the five most recent merged PRs, each
  * reduced to one line a player can read.
  *
+ * **Every merged PR appears.** A `## Patch Notes` heading in the body overrides
+ * the line; without one the PR's title is used. The heading was mandatory once
+ * and the panel went stale twice in four merges because of it — see `fromTitle`.
+ *
  * This runs at *deploy* time, not in the browser. The alternative was fetching
  * api.github.com from the menu, which costs a loading state, a failure state,
  * a markdown parser in the bundle, and a 60-request-per-hour unauthenticated
@@ -66,10 +70,11 @@ const BACKFILL = {
  * Pulls the text under a `## Patch Notes` heading, stopping at the next heading
  * of the same level or higher.
  *
- * Returns null when there is no such heading — deliberately, rather than
- * falling back to the first paragraph of the body. A fallback fails on the
- * screen instead of in this function, and it makes the heading optional, which
- * is the same as making it stop getting written.
+ * Returns null when there is no such heading, and `fromTitle` picks it up from
+ * there. **This never falls back to the body**, which is the distinction that
+ * matters: every body in this repo opens on a technical write-up, so a body
+ * fallback fails on the screen instead of in a function. A title is a different
+ * thing — short, always present, and already written for a person.
  */
 function extractNote(body) {
   if (!body) return null;
@@ -79,7 +84,11 @@ function extractNote(body) {
 
   const collected = [];
   for (const line of lines.slice(start + 1)) {
+    // A heading ends the note, and so does a thematic break — bodies in this
+    // repo routinely close a section with `---` before the footer, and it was
+    // being collected and rendered on the menu as a trailing "---".
     if (/^\s{0,3}#{1,3}\s/.test(line)) break;
+    if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) break;
     collected.push(line);
   }
 
@@ -94,6 +103,40 @@ function extractNote(body) {
     .trim();
 
   return note.length > 0 ? note : null;
+}
+
+/**
+ * The note for a PR that carries no heading: its own title.
+ *
+ * **The heading used to be mandatory and that is why the panel kept going
+ * stale.** Of the four PRs that merged after the convention landed, two had no
+ * heading (#41, #43) and both were silently skipped — so the chip sat on an
+ * older merge and read exactly like a changelog that had stopped updating. A
+ * convention that has to be remembered on every single PR, including the ones
+ * opened from a UI that has never heard of it, is a convention that will be
+ * missed about half the time.
+ *
+ * So the heading is now an **override, not a requirement**. Write one when a
+ * change deserves the blunt player-facing voice; skip it and the title shows
+ * up, which is worse copy than a hand-written note and far better than nothing.
+ *
+ * Titles are only lightly cleaned: a conventional-commit prefix goes, since it
+ * is addressed to reviewers rather than players, and the first letter is
+ * raised. **Only that fixed set** — an earlier version stripped any word before
+ * a colon and turned "Cartridges: tier-scaled upgrades" into "Tier-scaled
+ * upgrades", eating the subject of the sentence.
+ */
+const REVIEWER_PREFIX = /^\s*(?:fix|feat|feature|chore|docs?|refactor|test|ci|build|perf|style|revert)(?:\([^)]*\))?!?:\s+/i;
+
+function fromTitle(title) {
+  if (!title) return null;
+  const cleaned = title
+    .replace(REVIEWER_PREFIX, '')
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  return cleaned[0].toUpperCase() + cleaned.slice(1);
 }
 
 /** "5 Aug" — short enough to sit opposite the PR number in a 280px column. */
@@ -141,18 +184,25 @@ async function main() {
   const entries = [];
   for (const pr of pulls) {
     if (entries.length >= SHOWN) break;
-    const note = extractNote(pr.body) ?? BACKFILL[pr.number] ?? null;
+    const authored = extractNote(pr.body) ?? BACKFILL[pr.number];
+    const note = authored ?? fromTitle(pr.title);
     if (!note) continue;
-    entries.push({ number: pr.number, date: shortDate(pr.merged_at), note });
+    entries.push({
+      number: pr.number,
+      date: shortDate(pr.merged_at),
+      note,
+      authored: Boolean(authored),
+    });
   }
 
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, `${JSON.stringify(entries, null, 2)}\n`);
 
-  const skipped = pulls.length - entries.length;
+  const authored = entries.filter((e) => e.authored).length;
+  for (const entry of entries) delete entry.authored;
   console.log(
     `[patch-notes] ${entries.length} note${entries.length === 1 ? '' : 's'} written` +
-      (skipped > 0 ? ` (${skipped} merged PRs had none)` : ''),
+      ` (${authored} hand-written, ${entries.length - authored} from the PR title)`,
   );
 }
 
