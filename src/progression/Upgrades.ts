@@ -105,7 +105,17 @@ export interface Upgrade {
   name: string;
   /** Pictogram key — the screen-printed mark in the cartridge window. */
   icon: string;
+  /**
+   * The full sentence, for a reveal that has room for one.
+   *
+   * Kept separate from `effect` because the cartridge's label window is a
+   * fixed socket in the art: a unique's prose ("Ground +2.5, air control
+   * +0.25, jump +2, dash charge +1 and 2.5 s faster") runs to six lines in
+   * there and spills straight out of the recess.
+   */
   description: string;
+  /** The short line printed in the cartridge window. Two lines at most. */
+  effect: string;
   rarity: Rarity;
   /** Steps this offer grants. 0 for the fixed-tier uniques, which have no ladder. */
   steps: number;
@@ -194,7 +204,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'surf',
     name: 'Surf',
     icon: 'surf',
-    effect: () => 'air control up',
+    effect: (s) => `+${round1((along(surfAirControl, s, s) / (30 / 45)) * 100)}% air`,
     // Both softcapped. `epic-tailwind`'s flat +0.15 air control off a 0.667
     // base is already the pool's one open balance risk; a hard +30% ceiling
     // across every step in a run is deliberately tighter than the uncapped
@@ -208,7 +218,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'updraft',
     name: 'Updraft',
     icon: 'updraft',
-    effect: () => 'jump higher',
+    effect: (s) => `+${round1(along(updraftJump, s, s))} jump`,
     step: (_ctx, added, total) => {
       MovementConfig.JUMP_SPEED += along(updraftJump, total, added);
     },
@@ -309,7 +319,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'heliotropism',
     name: 'Heliotropism',
     icon: 'heliotropism',
-    effect: () => 'orbs notice you at speed',
+    effect: () => 'orb reach at speed',
     step: (ctx, added) => {
       ctx.perks.heliotropism += added;
     },
@@ -340,7 +350,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'velocity-rounds',
     name: 'Velocity Rounds',
     icon: 'velocity',
-    effect: () => 'damage rises with speed',
+    effect: () => 'damage at speed',
     step: (ctx, added, total) => {
       // The first step ever taken arms it; every step past that one falls back
       // to flat damage, so neither a repeat pick nor the extra steps of a high
@@ -372,7 +382,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'solar-capacitor',
     name: 'Solar Capacitor',
     icon: 'capacitor',
-    effect: (s) => `+${s * 35}% ultimate at flow`,
+    effect: (s) => `+${s * 35}% ult at flow`,
     step: (ctx, added) => {
       ctx.perks.solarCapacitor += 0.35 * added;
     },
@@ -483,6 +493,7 @@ function instantiate(cartridge: Cartridge, rarity: Rarity, perks: RunPerks): Upg
     name: cartridge.name,
     icon: cartridge.icon,
     description: cartridge.effect(added),
+    effect: cartridge.effect(added),
     rarity,
     steps: added,
     owned: perks.steps[index],
@@ -507,6 +518,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Overclock',
     icon: 'overclock',
     description: 'Attacks per second +1.6, weapon range +6',
+    effect: 'rate + range',
     rarity: 'epic',
     steps: 0,
     apply: (ctx) => {
@@ -519,6 +531,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Resonance',
     icon: 'resonance',
     description: 'Sound Blast +45 damage, heal 4 HP per kill',
+    effect: 'blast + heal',
     rarity: 'epic',
     steps: 0,
     apply: (ctx) => {
@@ -531,6 +544,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Tailwind',
     icon: 'tailwind',
     description: 'Ground cap +1.5, air control +0.15, jump +1.2',
+    effect: 'speed + jump',
     rarity: 'epic',
     steps: 0,
     apply: () => {
@@ -544,6 +558,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Bloodstone',
     icon: 'bloodstone',
     description: 'Max HP +45 (healed), recover 2.5 HP per second',
+    effect: 'HP + regen',
     rarity: 'epic',
     steps: 0,
     apply: (ctx) => {
@@ -557,6 +572,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Slipstream',
     icon: 'slipstream',
     description: 'Max dash charges +2 (granted), recharge 2 s faster',
+    effect: 'dash charges',
     rarity: 'epic',
     steps: 0,
     apply: (ctx) => {
@@ -570,6 +586,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Tuition',
     icon: 'tuition',
     description: 'All XP +60%, orbs home in from 10 units further',
+    effect: 'XP + magnet',
     rarity: 'epic',
     steps: 0,
     apply: (ctx) => {
@@ -582,6 +599,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Apex Predator',
     icon: 'apex',
     description: 'Damage +14, attacks per second +1.2, Velocity Rounds online',
+    effect: 'damage + rate',
     rarity: 'legendary',
     steps: 0,
     apply: (ctx) => {
@@ -595,6 +613,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Perpetual Motion',
     icon: 'perpetual',
     description: 'Ground +2.5, air control +0.25, jump +2, dash charge +1 and 2.5 s faster',
+    effect: 'all movement',
     rarity: 'legendary',
     steps: 0,
     apply: (ctx) => {
@@ -611,6 +630,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Vampire Lord',
     icon: 'vampirelord',
     description: 'Max HP +60 (healed), regen +4 HP/s, heal 8 HP on every kill',
+    effect: 'HP + lifesteal',
     rarity: 'legendary',
     steps: 0,
     apply: (ctx) => {
@@ -625,6 +645,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Corona',
     icon: 'corona',
     description: 'Solar wake burns +35/s, Sound Blast +35 damage',
+    effect: 'wake + blast',
     rarity: 'legendary',
     steps: 0,
     apply: (ctx) => {
@@ -637,6 +658,7 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
     name: 'Chorus',
     icon: 'chorus',
     description: 'Every 8th kill sings a free Sound Blast where it died',
+    effect: 'free blasts',
     rarity: 'legendary',
     steps: 0,
     apply: (ctx) => {

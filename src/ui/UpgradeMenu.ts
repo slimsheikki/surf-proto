@@ -1,4 +1,5 @@
 import { Upgrade } from '../progression/Upgrades';
+import { cartridgeMarkup } from './Cartridge';
 import { CountdownToggle } from './CountdownToggle';
 
 /**
@@ -151,9 +152,7 @@ export class UpgradeMenu {
       const button = document.createElement('button');
       button.className = `upgrade-choice rarity-${choice.rarity}`;
       button.innerHTML =
-        `<span class="upgrade-key">${i + 1}</span>` +
-        `<span class="upgrade-rarity">${choice.rarity}</span>` +
-        `<strong>${choice.name}</strong><br/>${choice.description}`;
+        `<span class="upgrade-key">${i + 1}</span>` + cartridgeMarkup(choice);
       button.addEventListener('click', () => this.choose(choice));
       this.choicesEl.appendChild(button);
     });

@@ -508,28 +508,175 @@ h2,
   width: min(1120px, 92vw);
 }
 
+/*
+ * A choice is a cartridge, not a pane with a cartridge in it. The button
+ * carries no box of its own — no background, no border, no radius — because
+ * the art already has a silhouette and a second frame around it reads as a
+ * sticker on a card rather than the object itself.
+ */
 .upgrade-choice {
-  flex: 1 1 200px;
-  max-width: 260px;
-  min-width: 180px;
-  padding: 16px 20px;
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: 12px;
-  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-sm);
+  flex: 0 1 auto;
+  padding: 0;
+  background: none;
+  border: 0;
   cursor: pointer;
   color: inherit;
   font-size: 15px;
-  transition: background 0.12s ease-out, box-shadow 0.12s ease-out,
-    border-color 0.12s ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition: transform 0.12s ease-out, filter 0.12s ease-out;
 }
 
-.upgrade-choice:hover {
-  background: rgba(var(--accent-rgb), 0.2);
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow: var(--glass-highlight), var(--glow-edge), var(--glow-md);
+.upgrade-choice:hover,
+.upgrade-choice:focus-visible {
+  transform: translateY(-4px);
+}
+
+/*
+ * The cartridge.
+ *
+ * `--cart-w` is the only size knob: `font-size` is set to it so everything
+ * inside can be `em`, which is what keeps the two moulded recesses and the
+ * type inside them locked together at any scale. Same trick as `--mf-w` in
+ * the vitals panel, for the same reason.
+ */
+.cart {
+  --cart-w: clamp(150px, 15vw, 210px);
+  position: relative;
+  display: block;
+  width: var(--cart-w);
+  aspect-ratio: 365 / 404;
+  font-size: var(--cart-w);
+  line-height: 1.1;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
+}
+
+/* The tier is the shell, and only the shell. */
+.rarity-common .cart {
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Common.png');
+}
+.rarity-uncommon .cart {
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Uncommon.png');
+}
+.rarity-epic .cart {
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Epic.png');
+}
+.rarity-legendary .cart {
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Legendary.png');
+}
+
+/*
+ * The two recesses. Percentages measured off the PNGs' own geometry — see the
+ * note in `ui/Cartridge.ts`. Do not nudge these by eye; re-measure.
+ */
+.cart-name {
+  position: absolute;
+  left: 13.7%;
+  top: 7.43%;
+  width: 72.6%;
+  height: 17.33%;
+  display: grid;
+  place-items: center;
+  padding: 0 4%;
+  font-family: var(--font-display);
+  font-size: 0.062em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  /* Dark ink, because every shell in the set is a light translucent colour. */
+  color: #1b1330;
+}
+
+.cart-name.long {
+  font-size: 0.05em;
+  letter-spacing: 0.04em;
+}
+
+.cart-face {
+  position: absolute;
+  left: 14.25%;
+  top: 30.69%;
+  width: 69.59%;
+  height: 50.99%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7%;
+  padding: 8% 6% 5%;
+}
+
+.cart-glyph {
+  width: 52%;
+  height: auto;
+  flex: none;
+}
+
+/*
+ * One ink and one hot accent — see `ui/CartridgeIcons.ts` for why it is two
+ * and not three.
+ */
+.cart-glyph .k {
+  fill: #1b1330;
+}
+
+.cart-glyph .ks {
+  fill: none;
+  stroke: #1b1330;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cart-glyph .a {
+  fill: #c7381b;
+}
+
+.cart-glyph .as {
+  fill: none;
+  stroke: #c7381b;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cart-effect {
+  font-size: 0.048em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #241b3c;
+  line-height: 1.25;
+}
+
+/*
+ * How deep you already are on this Cartridge. Nothing else on screen says it,
+ * and a tiered pool without it is unreadable — you cannot tell a first Ember
+ * from a fifth. Hung off the shell rather than inside a recess: the art has
+ * only two sockets and both are spoken for.
+ */
+.cart-owned {
+  position: absolute;
+  right: -2%;
+  bottom: 16%;
+  min-width: 1.4em;
+  padding: 0.1em 0.34em;
+  border-radius: 0.7em;
+  font-family: var(--font-display);
+  font-size: 0.075em;
+  text-align: center;
+  color: var(--ink, #ede6f7);
+  background: rgba(20, 10, 36, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.cart-owned::before {
+  content: 'x';
+  opacity: 0.6;
 }
 
 #restart-button {
@@ -567,47 +714,42 @@ h2,
 }
 
 /*
- * Tier tints. Border and glow only, no box-model changes — a legendary must
- * read as *the same card, lit differently*, or the eye starts measuring size
- * instead of reading the name.
+ * Tier glow.
+ *
+ * A `drop-shadow` on the shell rather than a `box-shadow` on the button: the
+ * button is now an untinted wrapper with no box of its own, so a box-shadow
+ * would draw a rectangle of light around a cartridge-shaped hole. `filter`
+ * follows the PNG's own alpha, which is the only thing that reads as the
+ * object glowing.
+ *
+ * Common gets none. Three lit tiers and one unlit is what makes the lit ones
+ * mean something across a row of four.
  */
-.upgrade-choice.rarity-uncommon {
-  border-color: rgba(92, 200, 255, 0.65);
-  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(92, 200, 255, 0.25),
-    0 0 22px rgba(92, 200, 255, 0.35);
+.rarity-uncommon .cart {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 12px rgba(92, 200, 255, 0.5));
 }
 
-.upgrade-choice.rarity-epic {
-  border-color: rgba(200, 30, 224, 0.7);
-  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(200, 30, 224, 0.3),
-    0 0 26px rgba(200, 30, 224, 0.45);
+.rarity-epic .cart {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 16px rgba(224, 124, 245, 0.65));
 }
 
-.upgrade-choice.rarity-legendary {
-  border-color: rgba(255, 193, 77, 0.8);
-  box-shadow: var(--glass-highlight), 0 0 0 1px rgba(255, 193, 77, 0.35),
-    0 0 34px rgba(255, 193, 77, 0.55);
+.rarity-legendary .cart {
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 22px rgba(255, 193, 77, 0.75));
 }
 
-.upgrade-rarity {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  opacity: 0.75;
-}
-
-.rarity-uncommon .upgrade-rarity {
+.rarity-uncommon > #bank-result-title,
+#bank-result-title.rarity-uncommon {
   color: #5cc8ff;
 }
 
-.rarity-epic .upgrade-rarity {
+#bank-result-title.rarity-epic {
   color: #e07cf5;
 }
 
-.rarity-legendary .upgrade-rarity {
+#bank-result-title.rarity-legendary {
   color: #ffc14d;
 }
 
@@ -2838,4 +2980,16 @@ h2,
   .patch-chip {
     transition: none;
   }
+}
+
+/*
+ * The full sentence under a gamble reveal. The cartridge window shows the
+ * short line; this is where a legendary gets to explain itself.
+ */
+.bank-result-detail {
+  margin: 12px auto 0;
+  max-width: 34ch;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.85;
 }

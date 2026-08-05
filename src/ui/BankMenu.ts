@@ -1,4 +1,5 @@
 import { MIN_GAMBLE_PICKS, Upgrade, gambleOdds } from '../progression/Upgrades';
+import { cartridgeMarkup } from './Cartridge';
 import { CountdownToggle } from './CountdownToggle';
 
 /** Matches `UpgradeMenu`'s, and for the same reason — see the note there. */
@@ -129,8 +130,11 @@ export class BankMenu {
       upgrade.rarity === 'common' ? 'BUST' : upgrade.rarity.toUpperCase();
     this.resultTitleEl.className = `rarity-${upgrade.rarity}`;
     this.resultCardEl.className = `upgrade-choice rarity-${upgrade.rarity}`;
+    // The window carries the short line; the full sentence goes underneath,
+    // where a reveal has the room the moulded recess does not.
     this.resultCardEl.innerHTML =
-      `<strong>${upgrade.name}</strong><br/>${upgrade.description}`;
+      cartridgeMarkup(upgrade) +
+      `<p class="bank-result-detail">${upgrade.description}</p>`;
 
     this.decisionEl.classList.add('hidden');
     this.resultEl.classList.remove('hidden');
