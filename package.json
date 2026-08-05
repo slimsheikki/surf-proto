@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "notes": "node scripts/patch-notes.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

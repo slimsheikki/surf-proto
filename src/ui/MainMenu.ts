@@ -4,6 +4,7 @@ import { listMapNames, loadMap } from '../editor/MapStorage';
 import { getSettings, setBeginnerMode } from '../game/Settings';
 import { mountLogo } from './Logo';
 import { renderMapThumbnails } from './MapThumbnails';
+import { PatchNotes } from './PatchNotes';
 
 /**
  * What the switch says it does, in the player's words rather than the
@@ -57,6 +58,13 @@ export class MainMenu {
   private readonly rootItems = Array.from(
     document.querySelectorAll<HTMLElement>('#menu-stack [data-action]'),
   );
+  /**
+   * The corner chip on the root page. It owns no listener of its own — its keys
+   * are routed from the one below, which is the whole reason two panels cannot
+   * both answer the same press here the way `PauseMenu` and `UpgradeMenu` once
+   * did. See the class comment in `PatchNotes.ts`.
+   */
+  private readonly patchNotes = new PatchNotes();
 
   private handlers: MainMenuHandlers | null = null;
   private page: Page = 'root';
@@ -81,10 +89,30 @@ export class MainMenu {
     document.getElementById('menu-play-back')!.addEventListener('click', () => this.showPage('root'));
     this.modeSwitch.addEventListener('click', () => this.toggleMode());
 
+    // Fired and forgotten: every failure inside it — no file, a 404, bad JSON —
+    // ends with the chip simply not appearing, which is the same as the state
+    // the menu is already in. There is nothing here for the menu to wait on.
+    void this.patchNotes.load();
+
     // Registered once rather than per show(), so repeated visits cannot stack
     // listeners.
     window.addEventListener('keydown', (event) => {
       if (!this.handlers || this.overlay.classList.contains('hidden')) return;
+
+      // `N` for the patch notes, and Escape to shut them again. Both are gated
+      // on the root page: the chip is a child of it, so on the Play page there
+      // is nothing on screen for either key to act on.
+      if (this.page === 'root' && (event.key === 'n' || event.key === 'N')) {
+        event.preventDefault();
+        this.patchNotes.toggle();
+        return;
+      }
+
+      if (this.page === 'root' && event.key === 'Escape' && this.patchNotes.isOpen) {
+        event.preventDefault();
+        this.patchNotes.close();
+        return;
+      }
 
       if (this.page === 'play' && (event.key === 'Escape' || event.key === 'Backspace')) {
         event.preventDefault();
@@ -135,11 +163,16 @@ export class MainMenu {
 
   hide(): void {
     this.handlers = null;
+    this.patchNotes.close();
     this.overlay.classList.add('hidden');
   }
 
   private showPage(page: Page): void {
     this.page = page;
+    // The chip is hidden with its page, but `is-open` would survive the round
+    // trip and the panel would be standing open on the way back. Every route
+    // out of the root page comes through here, including `hide()`.
+    this.patchNotes.close();
     this.rootPage.classList.toggle('hidden', page !== 'root');
     this.playPage.classList.toggle('hidden', page !== 'play');
     if (page === 'play') {

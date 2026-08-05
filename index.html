@@ -253,6 +253,16 @@
             <span class="menu-key">3</span><span class="menu-label">Settings</span>
           </button>
         </nav>
+        <!-- The patch-notes chip, filled in by `ui/PatchNotes.ts` and hidden
+             until the deploy-generated file has actually loaded.
+
+             Inside `#menu-root` rather than beside it, and deliberately not in
+             `#menu-stack`: `.menu-page.hidden` is `display: none`, so being a
+             child of the root page is what keeps the chip off the Play page —
+             where the number keys belong to the map tiles — with no JavaScript
+             involved. It is fixed-position, so it does not join the centred
+             column it sits in. -->
+        <div id="patch-notes" class="hidden"></div>
       </div>
       <div id="menu-play" class="menu-page hidden">
         <h1 class="menu-title">Play</h1>

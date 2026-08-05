@@ -36,6 +36,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Writes public/patch-notes.json for the menu's patch-notes chip. Must run
+      # before the build, which is what copies public/ into dist. It never fails
+      # the job: if GitHub refuses, it writes an empty list and the chip does not
+      # render — a changelog is not worth a red deploy.
+      - run: npm run notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -2619,3 +2619,223 @@ h2,
 #pause-menu .overlay-hint {
   margin-top: 20px;
 }
+
+/* ------------------------------------------------------------- patch notes
+ *
+ * The chip in the bottom-left corner of the front menu and the panel it opens.
+ * Fixed to the viewport rather than placed in `#menu-root`'s centred column,
+ * which it is nonetheless a child of — see the comment on the div in
+ * `index.html` for why that parentage is load-bearing.
+ *
+ * Everything here is the existing glass: `--glass` on the chip, `--glass-strong`
+ * on the panel behind it, the same border, blur and top highlight every other
+ * pane in the game wears. No new colours.
+ */
+#patch-notes {
+  position: fixed;
+  left: 22px;
+  bottom: 20px;
+  z-index: 2;
+  /* Narrow on purpose. At this width a PR title does not fit beside the note,
+     which is the constraint that decided the chip shows the note — the note
+     says what the title says, in words a player reads. */
+  width: clamp(220px, 20vw, 300px);
+  display: flex;
+  flex-direction: column;
+  /* Bottom-anchored, so the panel grows up off the chip instead of pushing it. */
+  justify-content: flex-end;
+  /* `.overlay` centres its text, which is right for a menu built of centred
+     rows and wrong for every line in here: a ragged-centre paragraph in a
+     220px column is unreadable, and the numbers stop sharing a left edge. */
+  text-align: left;
+}
+
+#patch-notes.hidden {
+  display: none !important;
+}
+
+.patch-chip {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 11px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--glow-sm);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease-out, box-shadow 0.14s ease-out;
+}
+
+.patch-chip:hover,
+.patch-chip:focus-visible {
+  background: rgba(var(--accent-rgb), 0.2);
+  box-shadow: var(--glass-highlight), var(--glow-md);
+  outline: none;
+}
+
+.patch-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(var(--accent-rgb), 0.95);
+  font-weight: 700;
+}
+
+.patch-num {
+  letter-spacing: 0;
+  color: var(--accent-bright);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.patch-kb {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0;
+  opacity: 0.5;
+  font-weight: 400;
+}
+
+.patch-caret {
+  display: inline-block;
+  font-size: 11px;
+  transition: transform 0.18s ease-out;
+}
+
+#patch-notes.is-open .patch-caret {
+  transform: rotate(180deg);
+}
+
+/* Two lines, then an ellipsis. A note long enough to overflow this is a note
+   that should have been shorter; the panel below carries the whole thing. */
+.patch-chip-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.42;
+  opacity: 0.94;
+}
+
+/*
+ * Opens by growing a `0fr` grid row to `1fr` rather than by animating a height:
+ * the panel's height is whatever five notes happen to need, and that is not a
+ * number this stylesheet can know.
+ */
+#patch-panel {
+  overflow: hidden;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--glow-sm);
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.2s ease-out, opacity 0.16s ease-out,
+    border-color 0.2s ease-out;
+}
+
+#patch-notes.is-open #patch-panel {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  border-color: var(--glass-border);
+}
+
+.patch-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.patch-head {
+  padding: 9px 11px 7px;
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.16);
+}
+
+.patch-head strong {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Capped rather than unbounded: five short notes fit, and a run of long ones
+   scrolls in place instead of growing off the top of the screen. The cap is
+   generous because a panel that clips its last entry mid-sentence reads as
+   broken rather than as scrollable — the scroll is the overflow valve, not
+   the normal case. */
+.patch-entries {
+  display: flex;
+  flex-direction: column;
+  max-height: min(62vh, 520px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.5) transparent;
+}
+
+.patch-entry {
+  padding: 8px 11px;
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.patch-entry:last-child {
+  border-bottom: 0;
+}
+
+/* Number and date only. No title: at this width a title and a note are the
+   same sentence written twice, and only one of them is readable. */
+.patch-entry-top {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.patch-date {
+  margin-left: auto;
+  opacity: 0.42;
+  font-variant-numeric: tabular-nums;
+}
+
+.patch-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  opacity: 0.82;
+}
+
+.patch-foot {
+  display: flex;
+  gap: 10px;
+  padding: 7px 11px 8px;
+  border-top: 1px solid rgba(var(--accent-rgb), 0.12);
+  font-size: 10px;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #patch-panel,
+  .patch-caret,
+  .patch-chip {
+    transition: none;
+  }
+}
