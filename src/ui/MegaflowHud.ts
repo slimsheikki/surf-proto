@@ -61,8 +61,19 @@ const DASH_TRACK = { x: 197, y: 65, w: 287, h: 62 };
 const PIP_SLANT = 0.5;
 const PIP_SKEW_DEG = (Math.atan(PIP_SLANT) * 180) / Math.PI;
 
-/** Placement of the three frames, relative to the HP frame's drawn box. */
-const XP_PLACEMENT = { left: 52.4, top: -1, width: 46.2 };
+/**
+ * Placement of the three frames, relative to the HP frame's drawn box.
+ *
+ * The XP numbers are **measured, not chosen**: the reference render was
+ * template-matched against the frame PNGs (position and scale swept, scoring
+ * mean colour distance over each template's opaque pixels), which puts both
+ * frames at scale 1.00 with the HP content box at x 114–979, y 147–400 and the
+ * XP frame at x 572, y 164. Those two rects are where the percentages below
+ * come from. An earlier eyeballed `top: -1` lifted the XP plate clear of the HP
+ * frame's top edge and let sky through the junction — the plate is meant to sit
+ * *on* the HP body, not hover over it.
+ */
+const XP_PLACEMENT = { left: 52.95, top: 6.72, width: 46.24 };
 const DASH_PLACEMENT = { left: 8, top: 118, width: 55 };
 
 /**
