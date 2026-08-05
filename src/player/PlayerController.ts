@@ -5,6 +5,8 @@ import { groundProbe, sweep } from '../engine/Raycast';
 import { MovementConfig } from './MovementConfig';
 
 const UP = new Vector3(0, 1, 0);
+/** Scratch for `dashImpulse`, so the hot path allocates nothing. */
+const FACING = new Vector3();
 
 /**
  * Source stops a swept hull `DIST_EPSILON` (1/32 hu) short of what it hits.
@@ -238,14 +240,46 @@ function groundAccelerate(velocity: Vector3, wishDir: Vector3, wishSpeed: number
  * near-perpendicular to travel, so every tick pays out the full cap — added
  * sideways, which rotates velocity while lengthening it.
  */
-function airAccelerate(velocity: Vector3, wishDir: Vector3, wishSpeed: number, dt: number): void {
-  const cappedWishSpeed = Math.min(wishSpeed, MovementConfig.MAX_AIR_WISH_SPEED);
+function airAccelerate(
+  velocity: Vector3,
+  wishDir: Vector3,
+  wishSpeed: number,
+  dt: number,
+  controlFactor = 1,
+): void {
+  /*
+   * `controlFactor` scales the **wish-speed cap**, not `AIR_ACCEL`, and that is
+   * not a stylistic choice — scaling the accel term does nothing at all.
+   *
+   * At the shipped `sv_airaccelerate` of 100 the per-tick gain is limited
+   * purely by this cap: `100 * 7 * (1/128)` is 5.47 against a cap of 0.667, so
+   * the `Math.min` below always takes the cap and the accel term is slack.
+   * Halving `AIR_ACCEL` leaves 2.73, still far above the cap, and changes the
+   * outcome by exactly zero. The Glider's air-control penalty was written that
+   * way first and a probe caught it doing nothing.
+   */
+  const cappedWishSpeed = Math.min(wishSpeed, MovementConfig.MAX_AIR_WISH_SPEED * controlFactor);
   const currentSpeed = velocity.dot(wishDir);
   const addSpeed = cappedWishSpeed - currentSpeed;
   if (addSpeed <= 0) return;
   const accelSpeed = Math.min(MovementConfig.AIR_ACCEL * wishSpeed * dt, addSpeed);
   velocity.addScaledVector(wishDir, accelSpeed);
 }
+
+/**
+ * What the Glider costs in air control while it is holding you up.
+ *
+ * **This number is the whole reason the Glider is safe to add to a game about
+ * surfing.** Gliding is a *recovery* — you missed the ramp, you are falling
+ * into the gap, you buy the seconds to line the next one up. Halving the
+ * strafe gain means you keep the speed you brought and you steer, but you
+ * cannot build under the canopy, so the fastest route is still the ramp and
+ * the glider is what you reach for once you have already lost it.
+ *
+ * If it is ever quicker than surfing a ramp properly it has eaten the point of
+ * the game, and this is the knob that decides that.
+ */
+const GLIDE_AIR_CONTROL_FACTOR = 0.5;
 
 export class PlayerController {
   readonly position: Vector3;
@@ -255,6 +289,8 @@ export class PlayerController {
   grounded = false;
   groundNormal = new Vector3(0, 1, 0);
   private jumpHeldLastTick = false;
+  /** True on ticks the Glider is holding the player up. See the note in `tick`. */
+  gliding = false;
   private momentumBoostTimer = 0;
   /** The face Beginner Mode is holding the player onto. See `noteRideSurface`. */
   private readonly assistRideNormal = new Vector3();
@@ -609,8 +645,29 @@ export class PlayerController {
     const wishDir = this.wishDir(input);
     const wishSpeed = wishDir.lengthSq() > 1e-6 ? MovementConfig.MAX_GROUND_SPEED : 0;
 
+    /*
+     * The Glider.
+     *
+     * Decided **once**, here, and used by both halves of the split gravity
+     * below. Re-testing at FinishGravity would let a tick that starts
+     * descending and ends rising pay two different gravities, which is exactly
+     * the kind of dt-dependent drift the split was introduced to avoid.
+     *
+     * Three conditions, all required: airborne, descending, and jump held.
+     * Airborne-and-descending is what keeps it a fall brake rather than a
+     * jetpack. Holding jump costs no new key because `AUTO_BHOP` only reads
+     * `jumpHeld` while *grounded* — a held Space already means "jump the moment
+     * I land", so the two readings never contend for the same tick.
+     */
+    this.gliding =
+      MovementConfig.GLIDE_GRAVITY_SCALE < 1 &&
+      !this.grounded &&
+      this.velocity.y < 0 &&
+      input.jumpHeld;
+    const gravityScale = this.gliding ? MovementConfig.GLIDE_GRAVITY_SCALE : 1;
+
     // StartGravity
-    this.velocity.y += MovementConfig.GRAVITY * 0.5 * dt;
+    this.velocity.y += MovementConfig.GRAVITY * gravityScale * 0.5 * dt;
 
     // CheckJumpButton
     const wantsJump = MovementConfig.AUTO_BHOP
@@ -645,7 +702,13 @@ export class PlayerController {
       this.tryPlayerMove(dt);
       this.stayOnGround();
     } else {
-      airAccelerate(this.velocity, wishDir, wishSpeed, dt);
+      airAccelerate(
+        this.velocity,
+        wishDir,
+        wishSpeed,
+        dt,
+        this.gliding ? GLIDE_AIR_CONTROL_FACTOR : 1,
+      );
       this.applyMomentumBoost(dt, wishDir);
       this.tryPlayerMove(dt);
     }
@@ -653,8 +716,8 @@ export class PlayerController {
     this.categorizePosition();
     checkVelocity(this.velocity);
 
-    // FinishGravity
-    this.velocity.y += MovementConfig.GRAVITY * 0.5 * dt;
+    // FinishGravity — the same scale the tick opened with, see the note there.
+    this.velocity.y += MovementConfig.GRAVITY * gravityScale * 0.5 * dt;
     if (this.grounded) this.velocity.y = 0;
   }
 
@@ -699,8 +762,18 @@ export class PlayerController {
    * height in a surf line has to be earned off a ramp.
    */
   dashImpulse(): void {
-    const forward = new Vector3(0, 0, -1).applyAxisAngle(UP, this.yaw);
-    this.velocity.addScaledVector(forward, DASH_IMPULSE_SPEED);
+    this.velocity.addScaledVector(this.facing(FACING), DASH_IMPULSE_SPEED);
+  }
+
+  /**
+   * Where the player is facing on the horizontal plane, written into `out`.
+   *
+   * Yaw only, for the same reason `dashImpulse` uses yaw only: pitch would make
+   * anything aimed along it a free ascent while staring up, and height in a
+   * surf line has to be earned off a ramp.
+   */
+  facing(out: Vector3): Vector3 {
+    return out.set(0, 0, -1).applyAxisAngle(UP, this.yaw);
   }
 
   teleport(position: Vector3): void {

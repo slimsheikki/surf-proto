@@ -187,10 +187,35 @@ still down. `F` is read inside `updateGameplay`, so it is inert in every other s
 and it is checked *after* the ReWind edge: ReWind is the panic button, powers keep.
 
 The bank lives in `LevelSystem`, so it rides `LevelSnapshot` and **`Rewind` needed no new
-`Frame` field** — the same reason `xpToNext` lives there. Epic/legendary upgrades are
-**gamble-only**; `drawUpgradeChoices` filters to common+rare (24 entries since the
-solarpunk/sound batch; 11 gamble-only behind them). Shrine blessings are unchanged and do
-not bank. See `docs/STATE.md`.
+`Frame` field** — the same reason `xpToNext` lives there. Shrine blessings are unchanged and
+do not bank. See `docs/STATE.md`.
+
+## Cartridges — the upgrade pool
+
+**Tier is magnitude.** Every entry owns one *step*; the tier it rolls says how many you get
+at once — ×1 common, ×2 uncommon, ×3 epic, ×4 legendary. There is no tier at which an
+upgrade is fractionally better. 27 Cartridges roll at any tier, 11 fixed-tier uniques stay
+gamble-only. Epic and legendary can appear on a level-up card but only just (0.9% / 0.1%),
+against 68% epic-or-better from a full-stake gamble — that gap is what makes banking a
+decision.
+
+Three things here have already cost time, and **`docs/CARTRIDGES.md` is the full write-up**:
+
+- **Softcapped steps apply the delta along their curve**, never an absolute write, or they
+  eat whatever a unique added to the same field.
+- **The whole ladder is one `Frame` field** — an array indexed by position in `CARTRIDGES`,
+  so **order there is load-bearing and new entries go on the end**. `createRunPerks` builds
+  that array fresh rather than spreading it out of the defaults; a shared one would leave
+  every later run pre-levelled.
+- **The card's two sockets are measured off the PNG art, not chosen**, exactly like the
+  vitals panel's bar slots. Re-export and re-measure; never nudge by eye. Pictograms are
+  solid screen-print in **one ink plus one hot accent** — two is the most that reads on all
+  four shells, which is what lets one drawing serve every tier.
+
+**One hue, one owner.** Violet means *yours* (crosshair, wordmark, panels, the volley's
+seeds) and no enemy may wear it. Checking a body's colour in-world needs three things
+controlled or it lies: the materialize ramp must have finished, the camera must not face the
+sun, and a seeder must not have planted on you.
 
 ## The ReWind ultimate
 

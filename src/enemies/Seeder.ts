@@ -3,16 +3,22 @@ import { Blast } from '../combat/Blast';
 import { Enemy, EnemyVisual } from './Enemy';
 
 /**
- * Deliberately unlike the drone: bigger, faceted, and violet rather than red.
+ * Deliberately unlike the drone: bigger, faceted, and magenta rather than red.
  * A player has a fraction of a second to decide whether the thing ahead is
  * something to fly through or something to break line around, and colour is
  * the only channel that survives being read at 35 u/s in peripheral vision.
+ *
+ * **It was violet, and violet is the player's.** The crosshair, the wordmark,
+ * every panel and now the volley's seeds are that hue, so the one enemy whose
+ * job is to deny you ground was wearing the colour that everywhere else means
+ * "yours". Magenta keeps it bright and cool-adjacent — still nothing like the
+ * drone's crimson — without borrowing from the player.
  */
 const GEOMETRY = new OctahedronGeometry(0.8);
 const SEEDER_VISUAL: EnemyVisual = {
   geometry: GEOMETRY,
-  color: 0x9d5cff,
-  emissive: 0x5a1fb0,
+  color: 0xe84bb8,
+  emissive: 0x8e1d6c,
   emissiveIntensity: 1.1,
 };
 

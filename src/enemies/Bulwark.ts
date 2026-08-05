@@ -4,7 +4,7 @@ import { Enemy, EnemyVisual } from './Enemy';
 /**
  * Deep cobalt and more than twice anyone else's size — the read at 35 u/s is
  * "boulder", and the colour sits far from the drone's red and the seeder's
- * violet so a mixed pack sorts itself at a glance.
+ * magenta so a mixed pack sorts itself at a glance.
  */
 const GEOMETRY = new DodecahedronGeometry(0.9);
 const BULWARK_VISUAL: EnemyVisual = {

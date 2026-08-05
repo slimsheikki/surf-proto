@@ -22,6 +22,45 @@ Open questions I could not settle from here are listed at the bottom.
 
 ---
 
+## v5 — Canopy
+
+**The Glider.** Hold `Space` while airborne and falling and you descend at half gravity,
+deepening toward a quarter as the Cartridge stacks. Nothing else about the controller
+changes: with the Cartridge untaken the whole feature is one multiply by one, and a run
+that never picks it is bit-identical to v4.
+
+It costs no new key. `AUTO_BHOP` reads `jumpHeld` **only while grounded**, so a held Space
+already means "jump the moment I land" — the glide only engages airborne and descending, and
+the two readings can never contend for the same tick.
+
+**It must never be the fast line, and that is the whole design.** Gliding is a recovery: you
+missed the ramp, you are falling into the gap, you buy the seconds to line the next one up.
+So air control is cut to half while the canopy is out — you keep the speed you brought and
+you steer, but you cannot build under it. Probed: a perfect strafe reaches 27.7 u/s free and
+25.7 u/s gliding over the same 2.5 seconds. If it ever out-builds a ramp it has eaten the
+point of the game, and `GLIDE_AIR_CONTROL_FACTOR` is the one-line revert.
+
+Two things to know if you touch this:
+
+- **The glide decision is latched once per tick**, before `StartGravity`, and both halves of
+  the split gravity use it. Re-testing at `FinishGravity` would let a tick that starts
+  descending and ends rising pay two different gravities — precisely the dt-dependent drift
+  the split was introduced to avoid.
+- **The air-control penalty scales the wish-speed cap, not `AIR_ACCEL`.** Scaling the accel
+  term does nothing at all: at `sv_airaccelerate` 100 the per-tick gain is `100 x 7 / 128` =
+  5.47 against a cap of 0.667, so the cap always binds and the accel term is slack. Halving
+  it leaves 2.73 — still far above the cap, still exactly zero change. It was written that
+  way first and `.probe-glider` caught it doing nothing, which is the only reason it is not
+  in the build.
+
+The floor is 0.25 and never 0. A true float would let a player park in the air and wait a
+wave out, and this game has no standing still in it.
+
+**To review:** take Glider, then deliberately miss a ramp. The question is whether the
+rescue feels earned or whether you start using it instead of the line.
+
+---
+
 ## v4 — Training Wheels
 
 **Beginner Mode**, picked on the map screen: hold W on a ramp and the game supplies the
