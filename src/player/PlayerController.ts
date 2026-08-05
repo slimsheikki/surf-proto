@@ -5,6 +5,8 @@ import { groundProbe, sweep } from '../engine/Raycast';
 import { MovementConfig } from './MovementConfig';
 
 const UP = new Vector3(0, 1, 0);
+/** Scratch for `dashImpulse`, so the hot path allocates nothing. */
+const FACING = new Vector3();
 
 /**
  * Source stops a swept hull `DIST_EPSILON` (1/32 hu) short of what it hits.
@@ -699,8 +701,18 @@ export class PlayerController {
    * height in a surf line has to be earned off a ramp.
    */
   dashImpulse(): void {
-    const forward = new Vector3(0, 0, -1).applyAxisAngle(UP, this.yaw);
-    this.velocity.addScaledVector(forward, DASH_IMPULSE_SPEED);
+    this.velocity.addScaledVector(this.facing(FACING), DASH_IMPULSE_SPEED);
+  }
+
+  /**
+   * Where the player is facing on the horizontal plane, written into `out`.
+   *
+   * Yaw only, for the same reason `dashImpulse` uses yaw only: pitch would make
+   * anything aimed along it a free ascent while staring up, and height in a
+   * surf line has to be earned off a ramp.
+   */
+  facing(out: Vector3): Vector3 {
+    return out.set(0, 0, -1).applyAxisAngle(UP, this.yaw);
   }
 
   teleport(position: Vector3): void {

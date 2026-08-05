@@ -198,6 +198,34 @@ export const CARTRIDGES: Cartridge[] = [
       ctx.weapon.range += along(beamRange, total, added);
     },
   },
+  {
+    id: 'spore',
+    name: 'Spore',
+    icon: 'spore',
+    effect: (s) => `+${s} projectile${s === 1 ? '' : 's'}`,
+    // The step *is* the projectile. Nothing to read, nothing to remember, and
+    // legible from the first frame after the pick — which is the whole appeal
+    // of the only Cartridge that adds a weapon rather than a number.
+    step: () => {
+      // Everything it drives is derived from the step count at tick time, so
+      // there is no field to write here. See `Volley`.
+    },
+  },
+  {
+    id: 'photon',
+    name: 'Photon',
+    icon: 'photon',
+    effect: (s) => (s >= 3 ? 'faster, +pierce' : 'faster seeds'),
+    // Speed and homing decide whether a volley *connects*; Spore decides how
+    // many you throw. Two genuinely different builds.
+    //
+    // No-dead-pick rule (the Subwoofer / Standing Wave precedent): drawn before
+    // Spore, it brings a seed with it so it is never inert.
+    step: (ctx) => {
+      const spore = CARTRIDGE_INDEX.get('spore');
+      if (spore !== undefined && ctx.perks.steps[spore] === 0) ctx.perks.steps[spore] = 1;
+    },
+  },
 
   // ------------------------------------------------------------- movement
   {

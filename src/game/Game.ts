@@ -4,6 +4,7 @@ import { Bolt } from '../combat/Bolt';
 import { Health } from '../combat/Health';
 import { applySoundBlast, SoundBlastFx } from '../combat/SoundBlast';
 import { SolarWave } from '../combat/SolarWave';
+import { Volley } from '../combat/Volley';
 import { Weapon, WeaponTarget } from '../combat/Weapon';
 import { InputFrame } from '../engine/Input';
 import { degToRad } from '../engine/MathUtils';
@@ -27,6 +28,7 @@ import { ViewModel } from '../player/ViewModel';
 import { LevelSystem } from '../progression/LevelSystem';
 import {
   createRunPerks,
+  cartridgeSteps,
   drawOfRarity,
   drawUpgradeChoices,
   resetRunPerks,
@@ -318,6 +320,10 @@ export class Game {
   private readonly remoteBlastFx = new SoundBlastFx();
   /** The burning wake. Owns its bounded point pool; see `SolarWave`. */
   readonly solarWave = new SolarWave();
+  /** The seed volley, granted by Spore. Owns its bounded pool; see `Volley`. */
+  readonly volley = new Volley();
+  /** Scratch for the volley's muzzle direction, so the tick allocates nothing. */
+  private readonly volleyFacing = new Vector3();
 
   /**
    * Echo Chamber's pending repeat. Transient on purpose — cleared on restart
@@ -378,6 +384,7 @@ export class Game {
     scene.add(this.soundBlastFx.mesh);
     scene.add(this.remoteBlastFx.mesh);
     scene.add(this.solarWave.group);
+    scene.add(this.volley.group);
     scene.add(this.playerModel.root);
     this.rebuildShrines();
     // Built last: it captures references to every subsystem above, and the
@@ -720,6 +727,20 @@ export class Game {
       this.perks.dopplerAps,
     );
 
+    // Beside the auto-weapon and before the kill pass, for the same reason the
+    // wake is: a drone a seed finishes off this tick still drops its orb this
+    // tick. Everything the weapon scales with is derived from the step counts
+    // at tick time, so Spore and Photon write no fields of their own.
+    this.volley.tick(
+      dt,
+      playerPosition,
+      this.playerController.facing(this.volleyFacing),
+      this.weapon.damage,
+      cartridgeSteps(this.perks, 'spore'),
+      cartridgeSteps(this.perks, 'photon'),
+      this.entityManager.enemies,
+    );
+
     // After the auto-weapon, before the kill pass, so a chaser burned down by
     // the wake this tick still drops its XP on this tick. Drones and seeders
     // only, same reasoning as the sound blast above. Standing Wave rides in as
@@ -884,6 +905,7 @@ export class Game {
     // the moment play resumes. A pending echo is the same class — 0.35 s of
     // life, re-armed by the next dash.
     this.solarWave.clear();
+    this.volley.clear();
     this.pendingEchoSeconds = 0;
     this.state = 'rewinding';
     this.ultFx.beginRewind();
@@ -1314,6 +1336,7 @@ export class Game {
     this.soundBlastFx.hide();
     this.remoteBlastFx.hide();
     this.solarWave.clear();
+    this.volley.clear();
     this.pendingEchoSeconds = 0;
     this.chorusKills = 0;
     this.viewModel.reset();
