@@ -18,6 +18,14 @@ Four things worth knowing before touching it:
   content box are the alpha bounds of the bar recesses drawn *into* the frame PNGs, read off
   the files. That is what makes the fills sit in their sockets at any scale. Re-export a
   frame and those numbers have to be re-read; nothing else moves.
+- **`XP_PLACEMENT` is measured too, and was the one thing that wasn't.** The frames' relative
+  positions come from template-matching the frame PNGs against
+  `ui-elements-placement-reference.png` — position and scale swept, scored on mean colour
+  distance over each template's opaque pixels. Both frames sit at scale 1.00, HP content box
+  at x 114–979 / y 147–400, XP frame at x 572 / y 164; the percentages fall straight out of
+  that. The first pass eyeballed `top: -1` instead, which lifted the XP plate off the HP
+  frame's top edge and showed sky through the junction. It is meant to *rest on* the HP body.
+  Match, don't nudge.
 - **Every bar is a parallelogram, so a fill is a clip, not a width.** `barClip` cuts the
   full-size image with a polygon whose leading edge carries the bar's own lean, which is why
   a half-full bar ends parallel to its own end cap. `UI_HP_HPBar_Damaged.png` is the artist's
