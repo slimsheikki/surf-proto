@@ -1,3 +1,4 @@
+import { MegaflowHud } from './MegaflowHud';
 import { UltimateArc } from './UltimateArc';
 
 export interface HudState {
@@ -37,24 +38,27 @@ function formatClock(totalSeconds: number): string {
 
 export class Hud {
   private readonly speedEl = document.getElementById('speed-readout')!;
-  private readonly hpFillEl = document.getElementById('bar-hp-fill')!;
-  private readonly xpFillEl = document.getElementById('bar-xp-fill')!;
   private readonly levelEl = document.getElementById('level-readout')!;
   private readonly waveEl = document.getElementById('wave-readout')!;
   private readonly felledEl = document.getElementById('felled-readout')!;
   private readonly picksEl = document.getElementById('picks-readout')!;
   private readonly picksCountEl = document.getElementById('picks-count')!;
   private readonly picksHintEl = document.getElementById('picks-hint')!;
-  private readonly dashFillEl = document.getElementById('bar-dash-fill')!;
-  private readonly dashReadoutEl = document.getElementById('dash-readout')!;
   private readonly crosshairEl = document.getElementById('crosshair')!;
   /**
    * The ultimate meter is not a bar in this column any more — it is a half-ring
    * around the crosshair, which is where it is actually read. See `UltimateArc`.
    */
   private readonly ultArc = new UltimateArc();
+  /**
+   * HP, XP and the dash charges left this column entirely: they are the painted
+   * panel in the top-left corner now. What stays down here is the run's
+   * *numbers* — the readouts that have no art and are read on purpose rather
+   * than at a glance. See `MegaflowHud`.
+   */
+  private readonly vitals = new MegaflowHud();
 
-  update(state: HudState): void {
+  update(state: HudState, dt: number): void {
     // Flow rides the existing speed cell rather than adding a HUD element: it
     // is a property *of* the speed, and the readout only grows while the trickle
     // is actually paying (>= 0.05%/s — below that the suffix is churn, not news).
@@ -62,8 +66,7 @@ export class Hud {
       state.flowXpPctPerSecond >= 0.05
         ? `${state.speed.toFixed(1)} u/s +${state.flowXpPctPerSecond.toFixed(1)}%/s`
         : `${state.speed.toFixed(1)} u/s`;
-    this.hpFillEl.style.width = `${Math.max(0, Math.min(1, state.hpFraction)) * 100}%`;
-    this.xpFillEl.style.width = `${Math.max(0, Math.min(1, state.xpFraction)) * 100}%`;
+    this.vitals.update(state, dt);
     this.levelEl.textContent = `Lv ${state.level}`;
     // The element finally earns its id: run clock and wave share the cell —
     // the clock is the run stat, the wave says what the horde is made of.
@@ -84,9 +87,6 @@ export class Hud {
     this.picksHintEl.textContent = state.bankHoldFraction > 0 ? 'ALL IN' : 'F';
     this.picksHintEl.style.setProperty('--hold', state.bankHoldFraction.toFixed(3));
 
-    this.dashFillEl.style.width = `${Math.max(0, Math.min(1, state.dashFraction)) * 100}%`;
-    this.dashReadoutEl.textContent = `Dash ${state.dashCharges}/${state.dashMaxCharges}`;
-
     this.ultArc.setCharge(state.ultimateFraction);
   }
 
@@ -94,5 +94,20 @@ export class Hud {
   setVisible(visible: boolean): void {
     this.crosshairEl.classList.toggle('hidden', !visible);
     this.ultArc.setVisible(visible);
+  }
+
+  /**
+   * Whether a run is on screen at all. Separate from `setVisible`, which
+   * follows pointer lock and takes the aiming aids with it — the vitals panel
+   * is not an aiming aid and stays up through a choice screen, for the same
+   * reason the readout column does.
+   */
+  setPanelVisible(visible: boolean): void {
+    this.vitals.setVisible(visible);
+  }
+
+  /** Drops the bar easing so a fresh run does not sweep in from the last one. */
+  resetPanel(): void {
+    this.vitals.reset();
   }
 }

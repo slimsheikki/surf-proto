@@ -4,6 +4,45 @@ Living handoff doc. Read at session start, update before finishing. Keep it shor
 delete anything resolved rather than accumulating history. For the running backlog of
 requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
+## The painted vitals panel (new)
+
+HP, XP and the dash charges left the bottom HUD column and are now the art panel in the
+top-left corner — `src/ui/MegaflowHud.ts`, styles under the `#mf-hud` banner in
+`styles.css`, assets in `public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` (owner-supplied, including
+`ui-elements-placement-reference.png`, which is what the layout is held against). The bottom
+column keeps what has no art: banked picks, level, clock/wave, speed, felled.
+
+Four things worth knowing before touching it:
+
+- **The slot constants are measurements, not taste.** `HP_SLOT`, `XP_SLOT` and the frame
+  content box are the alpha bounds of the bar recesses drawn *into* the frame PNGs, read off
+  the files. That is what makes the fills sit in their sockets at any scale. Re-export a
+  frame and those numbers have to be re-read; nothing else moves.
+- **Every bar is a parallelogram, so a fill is a clip, not a width.** `barClip` cuts the
+  full-size image with a polygon whose leading edge carries the bar's own lean, which is why
+  a half-full bar ends parallel to its own end cap. `UI_HP_HPBar_Damaged.png` is the artist's
+  mock of exactly that state and is therefore unused — the clip reproduces it.
+- **The dash pips are drawn, not blitted, and that is deliberate.** They are the only element
+  whose width changes at runtime: two charges fill the track, an Extra Dash re-splits the
+  same track three ways. A stretched sprite stretches its rim with it and flattens the lean
+  as the count drops, so a pip is a plain box in a `skewX` row wearing colours sampled out of
+  `UI_DASH_GaugeBar_Active/InActive.png`. Rim thickness rides `em` off `#mf-hud`'s
+  `font-size: var(--mf-w)` — the panel's own unit — so it scales instead of drifting.
+- **The HP bar is a fraction and must stay one.** Growing the pool moves the bar less per
+  hit, which is both the requested behaviour and the reason it can never spill out of the
+  frame. Verified at 220 max HP.
+
+A level-up runs the XP bar *out to full* before dropping it to the new level (`flushing` in
+`updateXp`) and lights the frame for half a second. A drop with no level-up behind it is a
+restart or a rewind and snaps instead — sweeping there would read as the run gaining ground
+while it plays backwards. Visibility follows `runVisible`, not pointer lock: the panel is not
+an aiming aid and stays up through a power screen.
+
+Not changed: `LevelSystem.INITIAL_LEVEL` is still 1. The brief described the opening state as
+"level 0", but `level` is what `difficultyAt`, `bossLevelFor`, `waveAt` and
+`Ultimate.LEVEL_GROWTH` all read, so shifting it retunes the early game — a gameplay call,
+not a HUD one. The bar starts empty either way.
+
 ## Four choices, rerollable down to two (new)
 
 The power panel opens on **4** cards. **`Q`** rerolls to **3**, once more to **2**, then the

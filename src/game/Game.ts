@@ -508,7 +508,7 @@ export class Game {
     // After the rig, so the toggle takes effect on the very frame the camera
     // pulls back rather than one behind it.
     this.playerModel.setVisible(this.runVisible && this.cameraRig.mode === 'third');
-    this.updateHud();
+    this.updateHud(dt);
   }
 
   private updateGameplay(dt: number, input: InputFrame): void {
@@ -1230,6 +1230,10 @@ export class Game {
    */
   private applyHudVisibility(): void {
     this.hud.setVisible(this.hudVisible && this.state !== 'pausedForUpgrade');
+    // The vitals panel follows the *run*, not the pointer lock: it is top-left,
+    // clear of every overlay, and a player reading a power card wants to see
+    // what their HP and dashes are before they pick.
+    this.hud.setPanelVisible(this.runVisible);
   }
 
   /**
@@ -1246,8 +1250,10 @@ export class Game {
     this.runVisible = visible;
     // Applied straight away rather than waiting for `tick`, which does not run
     // outside play mode — the frame that leaves a run is the frame that must
-    // not still be drawing a body.
+    // not still be drawing a body. The vitals panel is on the same footing: it
+    // is keyed off `runVisible`, and the menu is not a run.
     if (!visible) this.playerModel.setVisible(false);
+    this.applyHudVisibility();
   }
 
   get isMenuOpen(): boolean {
@@ -1315,6 +1321,7 @@ export class Game {
     this.dash.reset();
     this.ultimate.reset();
     this.flowXp.reset();
+    this.hud.resetPanel();
     this.rewind.clear();
     this.ultFx.reset();
     this.bossEpoch = 0;
@@ -1347,7 +1354,7 @@ export class Game {
   }
 
 
-  private updateHud(): void {
+  private updateHud(dt: number): void {
     // Runs every tick regardless of state, which is what lets a state change
     // into or out of a choice overlay take the crosshair with it.
     this.applyHudVisibility();
@@ -1380,6 +1387,6 @@ export class Game {
       bankedPicks: this.levelSystem.bankedPicks,
       picksAtCap: this.levelSystem.atPickCap,
       bankHoldFraction: Math.min(1, this.bankHoldSeconds / BANK_HOLD_SECONDS),
-    });
+    }, dt);
   }
 }

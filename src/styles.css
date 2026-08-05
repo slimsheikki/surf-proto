@@ -118,11 +118,10 @@ h2,
   left: 50%;
   transform: translateX(-50%);
   bottom: 18px;
-  /* 260 -> 325: everything 25% wider. #bar-xp then takes a further 25% on top. */
   width: 325px;
-  /* Above #ult-fx (30). During a rewind the HUD is doing real work — the XP bar
-     and the run clock winding backwards are how the player judges how far they
-     have gone — so the flames must pass behind it. */
+  /* Above #ult-fx (30). During a rewind this row is doing real work — the run
+     clock winding backwards is how the player judges how far they have gone —
+     so the flames must pass behind it. */
   z-index: 35;
   display: flex;
   flex-direction: column;
@@ -216,21 +215,12 @@ h2,
 }
 
 /*
- * The XP bar leads and is bigger than the rest in both axes: it is the bar that
- * decides when the run's next *decision* arrives, which makes it the one worth
- * reading at a glance from the corner of the eye.
- */
-#bar-xp {
-  width: 125%;
-  height: 16px;
-  border-radius: 8px;
-}
-
-/*
- * The HUD bars get the rim and a faint bloom, but **no `backdrop-filter`**.
- * These are the only glass-styled elements on screen during play, and a blur
- * pass under them would run every frame of a 128 Hz run for decoration nobody
- * is looking at. The panels that do blur all appear while the sim is paused.
+ * The boss bar, and now only the boss bar — HP, XP and dash moved to the
+ * painted panel and took their glass styling with them. Rim and a faint bloom,
+ * but **no `backdrop-filter`**: this is the only glass-styled element on screen
+ * during play, and a blur pass under it would run every frame of a 128 Hz fight
+ * for decoration nobody is looking at. The panels that do blur all appear while
+ * the sim is paused.
  */
 .bar {
   width: 100%;
@@ -246,22 +236,6 @@ h2,
   height: 100%;
   width: 0%;
   transition: width 0.15s ease-out;
-}
-
-.bar-fill.hp {
-  background: linear-gradient(90deg, #ff5c5c, #ff8a5c);
-}
-
-.bar-fill.xp {
-  background: linear-gradient(90deg, #5cc8ff, var(--accent));
-}
-
-.bar-fill.dash {
-  background: linear-gradient(90deg, #ffe45c, #ff9a5c);
-}
-
-#dash-readout {
-  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -286,6 +260,142 @@ h2,
 
 #crosshair.hidden {
   display: none;
+}
+
+/* =========================================================================
+ * MEGAFLOW vitals panel — painted HP / XP / DASH art, top-left.
+ *
+ * Layout lives in `ui/MegaflowHud.ts`: every inset here that has to line up
+ * with something *drawn on a PNG* is set from a measured constant there, so
+ * this file only carries what the art cannot describe (which image, what
+ * colour, what leans). See that file's header for why the dash pips are drawn
+ * rather than blitted.
+ *
+ * `--mf-w` is the only size knob. Everything below is a percentage of it, so
+ * the panel scales as one piece and the bars stay in their sockets.
+ * ========================================================================= */
+#mf-hud {
+  position: fixed;
+  top: 2.2vh;
+  left: 1.6vw;
+  /*
+   * The one size knob, and also the panel's unit: `font-size` is set to it so
+   * the few lengths that cannot be percentages — the pip rim, which is a rim
+   * and not a share of anything — can be written in `em` and still scale with
+   * the panel instead of drifting thick at 4K and vanishing on a laptop.
+   * Nothing in here draws text.
+   */
+  --mf-w: clamp(300px, 27vw, 560px);
+  width: var(--mf-w);
+  font-size: var(--mf-w);
+  /* Matches #hud: the panel is doing real work during a rewind, so the
+     ultimate's flames (30) pass behind it. */
+  z-index: 35;
+  pointer-events: none;
+  /* The art is bright green against a bright sky. A soft drop shadow is what
+     keeps its outline off the clouds without tinting the colours. */
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35));
+}
+
+#mf-hud.hidden {
+  display: none;
+}
+
+.mf-vitals {
+  position: relative;
+  width: 100%;
+}
+
+/* Oversized and offset, to crop the export padding off the frame PNG — see
+   `MegaflowHud`'s constructor. */
+.mf-hp-art {
+  position: absolute;
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_HP_BackgroundElement.png') no-repeat 0 0 /
+    100% 100%;
+}
+
+.mf-hp-slot,
+.mf-xp-slot,
+.mf-dash-track {
+  position: absolute;
+}
+
+/*
+ * The recess for this bar is already painted into the frame, so the empty
+ * state needs no art of its own — only the fill is layered on.
+ */
+.mf-hp-fill {
+  position: absolute;
+  inset: 0;
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_HP_HPBar_Full.png') no-repeat 0 0 / 100% 100%;
+}
+
+.mf-xp-frame {
+  position: absolute;
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_XP_XPBar_BackgroundElement.png') no-repeat 0 0 /
+    100% 100%;
+  /* Level-up flourish, driven per tick from `MegaflowHud` rather than by a CSS
+     animation: it is retriggered, and a keyframe restart needs a reflow hack. */
+  filter: brightness(calc(1 + var(--mf-flash, 0) * 0.9));
+}
+
+/* Unlike the HP recess this one is a separate layer in the export, so the
+   empty track is real art rather than a hole in the frame. */
+.mf-xp-slot {
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_XP_XPBar_BarBackground.png') no-repeat 0 0 /
+    100% 100%;
+}
+
+.mf-xp-fill {
+  position: absolute;
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_HP_XPBar_Full.png') no-repeat 0 0 / 100% 100%;
+}
+
+.mf-dash {
+  position: absolute;
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_DASH_BackgroundElement.png') no-repeat 0 0 /
+    100% 100%;
+}
+
+.mf-dash-track {
+  background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_DASH_GaugeBarBackground.png') no-repeat 0 0 /
+    100% 100%;
+}
+
+/*
+ * The pips split the track evenly however many there are, which is the whole
+ * requirement: two charges fill it, a third re-splits the same width. The row
+ * leans as a unit so `gap` and `padding` lean with it and the end pips stay
+ * parallel to the track's own ends.
+ */
+.mf-pip-row {
+  position: absolute;
+  inset: 14% 6%;
+  display: flex;
+  gap: 4%;
+}
+
+.mf-pip {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  background: #0c4c27;
+  /* Inset rather than a border so the rim costs no layout and stays the same
+     hairline at every pip count. Colours are sampled straight out of
+     `UI_DASH_GaugeBar_Active/InActive.png`. */
+  box-shadow: inset 0 0 0 0.005em #3dd560;
+}
+
+.mf-pip-fill {
+  position: absolute;
+  inset: 0.005em;
+  background: linear-gradient(180deg, #ffc127, #feaa11);
+}
+
+/* A full charge glows; a recharging one does not. The distinction is the point
+   of the meter — it is read to answer "can I dash right now". */
+.mf-pip.ready .mf-pip-fill {
+  box-shadow: 0 0 0.02em rgba(255, 200, 60, 0.9);
 }
 
 /* Boss fight banner. Top-centre so it never fights the bottom-left HUD for
