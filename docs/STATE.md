@@ -1771,6 +1771,36 @@ and reading differently from the ramps is useful. Verified by screenshot: ring f
 (six cells across, both edges on rules), the rider's eye view, and every palette family including
 the pyramid's four faces converging on the apex, both trapezoid tapers, and both curve sweeps.
 
+## Cartridges — the upgrade pool rebuilt (new)
+
+`docs/CARTRIDGES.md` is the full write-up. The headline: **tier is magnitude**. Every entry
+owns one step and the tier says how many you get at once (1/2/3/4). Twelve flat entries
+folded into Cartridges, the eleven named systems became steps, the eleven uniques kept their
+fixed tier. Cards are the cartridge art itself now, with both sockets measured off the PNGs.
+
+Shipped alongside it: **Spore** (the volley weapon, one seed per step, `src/combat/Volley.ts`),
+**Photon**, **Glider** (movement v5 "Canopy"), **Solstice** (luck, bends the menu roll and
+buys gamble stake rows), and the enemy hue fixes (Seeder → magenta, Spitter → amber).
+
+Probes, all green at commit time — rewrite from these specs if needed:
+
+- **`.probe-cartridges`** (10724 green) — magnitude exactly linear in tier; four commons land
+  where one legendary does on every softcapped Cartridge; asymptotes held at 1000 steps; the
+  shared-defaults array trap; draw shape and tier/step agreement over 500 menus; the gamble
+  reaches Cartridges at legendary.
+- **`.probe-volley`** — connects at speed (0.92 enemies per seed at 60 u/s against 1.00 at
+  15); the seed ladder is one-per-step; Photon's pierce is worth 2.74/seed slow against
+  1.18 fast.
+- **`.probe-glider`** — a perfect strafe is 27.7 u/s free and 25.7 u/s gliding; unowned is
+  bit-identical held or not; releasing restores gravity exactly; a rising or grounded player
+  is never glided.
+- **`.probe-luck`** (70 green) — base odds, monotonic on every tier, still under a full-stake
+  gamble at twelve steps, the stake arithmetic, and 60k rolls per row asserting the quoted
+  odds are the rolled odds.
+
+**Not built yet**, and each needs a new system rather than a new number: Prism, Bloom,
+Percussion, Sap, Albedo, Mirage, Flux, Blight. See § 9 of `docs/CARTRIDGES.md`.
+
 ## Next up
 
 1. Decide on the two deferred movement items in the v2 log: the `MAX_GROUND_SPEED` clamp on
@@ -1784,7 +1814,15 @@ the pyramid's four faces converging on the apex, both trapezoid tapers, and both
    agent assigned to it died. Either write it or drop the reference.
 5. Free mode wants a human pass on the palette: six presets is a guess, and whether the
    26° descent and the 50-unit level ramp are the right two defaults is an aesthetic call.
-6. The enemy rework wants a human balance pass: ring radii (16–28), the 1.2 s grace, wave
+6. **The Cartridge numbers want a human balance pass.** Three in particular: the 0.40 volley
+   damage fraction (the only brake on Spore, which is uncapped), the Glider's halved air
+   control (it must never beat a surfed ramp), and whether luck should touch the level-up
+   menu at all or only the gamble.
+7. **Four cards, not three** — at 27 visible entries a specific Cartridge shows up in ~13.5%
+   of 4-card menus against ~10.5% of 3-card ones. `drawUpgradeChoices` already takes a count.
+8. **XP still does not scale with enemy strength** — a ~287x damage-per-level treadmill from
+   level 1 to 40. Prerequisite for Blight, and probably wants to ship on its own.
+9. The enemy rework wants a human balance pass: ring radii (16–28), the 1.2 s grace, wave
    weights, the Lancer's 34 u/s dash and the Spitter's 2.5 s cadence are first-pass
    numbers, and the four new silhouettes/colours are proposals the aesthetic authority
    has not seen in motion yet.
