@@ -24,6 +24,21 @@ under the note was collected and rendered as a trailing rule, and a first pass a
 reviewer prefixes from titles took any word before a colon — turning "Cartridges: tier-scaled
 upgrades" into "Tier-scaled upgrades". Only the conventional-commit set is stripped now.
 
+**Why the panel ran exactly one merge behind**, which is the thing the title fallback actually
+fixes. Notes are baked at deploy, and **the only thing that triggers a deploy is a push to
+`main`** — editing a PR body does not. So the loop was: merge (deploy fires, body has no
+heading, PR skipped) → notice the chip did not move → add the heading → *nothing redeploys* →
+next merge → the previous PR finally shows up. Permanently one behind. Deriving the note from
+the **title** removes the post-merge step entirely: everything the generator needs already
+exists at the instant the merge fires the deploy. `workflow_dispatch` is on the workflow for
+the rare case where a body really is edited after the fact.
+
+`PatchNotes.load` fetches with `cache: 'no-cache'`. This is the one file in the build whose
+name never changes — everything else Vite emits carries a content hash, so a new deploy is a
+new URL — and `patch-notes.json` is copied out of `public/` verbatim, so a returning player
+could hold a cached copy and see the previous deploy's notes. That reads as the same
+one-merge-behind symptom from a completely different cause.
+
 **Generated at deploy, not fetched in the browser.** One workflow step between `npm ci` and
 `npm run build`. A runtime fetch of api.github.com costs a loading state, a failure state, a
 markdown parser in the bundle and 60 requests/hour per IP, to render text that cannot change

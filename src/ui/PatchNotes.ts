@@ -68,7 +68,17 @@ export class PatchNotes {
       // for the deploy's base path but leaves a hard-coded `/patch-notes.json`
       // alone, so an absolute path 404s on Pages and works only on localhost.
       // The logo hit this first; `index.html` documents it there.
-      const response = await fetch(`${import.meta.env.BASE_URL}patch-notes.json`);
+      //
+      // `cache: 'no-cache'` because this is the one file in the build whose
+      // name never changes. Everything else Vite emits carries a content hash,
+      // so a new deploy is a new URL and the browser cannot serve a stale one;
+      // `patch-notes.json` is copied out of `public/` verbatim, so a returning
+      // player holds a cached copy and sees the *previous* deploy's notes —
+      // which reads as the panel running a merge behind. This still uses the
+      // cache, it just revalidates first, so an unchanged file costs a 304.
+      const response = await fetch(`${import.meta.env.BASE_URL}patch-notes.json`, {
+        cache: 'no-cache',
+      });
       if (!response.ok) return;
       entries = await response.json();
     } catch {
