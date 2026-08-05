@@ -43,10 +43,7 @@ import { createSwitchRow } from './SurfSwitch';
  * screen with that section already expanded.
  */
 
-/**
- * Shared by the two places it is drawn — the main body and the Advanced
- * Settings section — so the wording of the one setting is written once.
- */
+/** The combat layer's master switch, under Advanced Settings. */
 const ENEMIES_SWITCH = {
   label: 'Enemies',
   hint: 'Off is movement only: no drones, no seeders, no Monoliths. Takes effect immediately, mid-run included.',
@@ -140,10 +137,10 @@ export class SettingsPanel {
     ];
     for (const row of rows) card.appendChild(this.buildRow(row));
 
-    // The combat layer's master switch, and music's. Both are booleans, so both
-    // are switches; mute used to be a button beside Reset whose label flipped,
-    // which reads as an action rather than as the state it actually shows.
-    card.appendChild(this.buildSwitch(ENEMIES_SWITCH));
+    // Music is a boolean, so it is a switch — it used to be a button beside
+    // Reset whose *label* flipped, which reads as an action rather than as the
+    // state it actually shows. Enemies is not here: it belongs to Advanced
+    // Settings, with the other switches that change what the game is.
     card.appendChild(
       this.buildSwitch({
         label: 'Music',
@@ -185,9 +182,9 @@ export class SettingsPanel {
 
     this.advanced = document.createElement('div');
     this.advanced.className = 'settings-advanced hidden';
-    // Repeated here as well as above, deliberately: this is the section a player
-    // opens when they are looking for the switches that change what the game
-    // *is*, and both copies read the same store, so they cannot drift.
+    // Enemies lives here and only here: it changes what the game *is*, which is
+    // what this section is for, and one control over one setting is how the
+    // sliders were kept from drifting.
     const advancedGameplay = document.createElement('div');
     advancedGameplay.className = 'settings-advanced-gameplay';
     const advancedHeading = document.createElement('h2');
@@ -219,11 +216,10 @@ export class SettingsPanel {
   }
 
   /**
-   * Every switch on this screen repaints the whole screen when it is flipped.
-   * Enemies is drawn twice — in the body and under Advanced Settings — and a
-   * switch that only repainted itself left the other copy showing the old
-   * state, which is the exact "two controls over one value drift apart" trap
-   * the sliders were kept out of.
+   * Every switch on this screen repaints the whole screen when it is flipped,
+   * so a control that mirrors another's value can never be left showing a stale
+   * one — the "two controls over one value drift apart" trap the sliders were
+   * kept out of.
    */
   private buildSwitch(spec: {
     label: string;
