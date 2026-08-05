@@ -5,6 +5,7 @@ import {
   setMovementPreference,
 } from '../player/MovementConfig';
 import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
+import { createSwitchButton } from './SurfSwitch';
 
 /**
  * Live tuning for the CS convars, shown under **Advanced Settings** on the
@@ -209,8 +210,13 @@ export class MovementPanel {
     return row;
   }
 
+  /**
+   * A convar boolean, drawn with the game's one switch control rather than a
+   * native checkbox — see `SurfSwitch`. Not a `<label>` any more: the switch is
+   * a button, and a button inside a label for it swallows the click twice.
+   */
   private buildToggle(field: Extract<Field, { kind: 'toggle' }>): HTMLElement {
-    const row = document.createElement('label');
+    const row = document.createElement('div');
     row.className = 'movement-panel-row movement-panel-row-toggle';
     row.title = field.help;
 
@@ -218,12 +224,16 @@ export class MovementPanel {
     name.className = 'movement-panel-name';
     name.textContent = field.label;
 
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.addEventListener('change', () => setMovementPreference(field.key, input.checked));
+    const input = createSwitchButton('sm');
+    input.setAttribute('aria-label', field.label);
+    input.addEventListener('click', () => {
+      const next = !MovementConfig[field.key];
+      setMovementPreference(field.key, next);
+      input.setAttribute('aria-checked', String(next));
+    });
 
     this.rows.push(() => {
-      input.checked = MovementConfig[field.key];
+      input.setAttribute('aria-checked', String(MovementConfig[field.key]));
     });
 
     row.append(name, input);

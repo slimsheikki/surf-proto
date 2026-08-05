@@ -69,6 +69,18 @@ export interface SettingsState {
    * exists, and it is one click on the screen they just came through to leave.
    */
   beginnerMode: boolean;
+  /**
+   * Whether the combat layer exists at all. Off means no drones, no seeders, no
+   * Monoliths — just the movement, which is the point of the game and the thing
+   * people practise. It lives here rather than on the convar bench because it
+   * is a run-shaping choice a player makes about the game, not a number about
+   * the movement, and because someone who has switched combat off to learn a
+   * map should not have it back tomorrow without asking.
+   *
+   * `Game` reads it live every tick, so flipping it mid-run takes effect on the
+   * next one — see `Game.applyEnemiesSetting`.
+   */
+  enemiesEnabled: boolean;
 }
 
 const state: SettingsState = {
@@ -78,6 +90,7 @@ const state: SettingsState = {
   musicMuted: false,
   countdownOnResume: true,
   beginnerMode: true,
+  enemiesEnabled: true,
 };
 
 const listeners: ((s: SettingsState) => void)[] = [];
@@ -132,6 +145,11 @@ export function setBeginnerMode(enabled: boolean): void {
   commit();
 }
 
+export function setEnemiesEnabled(enabled: boolean): void {
+  state.enemiesEnabled = enabled;
+  commit();
+}
+
 export function resetSettings(): void {
   state.fov = DEFAULT_FOV;
   state.sensitivity = DEFAULT_SENSITIVITY;
@@ -139,6 +157,7 @@ export function resetSettings(): void {
   state.musicMuted = false;
   state.countdownOnResume = true;
   state.beginnerMode = true;
+  state.enemiesEnabled = true;
   setMovementPreference('SENSITIVITY', DEFAULT_SENSITIVITY);
   setMovementPreference('SURF_ASSIST', true);
   commit();
@@ -178,6 +197,9 @@ export function loadSettings(): void {
       // the default above standing — an existing player is a new player as far
       // as this feature is concerned, and they can switch it off on the way in.
       if (typeof parsed.beginnerMode === 'boolean') state.beginnerMode = parsed.beginnerMode;
+      // Same story as Beginner Mode for an older blob: absent means the default
+      // above stands, which is the game with its combat layer switched on.
+      if (typeof parsed.enemiesEnabled === 'boolean') state.enemiesEnabled = parsed.enemiesEnabled;
     }
   } catch {
     // Unreadable or corrupt storage: the defaults above are already correct.

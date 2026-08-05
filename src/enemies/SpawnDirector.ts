@@ -63,12 +63,22 @@ export class SpawnDirector {
    */
   suspended = false;
 
+  /**
+   * Set from the Enemies setting. Separate from `suspended` on purpose: that
+   * one is owned by the boss flow, which clears it the moment a Monolith falls
+   * — a player who switched combat off would get the horde back with it.
+   *
+   * Like `suspended` it stops spawning without stopping the run clock, so the
+   * survival time the HUD and the game-over screen report keeps counting.
+   */
+  disabled = false;
+
   private timeSinceLastSpawn = 0;
   private survivalTime = 0;
 
   tick(dt: number, ctx: SpawnContext, spawnEnemy: (enemy: Enemy) => void): void {
     this.survivalTime += dt;
-    if (this.suspended) return;
+    if (this.suspended || this.disabled) return;
     this.timeSinceLastSpawn += dt;
 
     const difficulty = difficultyAt(ctx.playerLevel, this.survivalTime);
@@ -190,6 +200,7 @@ export class SpawnDirector {
     this.suspended = snapshot.suspended;
   }
 
+  /** Run state only. `disabled` is a persisted setting and survives a restart. */
   reset(): void {
     this.timeSinceLastSpawn = 0;
     this.survivalTime = 0;

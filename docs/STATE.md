@@ -1,4 +1,4 @@
-# State — 2026-08-04
+# State — 2026-08-05
 
 Living handoff doc. Read at session start, update before finishing. Keep it short:
 delete anything resolved rather than accumulating history. For the running backlog of
@@ -708,11 +708,40 @@ click, ramp reaches 0.35 in 2 s, 13 consecutive runs with no back-to-back
 repeat, slider writes `musicVolume` to storage, mute and Reset behave, all nine
 files serve as `audio/mpeg`.
 
+## Enemies on/off, and one switch design (new)
+
+**Settings has an `Enemies` switch** — off is movement only. It is drawn twice on
+purpose: in the main body *and* under **Advanced Settings** (a new `Gameplay`
+block above the convar bench). Both read `getSettings().enemiesEnabled`, and
+`SettingsPanel.buildSwitch` repaints every control on the screen after any flip,
+which is what keeps the two copies from drifting.
+
+`Game.applyEnemiesSetting` runs at the top of `updateGameplay`, before anything
+spawns. Turning it off *empties the world* rather than only stopping new spawns:
+`despawnBoss`, `clearEnemies`, `clearBlasts`, `clearBolts` (orbs are earned and
+stay). It bumps `bossEpoch` and calls `rewind.clear()` in **both** directions —
+`Rewind` records enemies as state, so a rewind across the flip would otherwise
+resurrect a horde into a run that has none. The flag on `SpawnDirector` is
+`disabled`, deliberately separate from `suspended`: the boss flow clears
+`suspended` the moment a Monolith falls, which would hand the horde back to a
+player who switched it off. `SpawnDirector.reset()` touches run state only, so
+`Game.restart` re-stamps `disabled` from the setting.
+
+**Every boolean in the game is now the same switch** (`ui/SurfSwitch.ts`,
+`.surf-switch` — the control the map picker's Beginner/Advanced row already
+used). It replaced three different renderings of one question: the convar
+bench's native checkboxes, the mute button whose *label* flipped, and the ☑/☐
+glyph on the power screens. `createSwitchRow` is the labelled form,
+`createSwitchButton` the bare control, and `createSwitchIndicator` a span for a
+host that is already one button end to end — `CountdownToggle`, where a nested
+`<button>` would be invalid markup and take the click twice. `surf-switch-sm` is
+the compact track for dense rows.
+
 ## Settings and HUD layout (new)
 
 `Escape` opens `SettingsPanel` (FOV, sensitivity, music volume; slider and
-number field over each value, persisted to `localStorage`, plus a Mute music
-button beside Reset). It doubles as the pause screen, and that is forced rather
+number field over each value, persisted to `localStorage`, plus Enemies and
+Music as switches). It doubles as the pause screen, and that is forced rather
 than chosen — see the pointer-lock gotcha in `CLAUDE.md`. Sensitivity was
 removed from the `O` tuning panel so there is one owner.
 
