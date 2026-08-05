@@ -710,18 +710,29 @@ files serve as `audio/mpeg`.
 
 ## Enemies on/off, and one switch design (new)
 
-**Settings has an `Enemies` switch** — off is movement only. It is drawn twice on
-purpose: in the main body *and* under **Advanced Settings** (a new `Gameplay`
-block above the convar bench). Both read `getSettings().enemiesEnabled`, and
-`SettingsPanel.buildSwitch` repaints every control on the screen after any flip,
-which is what keeps the two copies from drifting.
+**An `Enemies` switch under Advanced Settings** — off is movement only. It sits
+in a new `Gameplay` block above the convar bench, with the other switches that
+change what the game *is*, and nowhere else.
 
 `Game.applyEnemiesSetting` runs at the top of `updateGameplay`, before anything
-spawns. Turning it off *empties the world* rather than only stopping new spawns:
+spawns, and a **Monolith counts as an enemy**: `spawnBoss` is gated on the
+setting and a standing one is dismissed the tick it goes off, boss bar with it.
+Dismissing it also clears `spawnDirector.suspended` — `spawnBoss` sets that and
+only `fellBoss` lifts it, so a Monolith taken away by this switch would leave
+the director latched and the horde would never come back when enemies were
+switched on again. Wave headlines are suppressed while it is off, too: a wave is
+a spawn composition, and naming one that will never arrive is noise.
+
+`enemiesEnabledLastTick` starts **`null`** ("not applied yet") and
+`restart` puts it back — seeded from the setting instead, the first tick sees no
+*change* and never writes `SpawnDirector.disabled`, so the opening run of a
+session (the one that constructs `Game` rather than going through `restart`)
+handed the horde to a player who had switched it off in the menu. Turning it off *empties the world* rather than only stopping new spawns:
 `despawnBoss`, `clearEnemies`, `clearBlasts`, `clearBolts` (orbs are earned and
-stay). It bumps `bossEpoch` and calls `rewind.clear()` in **both** directions —
-`Rewind` records enemies as state, so a rewind across the flip would otherwise
-resurrect a horde into a run that has none. The flag on `SpawnDirector` is
+stay). A mid-run flip bumps `bossEpoch` and calls `rewind.clear()` in **both**
+directions — `Rewind` records enemies as state, so a rewind across the flip
+would otherwise resurrect a horde into a run that has none. The first
+application of a run skips that: there is no history yet. The flag on `SpawnDirector` is
 `disabled`, deliberately separate from `suspended`: the boss flow clears
 `suspended` the moment a Monolith falls, which would hand the horde back to a
 player who switched it off. `SpawnDirector.reset()` touches run state only, so

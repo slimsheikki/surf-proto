@@ -239,8 +239,15 @@ export class Game {
    * Last seen value of the Enemies setting, so the tick it changes on is the
    * tick the world is brought in line with it. Not run state and deliberately
    * not in `Frame`: the setting is a property of the player, not of the run.
+   *
+   * **Starts `null`, meaning "not applied yet", and that is the whole point.**
+   * Seeded from the setting instead, the first tick would see no *change* and
+   * never write `SpawnDirector.disabled` — so a player who switched enemies off
+   * in the menu before the first run of the session got the horde anyway, since
+   * the opening run is the one that constructs `Game` rather than going through
+   * `restart`. `restart` puts it back to `null` for the same reason.
    */
-  private enemiesEnabledLastTick = getSettings().enemiesEnabled;
+  private enemiesEnabledLastTick: boolean | null = null;
 
   /**
    * Last wave whose banner has fired, by global index. Pure announcement
@@ -831,7 +838,11 @@ export class Game {
     // Wave headlines fire once the tick's XP has settled, and never over a
     // Monolith — the duel suspends spawning, so announcing its backdrop wave
     // would be noise. `fellBoss` hands the next act's opener to its own banner.
-    if (!this.boss) {
+    // Nor with enemies switched off: a wave is a spawn composition, and naming
+    // one that will never arrive is the same noise. `lastAnnouncedWave` is left
+    // where it is, so switching combat back on announces the wave the player is
+    // actually about to meet.
+    if (!this.boss && enemiesEnabled) {
       const wave = waveAt(this.levelSystem.level, this.bossesFelled);
       if (wave.globalWave > this.lastAnnouncedWave) {
         this.lastAnnouncedWave = wave.globalWave;
@@ -941,18 +952,29 @@ export class Game {
    */
   private applyEnemiesSetting(): boolean {
     const enabled = getSettings().enemiesEnabled;
-    if (enabled === this.enemiesEnabledLastTick) return enabled;
+    const previous = this.enemiesEnabledLastTick;
+    if (enabled === previous) return enabled;
     this.enemiesEnabledLastTick = enabled;
     this.spawnDirector.disabled = !enabled;
     if (!enabled) {
+      // A Monolith is an enemy like any other, so it goes with them — and its
+      // duel rule has to go with it. `spawnBoss` suspends drone spawning and
+      // only `fellBoss` lifts that, so a Monolith dismissed by this switch
+      // would leave the director latched: enemies back on, and the horde never
+      // returns for the rest of the run.
       this.despawnBoss();
+      this.spawnDirector.suspended = false;
       this.entityManager.clearEnemies();
       this.entityManager.clearBlasts();
       this.entityManager.clearBolts();
     }
-    // Bumped so a rewind cannot straddle the flip even if the history survives.
-    this.bossEpoch += 1;
-    this.rewind.clear();
+    // Only a mid-run flip needs the history truncated — on the first tick of a
+    // run there is none, and bumping the epoch there would be noise. The epoch
+    // bump is what stops a rewind straddling the flip if the clear ever misses.
+    if (previous !== null) {
+      this.bossEpoch += 1;
+      this.rewind.clear();
+    }
     return enabled;
   }
 
@@ -1277,10 +1299,10 @@ export class Game {
     this.playerController.yaw = degToRad(this.course.spawnYawDeg);
     this.playerController.pitch = 0;
     this.spawnDirector.reset();
-    // `reset` clears run state only, so the setting has to be re-stamped here —
-    // a restart must not hand the horde back to someone who switched it off.
-    this.enemiesEnabledLastTick = getSettings().enemiesEnabled;
-    this.spawnDirector.disabled = !this.enemiesEnabledLastTick;
+    // Back to "not applied yet": `reset` clears run state only, and the first
+    // tick of the new run is what re-stamps the setting onto the director. A
+    // restart must not hand the horde back to someone who switched it off.
+    this.enemiesEnabledLastTick = null;
     this.levelSystem.reset();
     this.weapon.reset();
     this.soundBlastFx.hide();
