@@ -129,6 +129,27 @@ movement.
   Any two of these open at once means one number key fires both. That is why Escape over a
   power screen routes to `App.resumeRun` instead of opening the pause menu.
 
+## The vitals panel
+
+HP, XP and the dash charges are the painted panel in the top-left corner
+(`src/ui/MegaflowHud.ts`, `#mf-hud` in `styles.css`), built from the owner's art in
+`public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` and held against the
+`ui-elements-placement-reference.png` in there. The bottom HUD column keeps only the
+readouts that have no art.
+
+**The slot rects in `MegaflowHud.ts` are measured off the PNGs' alpha, not chosen** — they
+are the bar recesses drawn into the frame art, which is what keeps a fill in its socket at
+every scale. Re-export a frame and re-measure; do not nudge them by eye.
+
+**A bar fills by clipping, never by resizing.** Every bar in this art is a parallelogram, so
+a box that shrinks cuts a vertical edge across a leaning bar. `barClip` carries the bar's own
+lean into the cut. **The dash pips are the exception that proves it**: they are the one
+element whose *width* changes at runtime (an Extra Dash re-splits the same track), and a
+stretched sprite stretches its rim and flattens its lean, so they are drawn in CSS from
+colours sampled out of the sprites. Don't "fix" that by swapping the sprite back in.
+
+See `docs/STATE.md` for the level-up flush and why `INITIAL_LEVEL` stayed at 1.
+
 ## Endless runs
 
 There is **no win state** — felling the Monolith continues the run, and death is the only

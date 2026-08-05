@@ -12,10 +12,10 @@
     <!-- Aiming dot. Its own element rather than part of #hud, because the HUD
          is docked to the bottom of the screen and this has to be dead centre. -->
     <div id="crosshair" class="hidden"></div>
-    <!-- XP leads the stack: it is the bar that decides when the run's next
-         decision arrives, and it is the one the player checks most. -->
+    <!-- The run's numbers. HP, XP and the dash charges are not here any more:
+         they are the painted panel in the top-left corner, built in
+         `ui/MegaflowHud.ts`. What is left is the text that has no art. -->
     <div id="hud" class="hidden">
-      <div id="bar-xp" class="bar"><div id="bar-xp-fill" class="bar-fill xp"></div></div>
       <div id="hud-readouts">
         <!-- Banked powers lead the row: it is the only readout here that is
              asking the player to do something. Hidden at zero, like the felled
@@ -28,9 +28,6 @@
         <span id="speed-readout">0 u/s</span>
         <span id="felled-readout" class="hidden"></span>
       </div>
-      <div id="bar-hp" class="bar"><div id="bar-hp-fill" class="bar-fill hp"></div></div>
-      <div id="bar-dash" class="bar"><div id="bar-dash-fill" class="bar-fill dash"></div></div>
-      <div id="dash-readout">Dash 2/2</div>
     </div>
     <div id="boss-bar" class="hidden" data-phase="1">
       <div id="boss-bar-labels">
