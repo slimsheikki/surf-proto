@@ -99,7 +99,7 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
 ];
 
 /** The menu bed. Fixed rather than random: the front door should sound the same every time. */
-export const MENU_TRACK_ID = 'ultra-speed';
+export const MENU_TRACK_ID = 'avalon';
 
 export const DEFAULT_MUSIC_VOLUME = 0.35;
 
