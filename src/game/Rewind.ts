@@ -13,7 +13,7 @@ import { Dash, DashSnapshot } from '../player/Dash';
 import { MovementConfig } from '../player/MovementConfig';
 import { PlayerController } from '../player/PlayerController';
 import { LevelSnapshot, LevelSystem } from '../progression/LevelSystem';
-import { RunPerks } from '../progression/Upgrades';
+import { CARTRIDGES, RunPerks } from '../progression/Upgrades';
 import { XP_MAGNET, XPOrb } from '../progression/XPOrb';
 import { EntityManager } from './EntityManager';
 import { FlowXP } from './FlowXP';
@@ -127,6 +127,17 @@ class Frame {
   hp = 0;
   maxHp = 0;
   regenPerSecond = 0;
+
+  /**
+   * The Cartridge ladder — accumulated steps per Cartridge, by index.
+   *
+   * One field for the whole pool however many Cartridges exist, and
+   * preallocated so recording it is a fixed-length copy rather than an
+   * allocation at 32 Hz across 480 frames. Every derived stat a Cartridge
+   * writes is recorded in its own right alongside; this is what lets the menu
+   * keep showing the right running total after a rewind.
+   */
+  cartridgeSteps: number[] = new Array(CARTRIDGES.length).fill(0);
 
   level: LevelSnapshot = { level: 1, xp: 0, xpToNext: 0, bankedPicks: 0 };
   dash: DashSnapshot = { charges: 0, maxCharges: 0, rechargeSeconds: 0, rechargeTimer: 0 };
@@ -312,6 +323,9 @@ export class Rewind {
     frame.weaponAttacksPerSecond = c.weapon.attacksPerSecond;
     frame.weaponRange = c.weapon.range;
     frame.weaponVelocityRounds = c.weapon.velocityRounds;
+    for (let i = 0; i < frame.cartridgeSteps.length; i++) {
+      frame.cartridgeSteps[i] = c.perks.steps[i];
+    }
     frame.healOnKill = c.perks.healOnKill;
     frame.xpMultiplier = c.perks.xpMultiplier;
     frame.soundBlastDamage = c.perks.soundBlastDamage;
@@ -487,6 +501,9 @@ export class Rewind {
     c.weapon.attacksPerSecond = frame.weaponAttacksPerSecond;
     c.weapon.range = frame.weaponRange;
     c.weapon.velocityRounds = frame.weaponVelocityRounds;
+    for (let i = 0; i < frame.cartridgeSteps.length; i++) {
+      c.perks.steps[i] = frame.cartridgeSteps[i];
+    }
     c.perks.healOnKill = frame.healOnKill;
     c.perks.xpMultiplier = frame.xpMultiplier;
     c.perks.soundBlastDamage = frame.soundBlastDamage;

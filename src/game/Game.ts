@@ -1103,7 +1103,7 @@ export class Game {
     this.state = 'pausedForUpgrade';
     // The draw function, not a drawn list: the menu opens on four and rerolls
     // down to three then two, so it has to be able to ask for a new set itself.
-    this.upgradeMenu.show(drawUpgradeChoices, (choice) => {
+    this.upgradeMenu.show((count) => drawUpgradeChoices(count, this.perks), (choice) => {
       choice.apply(this.upgradeContext());
       this.playerController.grantMomentumBoost();
       this.state = 'playing';
@@ -1152,7 +1152,7 @@ export class Game {
     }
     const label = total > 1 ? `Power ${total - remaining + 1} of ${total}` : '';
     this.upgradeMenu.show(
-      drawUpgradeChoices,
+      (count) => drawUpgradeChoices(count, this.perks),
       (choice) => {
         choice.apply(this.upgradeContext());
         this.levelSystem.spendPicks(1);
@@ -1171,7 +1171,7 @@ export class Game {
    */
   private rollGamble(): void {
     const picks = this.levelSystem.bankedPicks;
-    const upgrade = drawOfRarity(rollGambleRarity(picks));
+    const upgrade = drawOfRarity(rollGambleRarity(picks), this.perks);
     upgrade.apply(this.upgradeContext());
     this.levelSystem.spendPicks(picks);
     this.bankMenu.showResult(upgrade, () => this.finishCashIn());

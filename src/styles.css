@@ -571,7 +571,7 @@ h2,
  * read as *the same card, lit differently*, or the eye starts measuring size
  * instead of reading the name.
  */
-.upgrade-choice.rarity-rare {
+.upgrade-choice.rarity-uncommon {
   border-color: rgba(92, 200, 255, 0.65);
   box-shadow: var(--glass-highlight), 0 0 0 1px rgba(92, 200, 255, 0.25),
     0 0 22px rgba(92, 200, 255, 0.35);
@@ -599,7 +599,7 @@ h2,
   opacity: 0.75;
 }
 
-.rarity-rare .upgrade-rarity {
+.rarity-uncommon .upgrade-rarity {
   color: #5cc8ff;
 }
 
