@@ -715,7 +715,15 @@ in a new `Gameplay` block above the convar bench, with the other switches that
 change what the game *is*, and nowhere else.
 
 `Game.applyEnemiesSetting` runs at the top of `updateGameplay`, before anything
-spawns. `enemiesEnabledLastTick` starts **`null`** ("not applied yet") and
+spawns, and a **Monolith counts as an enemy**: `spawnBoss` is gated on the
+setting and a standing one is dismissed the tick it goes off, boss bar with it.
+Dismissing it also clears `spawnDirector.suspended` — `spawnBoss` sets that and
+only `fellBoss` lifts it, so a Monolith taken away by this switch would leave
+the director latched and the horde would never come back when enemies were
+switched on again. Wave headlines are suppressed while it is off, too: a wave is
+a spawn composition, and naming one that will never arrive is noise.
+
+`enemiesEnabledLastTick` starts **`null`** ("not applied yet") and
 `restart` puts it back — seeded from the setting instead, the first tick sees no
 *change* and never writes `SpawnDirector.disabled`, so the opening run of a
 session (the one that constructs `Game` rather than going through `restart`)

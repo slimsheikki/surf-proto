@@ -838,7 +838,11 @@ export class Game {
     // Wave headlines fire once the tick's XP has settled, and never over a
     // Monolith — the duel suspends spawning, so announcing its backdrop wave
     // would be noise. `fellBoss` hands the next act's opener to its own banner.
-    if (!this.boss) {
+    // Nor with enemies switched off: a wave is a spawn composition, and naming
+    // one that will never arrive is the same noise. `lastAnnouncedWave` is left
+    // where it is, so switching combat back on announces the wave the player is
+    // actually about to meet.
+    if (!this.boss && enemiesEnabled) {
       const wave = waveAt(this.levelSystem.level, this.bossesFelled);
       if (wave.globalWave > this.lastAnnouncedWave) {
         this.lastAnnouncedWave = wave.globalWave;
@@ -953,7 +957,13 @@ export class Game {
     this.enemiesEnabledLastTick = enabled;
     this.spawnDirector.disabled = !enabled;
     if (!enabled) {
+      // A Monolith is an enemy like any other, so it goes with them — and its
+      // duel rule has to go with it. `spawnBoss` suspends drone spawning and
+      // only `fellBoss` lifts that, so a Monolith dismissed by this switch
+      // would leave the director latched: enemies back on, and the horde never
+      // returns for the rest of the run.
       this.despawnBoss();
+      this.spawnDirector.suspended = false;
       this.entityManager.clearEnemies();
       this.entityManager.clearBlasts();
       this.entityManager.clearBolts();
