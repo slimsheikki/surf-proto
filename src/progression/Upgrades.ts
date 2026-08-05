@@ -332,6 +332,16 @@ export const CARTRIDGES: Cartridge[] = [
     },
   },
   {
+    id: 'solstice',
+    name: 'Solstice',
+    icon: 'solstice',
+    effect: (s) => `+${s} luck`,
+    // Writes nothing. Luck is read out of the ladder at draw time by
+    // `luckSteps`, which is the only way it could also bend a *gamble* — that
+    // roll happens in `Game`, nowhere near an UpgradeContext.
+    step: () => {},
+  },
+  {
     id: 'harvest',
     name: 'Harvest',
     icon: 'harvest',
@@ -719,6 +729,28 @@ const UNIQUES: Omit<Upgrade, 'owned'>[] = [
 ];
 
 /**
+ * Accumulated Solstice steps.
+ *
+ * **The only Cartridge that never makes you stronger on its own**, and that is
+ * the whole tension of the build: every step is a pick not spent on Ember, and
+ * every level banked behind it is time on the course underpowered.
+ */
+export function luckSteps(perks: RunPerks): number {
+  return cartridgeSteps(perks, 'solstice');
+}
+
+/**
+ * Effective gamble stake: every three steps of luck reads one row higher.
+ *
+ * Luck deliberately does **not** rewrite the odds rows — it lets a smaller
+ * stake read a bigger one, so a luck build gambles *more often* rather than
+ * only harder. At nine steps a two-pick gamble reads the top row.
+ */
+export function luckyStake(picks: number, perks: RunPerks): number {
+  return picks + Math.floor(luckSteps(perks) / 3);
+}
+
+/**
  * Tier odds for one level-up card, in permille so a row sums exactly.
  *
  * **An epic in a pick menu should be a story and a legendary a run you
@@ -734,11 +766,25 @@ const MENU_TIER_ODDS: Readonly<Record<Rarity, number>> = {
   legendary: 1,
 };
 
-function rollMenuRarity(): Rarity {
+/**
+ * The menu roll, bent by luck.
+ *
+ * Gently on purpose. Epic and legendary weights scale, and uncommon grows by a
+ * flat 26 permille per step, all of it taken out of common — but even a deep
+ * stack leaves a level-up overwhelmingly common, because luck must not turn the
+ * pick menu into the gamble. It improves the *tier* you are offered; it can
+ * never improve which Cartridge shows up, which is what the four-card menu is
+ * for.
+ */
+function rollMenuRarity(luck: number): Rarity {
+  const scale = 1 + 0.75 * luck;
+  const legendary = MENU_TIER_ODDS.legendary * scale;
+  const epic = MENU_TIER_ODDS.epic * scale;
+  const uncommon = Math.min(1000 - legendary - epic, MENU_TIER_ODDS.uncommon + 26 * luck);
   let roll = Math.random() * 1000;
-  if ((roll -= MENU_TIER_ODDS.legendary) < 0) return 'legendary';
-  if ((roll -= MENU_TIER_ODDS.epic) < 0) return 'epic';
-  if ((roll -= MENU_TIER_ODDS.uncommon) < 0) return 'uncommon';
+  if ((roll -= legendary) < 0) return 'legendary';
+  if ((roll -= epic) < 0) return 'epic';
+  if ((roll -= uncommon) < 0) return 'uncommon';
   return 'common';
 }
 
@@ -752,10 +798,11 @@ function rollMenuRarity(): Rarity {
  */
 export function drawUpgradeChoices(count: number, perks: RunPerks): Upgrade[] {
   const pool = [...CARTRIDGES];
+  const luck = luckSteps(perks);
   const choices: Upgrade[] = [];
   for (let i = 0; i < count && pool.length > 0; i++) {
     const index = Math.floor(Math.random() * pool.length);
-    choices.push(instantiate(pool.splice(index, 1)[0], rollMenuRarity(), perks));
+    choices.push(instantiate(pool.splice(index, 1)[0], rollMenuRarity(luck), perks));
   }
   return choices;
 }

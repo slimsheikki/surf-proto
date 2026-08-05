@@ -30,6 +30,7 @@ import {
   createRunPerks,
   cartridgeSteps,
   drawOfRarity,
+  luckyStake,
   drawUpgradeChoices,
   resetRunPerks,
   rollGambleRarity,
@@ -1151,7 +1152,7 @@ export class Game {
   private openAllInScreen(): void {
     const picks = this.levelSystem.bankedPicks;
     this.state = 'pausedForUpgrade';
-    this.bankMenu.showDecision(picks, {
+    this.bankMenu.showDecision(picks, luckyStake(picks, this.perks), {
       onSpend: () => this.runPicks(picks, picks),
       onGamble: () => this.rollGamble(),
     });
@@ -1193,7 +1194,8 @@ export class Game {
    */
   private rollGamble(): void {
     const picks = this.levelSystem.bankedPicks;
-    const upgrade = drawOfRarity(rollGambleRarity(picks), this.perks);
+    // The same effective stake the decision screen quoted — see `showDecision`.
+    const upgrade = drawOfRarity(rollGambleRarity(luckyStake(picks, this.perks)), this.perks);
     upgrade.apply(this.upgradeContext());
     this.levelSystem.spendPicks(picks);
     this.bankMenu.showResult(upgrade, () => this.finishCashIn());

@@ -85,7 +85,15 @@ export class BankMenu {
     return this.mode !== 'off';
   }
 
-  showDecision(picks: number, handlers: BankDecisionHandlers): void {
+  /**
+   * `oddsStake` is the row the roll will actually read, which is the stake plus
+   * whatever Solstice has bought. It is passed in separately from `picks`
+   * because the two say different things: `picks` is what you are spending,
+   * `oddsStake` is what you are spending it *as*. **They must not drift** — a
+   * screen that quotes one row while the roll uses another is the single worst
+   * bug a gamble can have.
+   */
+  showDecision(picks: number, oddsStake: number, handlers: BankDecisionHandlers): void {
     this.mode = 'decision';
     this.handlers = handlers;
     this.dismiss = null;
@@ -99,12 +107,16 @@ export class BankMenu {
         : `${picks} picks, four to choose from each time`;
 
     if (this.gambleAllowed) {
-      const odds = gambleOdds(picks);
+      const odds = gambleOdds(oddsStake);
       // The bust is quoted next to the prize on purpose. A gamble that only
       // advertises its upside is not one the player is really making.
+      //
+      // Luck is called out rather than folded in silently: a player who spent
+      // picks on Solstice should see the row it bought them.
+      const lucky = oddsStake > picks ? ` (luck: rolling as ${oddsStake})` : '';
       this.gambleBodyEl.textContent =
         `One blind roll — ${odds.legendary / 10}% legendary, ` +
-        `${odds.epic / 10}% epic, ${odds.common / 10}% bust`;
+        `${odds.epic / 10}% epic, ${odds.common / 10}% bust${lucky}`;
     } else {
       this.gambleBodyEl.textContent = `Needs ${MIN_GAMBLE_PICKS} banked`;
     }
