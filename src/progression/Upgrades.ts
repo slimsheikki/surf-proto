@@ -252,6 +252,17 @@ export const CARTRIDGES: Cartridge[] = [
     },
   },
   {
+    id: 'glider',
+    name: 'Glider',
+    icon: 'glider',
+    effect: (s) => `hold space · ${Math.round(gliderScale(s) * 100)}% fall`,
+    // The one field only this Cartridge writes, so it is set absolutely from
+    // the total rather than walking a delta.
+    step: (_ctx, _added, total) => {
+      MovementConfig.GLIDE_GRAVITY_SCALE = gliderScale(total);
+    },
+  },
+  {
     id: 'pulse',
     name: 'Pulse',
     icon: 'pulse',
@@ -466,6 +477,16 @@ function updraftJump(s: number): number {
 }
 function pulseRecharge(s: number): number {
   return (-4.5 * s) / (s + 4); // -> 1.5 s at infinity, off a base of 6
+}
+/**
+ * Fraction of gravity the Glider leaves you paying, at `s` steps.
+ *
+ * The first step grants the glide at half gravity; every step after deepens it
+ * toward a floor of a quarter. **Never zero**: a true float would let a player
+ * park in the air and wait a wave out.
+ */
+function gliderScale(s: number): number {
+  return s <= 0 ? 1 : Math.max(0.25, 0.5 - 0.06 * (s - 1));
 }
 function pollenRadius(s: number): number {
   return (26 * s) / (s + 6); // -> 44 at infinity, off a base of 18

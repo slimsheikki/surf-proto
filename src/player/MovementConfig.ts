@@ -14,6 +14,19 @@
  * file is that a surfer can read it and recognise their config.
  */
 export const MovementConfig = {
+  /**
+   * How much of gravity the Glider leaves you paying while you hold jump,
+   * airborne and descending. **1 = the Cartridge is unowned**, which is why
+   * this is a multiplier rather than a flag: with nothing taken the whole
+   * feature costs one multiply by one.
+   *
+   * Floored at 0.25 by the Cartridge and never allowed to reach 0 — a true
+   * float would let a player park in the air and wait a wave out, and this
+   * game has no standing still in it.
+   *
+   * Not a CS convar. Nothing in Source does this; it is ours.
+   */
+  GLIDE_GRAVITY_SCALE: 1,
   /** `sv_accelerate` 5 (CS:S default; HL2's 10 made ground movement twitchier than CS). */
   GROUND_ACCEL: 5,
   /**
