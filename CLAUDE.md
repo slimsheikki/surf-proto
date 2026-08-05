@@ -268,6 +268,23 @@ base64url behind a format tag, carried in the URL **fragment** so it never reach
 Decoding routes through `parseMap`, imported names go through `uniqueMapName` (or Save
 overwrites the recipient's own map of that name), and the hash is cleared after import.
 
+## Patch notes
+
+The front menu's bottom-left chip shows the last five merges, one line each. **Every PR from
+now on carries a `## Patch Notes` heading in its body** — one sentence for the core change, more
+sentences (never bigger words) if it did more than one thing. A PR without the heading does not
+appear on the menu at all; there is no fallback to the first paragraph, on purpose, because
+every body in this repo opens on a technical write-up and a fallback would put one on screen.
+
+The voice is blunt and non-technical, near caveman: *"XP bar sits ON the HP frame now. Before it
+floated. Looked wrong."* Not the mechanism, not the file, not the constant — what is different
+now, for someone about to press Play. `BACKFILL` in `scripts/patch-notes.mjs` covers the PRs
+that merged before the convention; **nothing new is ever added to it**.
+
+`public/patch-notes.json` is generated at deploy and gitignored, so dev shows no chip unless you
+run `npm run notes`. See `docs/STATE.md` for why it is baked rather than fetched, and why
+`PatchNotes` deliberately owns no keydown listener.
+
 ## Where things stand
 
 See **`docs/STATE.md`** — current known bugs, tuning constants, and what's next. Read that

@@ -4,6 +4,48 @@ Living handoff doc. Read at session start, update before finishing. Keep it shor
 delete anything resolved rather than accumulating history. For the running backlog of
 requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
+## Patch notes on the front menu (new)
+
+A chip in the bottom-left corner of the root menu page — `LATEST PATCH #39` and one line of
+what changed — opening upward into the last five merges. `src/ui/PatchNotes.ts`, styles under
+the `patch notes` banner in `styles.css`, an empty `#patch-notes` div in `index.html`.
+
+**The text comes from the PR body, under a `## Patch Notes` heading, and from nowhere else.**
+`scripts/patch-notes.mjs` reads it at deploy time and writes `public/patch-notes.json`; a PR
+with no such heading does not appear. There is deliberately **no fallback to the first
+paragraph** — every body in this repo opens on a technical write-up, so a fallback fails on the
+screen instead of in the parser, and it makes the heading optional, which is the same as making
+it stop being written. `BACKFILL` in that script covers #33–#39, which merged before the
+convention existed; nothing new is ever added to it.
+
+**Generated at deploy, not fetched in the browser.** One workflow step between `npm ci` and
+`npm run build`. A runtime fetch of api.github.com costs a loading state, a failure state, a
+markdown parser in the bundle and 60 requests/hour per IP, to render text that cannot change
+between two deploys — a deploy is what publishes the build the notes describe. The generator
+never fails the job: on any API error it writes `[]` and the chip does not render.
+
+The JSON is **gitignored** — a build artifact. `npm run dev` has no file, the fetch 404s, and
+the chip is absent, which is also what a fresh clone looks like. `npm run notes` makes one
+locally. The URL is built off `import.meta.env.BASE_URL`; an absolute `/patch-notes.json` works
+on localhost and 404s on Pages, which is the trap the logo hit first.
+
+Three things there are decisions, not details:
+
+- **The chip is not a fourth row in `#menu-stack`.** The number keys are bound by iterating
+  `#menu-stack [data-action]`, so a row there would silently have become key 4 — and would put a
+  changelog at the same weight as PLAY. It takes `N`, the way the mode switch took `B`.
+- **`PatchNotes` owns no keydown listener.** `MainMenu` routes `N` and `Escape` in from the one
+  it already has. That is the whole defence against the `PauseMenu`/`UpgradeMenu` trap below:
+  there is no second listener to double-fire. It also means 1/2/3 keep working with the panel
+  open, which is right — it is a corner dropdown covering nothing, not a modal.
+- **The chip and the rows carry the note, not the PR title.** At 220–300px there is no room for
+  both, and a note needing a title beside it to be understood was not written properly.
+
+Two bugs the first pass shipped and `.probe-menu-check.mjs` now guards: `.overlay` centres its
+text (a ragged-centre paragraph in a 260px column is unreadable), and the entry list was capped
+low enough to clip the fifth note — a panel that cuts a sentence in half reads as broken rather
+than as scrollable, so the cap is generous and the scroll is the overflow valve.
+
 ## The painted vitals panel (new)
 
 HP, XP and the dash charges left the bottom HUD column and are now the art panel in the
