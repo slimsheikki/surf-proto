@@ -86,6 +86,16 @@ export const MUSIC_TRACKS: readonly MusicTrack[] = [
     title: 'Purple Flowers',
     file: 'wild-speed-records-shound-purple-flowers-477423.mp3',
   },
+  {
+    id: 'avalon',
+    title: 'Avalon',
+    file: 'Maduk - Avalon.mp3',
+  },
+  {
+    id: 'levitate',
+    title: 'Levitate',
+    file: 'Maduk - Levitate.mp3',
+  },
 ];
 
 /** The menu bed. Fixed rather than random: the front door should sound the same every time. */
