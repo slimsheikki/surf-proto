@@ -17,6 +17,24 @@
   font-display: block;
 }
 
+/*
+ * The headline face. Chunky, comic, and exactly the 2000s toy-hardware voice
+ * the cartridge art is speaking — which is why it is only ever used *big*.
+ * At UI size it reads as clip art, so nothing small is set in it: the banked
+ * counter's `+1` and screen titles, and nothing else.
+ *
+ * SIL Open Font License, bundled like the other two rather than linked, for
+ * the reason `font-display: block` exists here — a flash of system-font
+ * MEGAFLOW is worse than a beat of nothing.
+ */
+@font-face {
+  font-family: 'Slackey';
+  src: url('/fonts/Slackey-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 @font-face {
   font-family: 'IBM Plex Mono';
   src: url('/fonts/IBMPlexMono-Regular.ttf') format('truetype');
@@ -28,6 +46,16 @@
 :root {
   --font-display: 'Bitcount Prop Single', 'Impact', sans-serif;
   --font-body: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-headline: 'Slackey', 'Comic Sans MS', cursive;
+
+  /*
+   * The vitals panel's one size knob, hoisted to the root so things *outside*
+   * the panel can be laid out around it — the boss bar is the only one so far,
+   * and it needs this because the panel is the widest thing on the screen's top
+   * edge. `#mf-hud` still owns what it means; see the note there.
+   */
+  --mf-w: clamp(300px, 27vw, 560px);
+  --mf-top: 2.2vh;
 
   /*
    * Purple, anchored on the crosshair's #b45cff — that colour was already in
@@ -276,16 +304,16 @@ h2,
  * ========================================================================= */
 #mf-hud {
   position: fixed;
-  top: 2.2vh;
+  top: var(--mf-top);
   left: 1.6vw;
   /*
-   * The one size knob, and also the panel's unit: `font-size` is set to it so
-   * the few lengths that cannot be percentages — the pip rim, which is a rim
-   * and not a share of anything — can be written in `em` and still scale with
-   * the panel instead of drifting thick at 4K and vanishing on a laptop.
-   * Nothing in here draws text.
+   * The one size knob (declared on `:root`, so the boss bar can clear the
+   * panel), and also the panel's unit: `font-size` is set to it so the few
+   * lengths that cannot be percentages — the pip rim, which is a rim and not a
+   * share of anything — can be written in `em` and still scale with the panel
+   * instead of drifting thick at 4K and vanishing on a laptop. Nothing in here
+   * draws text.
    */
-  --mf-w: clamp(300px, 27vw, 560px);
   width: var(--mf-w);
   font-size: var(--mf-w);
   /* Matches #hud: the panel is doing real work during a rewind, so the
@@ -351,6 +379,114 @@ h2,
   background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_HP_XPBar_Full.png') no-repeat 0 0 / 100% 100%;
 }
 
+/* --------------------------------------------------- banked levels + level
+ *
+ * Hung off the right end of the XP bar, because that is where the player is
+ * already looking to watch it fill — the reward lands where the progress was.
+ *
+ * **Drawn, not sprited.** This is the second element in the panel whose width
+ * changes at runtime (`+1` and `+10` are different lengths), and the dash pips
+ * already record why that rules a sprite out: stretching one stretches its rim
+ * and flattens its lean. Every colour below is sampled out of
+ * `UI_XP_XPBar_BackgroundElement.png` and `UI_HP_XPBar_Full.png`, so it sits in
+ * the same set as the art it stands beside rather than merely near it.
+ */
+.mf-bank-col {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.012em;
+}
+
+.mf-level {
+  font-family: var(--font-display);
+  font-size: 0.042em;
+  letter-spacing: 0.09em;
+  color: #f4ffe9;
+  /*
+   * Outlined, not shadowed. This readout sits over open sky more often than
+   * over anything else, and a light glyph on a bright horizon needs a dark
+   * edge on every side rather than a drop shadow on one — the same problem the
+   * bottom HUD solves, one screen down.
+   */
+  -webkit-text-stroke: 0.006em #0a3d1c;
+  paint-order: stroke fill;
+  text-shadow: 0 0.008em 0.02em rgba(3, 30, 14, 0.8);
+  white-space: nowrap;
+  margin-bottom: 0.004em;
+}
+
+/*
+ * The slab. Skewed to the XP bar's own lean (28 px over 240 = 6.65 deg) so it
+ * reads as cut from the same sheet; the count inside is counter-skewed so the
+ * type stays upright.
+ */
+.mf-bank {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0.10em;
+  padding: 0.015em 0.034em;
+  transform: skewX(-6.65deg);
+  background: linear-gradient(180deg, #86e060 0%, #84dc60 62%, #6dd163 100%);
+  border-bottom: 0.012em solid #106c32;
+  box-shadow:
+    inset 0 0.006em 0 rgba(255, 255, 255, 0.45),
+    inset 0 -0.02em 0 rgba(5, 77, 29, 0.35),
+    /* the blue outline, drawn as a ring rather than a border so it does not
+       change the box the slab occupies as the count grows */
+    0 0 0 0.008em rgba(85, 201, 255, calc(0.55 + 0.45 * var(--bank-t, 0))),
+    0 0 calc(0.02em + 0.05em * var(--bank-t, 0)) rgba(85, 201, 255, calc(0.35 + 0.5 * var(--bank-t, 0)));
+  animation: mf-bank-bounce calc(1.15s - 0.45s * var(--bank-t, 0)) ease-in-out infinite;
+  will-change: transform;
+}
+
+/*
+ * At the cap the invitation becomes a warning — levels earned past here are
+ * discarded. Only the ring changes colour: the slab stays the XP bar's green so
+ * the badge is still recognisably the same object, and red on the outline is
+ * the same language the F prompt uses one screen down.
+ */
+.mf-bank.at-cap {
+  box-shadow:
+    inset 0 0.006em 0 rgba(255, 255, 255, 0.45),
+    inset 0 -0.02em 0 rgba(5, 77, 29, 0.35),
+    0 0 0 0.008em rgba(255, 92, 92, 0.95),
+    0 0 0.07em rgba(255, 92, 92, 0.85);
+}
+
+.mf-bank-count {
+  font-family: var(--font-headline);
+  font-size: 0.058em;
+  line-height: 1;
+  color: #0b3d1c;
+  /* Counter-skew, so the slab leans and the number does not. */
+  transform: skewX(6.65deg);
+  text-shadow: 0 0.02em 0 rgba(214, 255, 196, 0.65);
+}
+
+/*
+ * The bounce carries the skew with it, or the slab would un-lean for the
+ * duration of the animation — a transform in a keyframe replaces the whole
+ * transform, it does not add to it.
+ */
+@keyframes mf-bank-bounce {
+  0%,
+  100% {
+    transform: skewX(-6.65deg) translateY(0);
+  }
+  50% {
+    transform: skewX(-6.65deg) translateY(calc(-0.012em - 0.022em * var(--bank-t, 0)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mf-bank {
+    animation: none;
+  }
+}
+
 .mf-dash {
   position: absolute;
   background: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/UI_DASH_BackgroundElement.png') no-repeat 0 0 /
@@ -398,11 +534,20 @@ h2,
   box-shadow: 0 0 0.02em rgba(255, 200, 60, 0.9);
 }
 
-/* Boss fight banner. Top-centre so it never fights the bottom-left HUD for
-   space, and pointer-events off so it can't eat a click meant for the canvas. */
+/*
+ * Boss fight banner. Top-centre so it never fights the bottom-left HUD for
+ * space, and pointer-events off so it can't eat a click meant for the canvas.
+ *
+ * It hangs *below* the vitals panel rather than level with it. Centred and 720
+ * wide, its left end reaches back to 28vw, which is inside the panel at every
+ * common width — "THE MONOLITH" used to print straight over the XP plate, and
+ * the banked badge now hangs further right still. The panel's drawn height is
+ * 0.293 of its width whatever the viewport, so 0.32 clears the whole thing
+ * including the badge, with room at 1280, 1440 and 1920.
+ */
 #boss-bar {
   position: fixed;
-  top: 18px;
+  top: calc(var(--mf-top) + var(--mf-w) * 0.32);
   left: 50%;
   transform: translateX(-50%);
   width: min(720px, 76vw);

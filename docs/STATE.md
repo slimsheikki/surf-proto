@@ -96,7 +96,8 @@ HP, XP and the dash charges left the bottom HUD column and are now the art panel
 top-left corner — `src/ui/MegaflowHud.ts`, styles under the `#mf-hud` banner in
 `styles.css`, assets in `public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` (owner-supplied, including
 `ui-elements-placement-reference.png`, which is what the layout is held against). The bottom
-column keeps what has no art: banked picks, level, clock/wave, speed, felled.
+column keeps what has no art: clock/wave, speed, felled, and the `F` prompt — which is a
+*prompt*, not a readout, and stays because it carries the 2.5 s hold meter.
 
 Four things worth knowing before touching it:
 
@@ -125,6 +126,21 @@ Four things worth knowing before touching it:
 - **The HP bar is a fraction and must stay one.** Growing the pool moves the bar less per
   hit, which is both the requested behaviour and the reason it can never spill out of the
   frame. Verified at 220 max HP.
+- **The banked badge is the second drawn element, for the same reason as the pips.** `+1`
+  and `+10` are different widths, so a sprite would stretch its rim and flatten its lean.
+  Its greens are sampled out of `UI_XP_XPBar_BackgroundElement.png` and its blue out of
+  `UI_HP_XPBar_Full.png`, and it carries the XP bar's own 6.65° lean (28 px over 240) with
+  the count counter-skewed back upright. One `--bank-t` (banked / `BANK_INTENSITY_CAP`, 4)
+  drives glow strength, bounce height and bounce rate together so they cannot disagree
+  about how loud the badge currently is. At `PICK_CAP` the ring goes red: past there
+  level-ups are being discarded, so the invitation is a warning.
+
+The badge hangs off the *right end of the XP bar* — outside `#mf-hud`'s box, which is why
+that element may never clip. That put it on top of `#boss-bar`, which is centred and 720
+wide and so reaches back to 28vw at every common width; "THE MONOLITH" had in fact been
+printing over the XP plate since the panel landed. The boss bar now hangs below the panel
+(`--mf-w` and `--mf-top` moved to `:root` so it can be laid out against them; the panel's
+drawn height is a fixed 0.293 of its width). Checked at 1280, 1440 and 1920.
 
 A level-up runs the XP bar *out to full* before dropping it to the new level (`flushing` in
 `updateXp`) and lights the frame for half a second. A drop with no level-up behind it is a

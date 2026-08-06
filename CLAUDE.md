@@ -131,11 +131,18 @@ movement.
 
 ## The vitals panel
 
-HP, XP and the dash charges are the painted panel in the top-left corner
-(`src/ui/MegaflowHud.ts`, `#mf-hud` in `styles.css`), built from the owner's art in
-`public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` and held against the
+HP, XP, the dash charges, the level and the banked-level badge are the painted panel in the
+top-left corner (`src/ui/MegaflowHud.ts`, `#mf-hud` in `styles.css`), built from the owner's
+art in `public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` and held against the
 `ui-elements-placement-reference.png` in there. The bottom HUD column keeps only the
-readouts that have no art.
+readouts that have no art, plus the `F` prompt — a prompt, not a readout, and the carrier of
+the 2.5 s hold meter.
+
+**The badge hangs outside `#mf-hud`'s box, so that element may never clip**, and it lands
+where `#boss-bar` used to be. The boss bar is centred at 720 px wide and therefore reaches
+back to 28vw at every common width, so it now hangs *below* the panel; `--mf-w` and
+`--mf-top` live on `:root` for that, and the panel's drawn height is a fixed 0.293 of its
+width.
 
 **The slot rects in `MegaflowHud.ts` are measured off the PNGs' alpha, not chosen** — they
 are the bar recesses drawn into the frame art, which is what keeps a fill in its socket at
@@ -143,10 +150,11 @@ every scale. Re-export a frame and re-measure; do not nudge them by eye.
 
 **A bar fills by clipping, never by resizing.** Every bar in this art is a parallelogram, so
 a box that shrinks cuts a vertical edge across a leaning bar. `barClip` carries the bar's own
-lean into the cut. **The dash pips are the exception that proves it**: they are the one
-element whose *width* changes at runtime (an Extra Dash re-splits the same track), and a
-stretched sprite stretches its rim and flattens its lean, so they are drawn in CSS from
-colours sampled out of the sprites. Don't "fix" that by swapping the sprite back in.
+lean into the cut. **The dash pips and the banked badge are the exceptions that prove it**:
+they are the elements whose *width* changes at runtime (an Extra Dash re-splits the same
+track; `+1` and `+10` are different lengths), and a stretched sprite stretches its rim and
+flattens its lean, so they are drawn in CSS from colours sampled out of the sprites. Don't
+"fix" that by swapping the sprite back in.
 
 See `docs/STATE.md` for the level-up flush and why `INITIAL_LEVEL` stayed at 1.
 

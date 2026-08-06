@@ -38,11 +38,9 @@ function formatClock(totalSeconds: number): string {
 
 export class Hud {
   private readonly speedEl = document.getElementById('speed-readout')!;
-  private readonly levelEl = document.getElementById('level-readout')!;
   private readonly waveEl = document.getElementById('wave-readout')!;
   private readonly felledEl = document.getElementById('felled-readout')!;
   private readonly picksEl = document.getElementById('picks-readout')!;
-  private readonly picksCountEl = document.getElementById('picks-count')!;
   private readonly picksHintEl = document.getElementById('picks-hint')!;
   private readonly crosshairEl = document.getElementById('crosshair')!;
   /**
@@ -67,7 +65,6 @@ export class Hud {
         ? `${state.speed.toFixed(1)} u/s +${state.flowXpPctPerSecond.toFixed(1)}%/s`
         : `${state.speed.toFixed(1)} u/s`;
     this.vitals.update(state, dt);
-    this.levelEl.textContent = `Lv ${state.level}`;
     // The element finally earns its id: run clock and wave share the cell —
     // the clock is the run stat, the wave says what the horde is made of.
     this.waveEl.textContent = `${formatClock(state.elapsedSeconds)} · W${state.wave}`;
@@ -81,9 +78,12 @@ export class Hud {
     // nothing with an empty bank: the F hint is only on screen while F works.
     // The hint doubles as the hold meter — 2.5 s with no feedback reads as a
     // dead key — and says what the hold is *for* once it is under way.
+    //
+    // How *many* are banked is the badge's job now, up on the vitals panel next
+    // to the bar that filled to earn them. Printing it in both places would put
+    // the same number on screen twice at different sizes.
     this.picksEl.classList.toggle('hidden', state.bankedPicks === 0);
     this.picksEl.classList.toggle('at-cap', state.picksAtCap);
-    this.picksCountEl.textContent = `▲ ${state.bankedPicks}`;
     this.picksHintEl.textContent = state.bankHoldFraction > 0 ? 'ALL IN' : 'F';
     this.picksHintEl.style.setProperty('--hold', state.bankHoldFraction.toFixed(3));
 
