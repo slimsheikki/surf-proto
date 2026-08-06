@@ -2,8 +2,10 @@ import {
   BufferGeometry,
   Color,
   Float32BufferAttribute,
+  LinearFilter,
   LinearMipmapLinearFilter,
   MeshStandardMaterial,
+  NearestFilter,
   RepeatWrapping,
   SRGBColorSpace,
   Texture,
@@ -173,8 +175,27 @@ function rampTexture(): Texture {
   // exactly what a surf face is, for the whole ride. The renderer clamps this
   // to whatever the device supports.
   texture.anisotropy = 16;
-  texture.minFilter = LinearMipmapLinearFilter;
+  applyFiltering(texture);
   return texture;
+}
+
+/** Whether the NPR "nearest textures" retro toggle is on. */
+let nearestFiltering = false;
+
+function applyFiltering(t: Texture): void {
+  t.magFilter = nearestFiltering ? NearestFilter : LinearFilter;
+  t.minFilter = nearestFiltering ? NearestFilter : LinearMipmapLinearFilter;
+  t.needsUpdate = true;
+}
+
+/**
+ * Flip the shared grid between smooth and crunchy nearest-neighbour — the
+ * "nearest textures" NPR retro toggle. Safe before the image loads; the choice
+ * is remembered and applied when the texture is created.
+ */
+export function setRampTextureNearest(nearest: boolean): void {
+  nearestFiltering = nearest;
+  if (texture) applyFiltering(texture);
 }
 
 function attach(material: MeshStandardMaterial, color: number): void {

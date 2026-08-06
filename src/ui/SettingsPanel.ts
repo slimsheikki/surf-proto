@@ -10,6 +10,13 @@ import {
   setEnemiesEnabled,
   setFov,
   setMusicVolume,
+  setNprEnabledSetting,
+  setRampOutlines,
+  setRetroAffine,
+  setRetroDither,
+  setRetroNearest,
+  setRetroQuantize,
+  setRetroVertexWobble,
   setSensitivity,
 } from '../game/Settings';
 import { MovementPanel } from './MovementPanel';
@@ -50,6 +57,56 @@ const ENEMIES_SWITCH = {
   get: () => getSettings().enemiesEnabled,
   set: setEnemiesEnabled,
 };
+
+/**
+ * The cel-renderer switches, under Advanced → Visuals. The master toggle first,
+ * then the environment-outline choice, then the subtle retro effects that ship
+ * off. Every one is live — flip it and the world updates on the next frame.
+ */
+const VISUAL_SWITCHES = [
+  {
+    label: 'Cel shading',
+    hint: 'Jet Set Radio look: banded shading, gradient sky, black outlines, rim light. Off falls back to the classic realistic pass.',
+    get: () => getSettings().nprEnabled,
+    set: setNprEnabledSetting,
+  },
+  {
+    label: 'Ramp outlines',
+    hint: 'Black outlines on the environment too, not just characters. Bolder and more comic, a little busier and heavier at speed.',
+    get: () => getSettings().rampOutlines,
+    set: setRampOutlines,
+  },
+  {
+    label: 'Dithering',
+    hint: 'Ordered Bayer screen-door transparency instead of smooth alpha. Retro; off by default.',
+    get: () => getSettings().retroDither,
+    set: setRetroDither,
+  },
+  {
+    label: 'Colour banding',
+    hint: 'Posterize the final image to a few levels per channel. Retro; off by default.',
+    get: () => getSettings().retroQuantize,
+    set: setRetroQuantize,
+  },
+  {
+    label: 'UV wobble',
+    hint: 'Slight affine texture warp, PS1-style. Retro; off by default.',
+    get: () => getSettings().retroAffine,
+    set: setRetroAffine,
+  },
+  {
+    label: 'Vertex wobble',
+    hint: 'Tiny vertex snap/jitter, PS1-style. Retro; off by default.',
+    get: () => getSettings().retroVertexWobble,
+    set: setRetroVertexWobble,
+  },
+  {
+    label: 'Nearest textures',
+    hint: 'Crunchy nearest-neighbour texture filtering. Retro; off by default.',
+    get: () => getSettings().retroNearest,
+    set: setRetroNearest,
+  },
+];
 
 interface Row {
   label: string;
@@ -191,6 +248,15 @@ export class SettingsPanel {
     advancedHeading.textContent = 'Gameplay';
     advancedGameplay.append(advancedHeading, this.buildSwitch(ENEMIES_SWITCH));
     this.advanced.appendChild(advancedGameplay);
+
+    const advancedVisuals = document.createElement('div');
+    advancedVisuals.className = 'settings-advanced-gameplay';
+    const visualsHeading = document.createElement('h2');
+    visualsHeading.textContent = 'Visuals';
+    advancedVisuals.appendChild(visualsHeading);
+    for (const spec of VISUAL_SWITCHES) advancedVisuals.appendChild(this.buildSwitch(spec));
+    this.advanced.appendChild(advancedVisuals);
+
     this.advanced.appendChild(this.movementPanel.element);
     card.appendChild(this.advanced);
 

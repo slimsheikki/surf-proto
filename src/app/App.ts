@@ -35,6 +35,7 @@ import { defaultCourseMap } from '../world/DefaultCourse';
 import { clearColliders } from '../world/Colliders';
 import { makeAtmosphere, SUN_INTENSITY } from '../render/Atmosphere';
 import { NPR, onNprChanged } from '../render/NprToggle';
+import { addOutline, removeOutlines } from '../render/Outline';
 
 /**
  * Fog and clear colour match the painted dome's horizon, so distant geometry
@@ -233,6 +234,9 @@ export class App {
     this.scene.add(sun);
     this.applyNprLook(NPR.enabled);
     onNprChanged((enabled) => this.applyNprLook(enabled));
+    // The environment-outline toggle rides settings; the world itself is rebuilt
+    // on every map load, so `setWorld` re-applies it too.
+    onSettingsChanged((settings) => this.applyEnvOutlines(settings.rampOutlines));
 
     // Far plane well past the ring's 220-unit fog wall, because free maps are
     // not bounded by it: a player can lay ramps out over hundreds of units and
@@ -337,6 +341,18 @@ export class App {
     }
     this.world = group;
     this.scene.add(group);
+    this.applyEnvOutlines(getSettings().rampOutlines);
+  }
+
+  /**
+   * Add or strip black outlines on the environment (the "Ramp outlines" toggle).
+   * Off by default — hundreds of ramp faces outlined is the biggest outline cost
+   * and reads as noise at speed — so the world ships clean and this opts in.
+   */
+  private applyEnvOutlines(enabled: boolean): void {
+    if (!this.world) return;
+    if (enabled) addOutline(this.world);
+    else removeOutlines(this.world);
   }
 
   /**

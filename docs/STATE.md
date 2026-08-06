@@ -4,6 +4,47 @@ Living handoff doc. Read at session start, update before finishing. Keep it shor
 delete anything resolved rather than accumulating history. For the running backlog of
 requested changes/additions/fixes, see `docs/MegaFlow_Changes_Additions_Fixes.md` instead.
 
+## NPR / cel-shaded renderer (new — Jet Set Radio look)
+
+The whole game now renders through a bespoke non-photorealistic pipeline in **`src/render/`**.
+PBR is gone from the look (roughness/metalness are ignored by the shading); everything is
+banded Lambert + hemisphere floor + Fresnel rim, big gradient sky, colored fog, and black
+character outlines. **It is on by default and reversible** — Settings → Advanced → Visuals →
+*Cel shading* flips the whole thing back to the classic realistic pass for A/B.
+
+- **How the shading works.** `NprMaterials.ts` keeps Three's `MeshStandardMaterial`/`MeshBasic`
+  and injects GLSL through ONE shared `onBeforeCompile` (`patchToon`). Because Three keys its
+  program cache on `onBeforeCompile.toString()`, hundreds of per-instance enemy materials that
+  all run this one function share a single compiled program — per-instance materials, one shader.
+  Variants are compile-time `#define`s: `env` / `character` (adds `NPR_RIM`) / `pickup` / `vfx`.
+- **The unrolled-loop trap.** The banded-diffuse code lives where `#include <lights_fragment_end>`
+  was. Three unrolls the light loop *in place with no per-iteration scope*, so any temporary
+  declared inside the loop is a redefinition once unrolled — hoist `nprNdL`/`nprLit` above the
+  loop (the stock light loops do the same). This cost the first compile.
+- **Toggles = shared uniforms.** `NprUniforms.ts` is one bag shared by every material, so the
+  master switch and the retro effects are a single assignment each. `NprToggle.setNprEnabled`
+  flips `uNprEnabled` *and* fires `onNprChanged`, which `App.applyNprLook` uses to swap sky+fill
+  (those are scene objects, not a shader branch — both looks are prebuilt and flipped by
+  `.visible`). `RetroFx.applyRetro` writes the retro uniforms (dither/quantize/affine/wobble) and
+  the ramp texture's filter. All retro effects default **off**; they persist via `Settings`.
+- **Sky/fog/light.** `SkyGradient` + `Atmosphere` build a banded gradient dome (horizon → pink
+  mid → blue top) and a `HemisphereLight`, both from one `SkyPreset` (`sunset` by default), with
+  fog = horizon so distant geometry melts in. Preset is `SKY_PRESET_NAME` in `App.ts`.
+- **Outlines.** `Outline.addOutline` adds an inverted-hull **render-only child** (shares the
+  owner's geometry, one shared black material, expanded in clip space × w for constant screen
+  width). Children never enter collision (colliders are explicit `registerCollider` calls only).
+  On for player + enemies; **environment ramps are off by default**, behind the *Ramp outlines*
+  toggle (`App.applyEnvOutlines`, re-applied on every `setWorld`). Boss keeps its wireframe halo
+  as its silhouette accent rather than a hull.
+- **Palette + the hue guard.** `Palette.ts` holds the saturated ink set and `assertNotPlayerHue`
+  (dev-only) — enemy/boss factories call it so no enemy can ship in the player's violet band.
+- **Textures.** `Textures.ts` has procedural flat/gradient tiles + `loadPaintedTexture` for
+  vendored CC0 tiles (Kenney / OpenGameArt); the ramp grid still comes from `RampTexture.ts`.
+  *(CC0 tiles are not yet vendored into `public/` — the loader + procedural path are ready.)*
+- **Not yet converted:** `Tracer.ts` and `LaserBeam.ts` still use raw `MeshBasic`/`MeshStandard`;
+  they render fine but don't ride the vfx variant. Trivial follow-up (same pattern as Stage 4).
+
+
 ## Patch notes on the front menu (new)
 
 A chip in the bottom-left corner of the root menu page — `LATEST PATCH #39` and one line of

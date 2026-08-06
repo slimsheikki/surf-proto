@@ -73,3 +73,18 @@ export function addOutline(target: Object3D, options: OutlineOptions = {}): void
     mesh.add(outline);
   }
 }
+
+/**
+ * Strip outlines previously added to `target` (the environment-outline toggle).
+ * Geometry is shared with the owner and the material is the module singleton, so
+ * neither is disposed — only the child meshes are detached.
+ */
+export function removeOutlines(target: Object3D): void {
+  const outlines: Mesh[] = [];
+  target.traverse((obj) => {
+    const mesh = obj as Mesh;
+    if (mesh.userData?.isOutline) outlines.push(mesh);
+    else if (mesh.userData?.hasOutline) mesh.userData.hasOutline = false;
+  });
+  for (const outline of outlines) outline.parent?.remove(outline);
+}

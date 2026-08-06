@@ -1,5 +1,7 @@
 import { DEFAULT_MUSIC_VOLUME } from '../audio/MusicManager';
 import { MovementConfig, setMovementPreference } from '../player/MovementConfig';
+import { setNprEnabled } from '../render/NprToggle';
+import { applyRetro } from '../render/RetroFx';
 
 /**
  * Player-facing settings — the ones that decide how the game *feels* to aim and
@@ -81,6 +83,22 @@ export interface SettingsState {
    * next one — see `Game.applyEnemiesSetting`.
    */
   enemiesEnabled: boolean;
+  /**
+   * The Jet Set Radio-style cel renderer master switch. On is the game's look
+   * (banded shading, gradient sky, black outlines, rim light); off falls back to
+   * the classic realistic pass for A/B comparison. Flipping it live swaps both
+   * the shader branch and App's sky/fill.
+   */
+  nprEnabled: boolean;
+  // Optional retro toggles — subtle, off by default. See `RetroFx`.
+  retroDither: boolean;
+  retroQuantize: boolean;
+  retroAffine: boolean;
+  retroVertexWobble: boolean;
+  retroNearest: boolean;
+  /** Black outlines on the environment (ramps), not just characters. Off = */
+  /** cleaner and cheaper at surf speed; on for the fullest comic look. */
+  rampOutlines: boolean;
 }
 
 const state: SettingsState = {
@@ -91,6 +109,13 @@ const state: SettingsState = {
   countdownOnResume: true,
   beginnerMode: true,
   enemiesEnabled: true,
+  nprEnabled: true,
+  retroDither: false,
+  retroQuantize: false,
+  retroAffine: false,
+  retroVertexWobble: false,
+  retroNearest: false,
+  rampOutlines: false,
 };
 
 const listeners: ((s: SettingsState) => void)[] = [];
@@ -150,6 +175,58 @@ export function setEnemiesEnabled(enabled: boolean): void {
   commit();
 }
 
+function applyRetroFromState(): void {
+  applyRetro({
+    dither: state.retroDither,
+    quantize: state.retroQuantize,
+    affine: state.retroAffine,
+    vertexWobble: state.retroVertexWobble,
+    nearest: state.retroNearest,
+  });
+}
+
+export function setNprEnabledSetting(enabled: boolean): void {
+  state.nprEnabled = enabled;
+  setNprEnabled(enabled);
+  commit();
+}
+
+export function setRetroDither(enabled: boolean): void {
+  state.retroDither = enabled;
+  applyRetroFromState();
+  commit();
+}
+
+export function setRetroQuantize(enabled: boolean): void {
+  state.retroQuantize = enabled;
+  applyRetroFromState();
+  commit();
+}
+
+export function setRetroAffine(enabled: boolean): void {
+  state.retroAffine = enabled;
+  applyRetroFromState();
+  commit();
+}
+
+export function setRetroVertexWobble(enabled: boolean): void {
+  state.retroVertexWobble = enabled;
+  applyRetroFromState();
+  commit();
+}
+
+export function setRetroNearest(enabled: boolean): void {
+  state.retroNearest = enabled;
+  applyRetroFromState();
+  commit();
+}
+
+/** App reacts (adds/removes env outlines) via `onSettingsChanged`. */
+export function setRampOutlines(enabled: boolean): void {
+  state.rampOutlines = enabled;
+  commit();
+}
+
 export function resetSettings(): void {
   state.fov = DEFAULT_FOV;
   state.sensitivity = DEFAULT_SENSITIVITY;
@@ -158,8 +235,17 @@ export function resetSettings(): void {
   state.countdownOnResume = true;
   state.beginnerMode = true;
   state.enemiesEnabled = true;
+  state.nprEnabled = true;
+  state.retroDither = false;
+  state.retroQuantize = false;
+  state.retroAffine = false;
+  state.retroVertexWobble = false;
+  state.retroNearest = false;
+  state.rampOutlines = false;
   setMovementPreference('SENSITIVITY', DEFAULT_SENSITIVITY);
   setMovementPreference('SURF_ASSIST', true);
+  setNprEnabled(true);
+  applyRetroFromState();
   commit();
 }
 
@@ -200,12 +286,25 @@ export function loadSettings(): void {
       // Same story as Beginner Mode for an older blob: absent means the default
       // above stands, which is the game with its combat layer switched on.
       if (typeof parsed.enemiesEnabled === 'boolean') state.enemiesEnabled = parsed.enemiesEnabled;
+      // Render toggles — absent from an older blob leaves the NPR look on and
+      // the retro effects off, which is the shipped default.
+      if (typeof parsed.nprEnabled === 'boolean') state.nprEnabled = parsed.nprEnabled;
+      if (typeof parsed.retroDither === 'boolean') state.retroDither = parsed.retroDither;
+      if (typeof parsed.retroQuantize === 'boolean') state.retroQuantize = parsed.retroQuantize;
+      if (typeof parsed.retroAffine === 'boolean') state.retroAffine = parsed.retroAffine;
+      if (typeof parsed.retroVertexWobble === 'boolean') {
+        state.retroVertexWobble = parsed.retroVertexWobble;
+      }
+      if (typeof parsed.retroNearest === 'boolean') state.retroNearest = parsed.retroNearest;
+      if (typeof parsed.rampOutlines === 'boolean') state.rampOutlines = parsed.rampOutlines;
     }
   } catch {
     // Unreadable or corrupt storage: the defaults above are already correct.
   }
   setMovementPreference('SENSITIVITY', state.sensitivity);
   setMovementPreference('SURF_ASSIST', state.beginnerMode);
+  setNprEnabled(state.nprEnabled);
+  applyRetroFromState();
   for (const listener of listeners) listener(state);
 }
 
