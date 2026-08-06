@@ -74,11 +74,17 @@ const LIGHTS_END_NPR = /* glsl */ `
 if ( uNprEnabled > 0.5 ) {
   vec3 nprAlbedo = material.diffuseColor;
   vec3 nprDirect = vec3( 0.0 );
+  // Temporaries are hoisted out of the loop: Three unrolls the loop body in
+  // place with no per-iteration scope, so a local declared inside would be a
+  // redefinition once unrolled (this is why the stock light loops declare
+  // their temporaries above the loop too).
+  float nprNdL;
+  float nprLit;
   #if ( NUM_DIR_LIGHTS > 0 )
     #pragma unroll_loop_start
     for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
-      float nprNdL = clamp( dot( geometryNormal, directionalLights[ i ].direction ), 0.0, 1.0 );
-      float nprLit = texture2D( uToonRamp, vec2( nprNdL, 0.5 ) ).r;
+      nprNdL = clamp( dot( geometryNormal, directionalLights[ i ].direction ), 0.0, 1.0 );
+      nprLit = texture2D( uToonRamp, vec2( nprNdL, 0.5 ) ).r;
       nprDirect += directionalLights[ i ].color * nprLit;
     }
     #pragma unroll_loop_end

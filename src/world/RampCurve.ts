@@ -1,15 +1,8 @@
-import {
-  BoxGeometry,
-  Group,
-  Matrix4,
-  Mesh,
-  MeshStandardMaterial,
-  Quaternion,
-  Vector3,
-} from 'three';
+import { BoxGeometry, Group, Matrix4, Mesh, Quaternion, Vector3 } from 'three';
 import { degToRad, lerp } from '../engine/MathUtils';
 import { registerCollider } from './Colliders';
 import { applyBoxGridUv, gridCellFor, useRampTexture } from './RampTexture';
+import { envMaterial } from '../render/NprMaterials';
 
 export type RampCurveMode = 'straight' | 'vertical' | 'horizontal';
 
@@ -281,13 +274,13 @@ export function buildRampCurve(
   const withColliders = params.registerColliders ?? true;
 
   const group = new Group();
-  const material = new MeshStandardMaterial({
+  const material = envMaterial({
     color,
     roughness: params.roughness ?? 0.75,
     metalness: params.metalness ?? 0.05,
   });
   useRampTexture(material, color);
-  const wallMaterial = new MeshStandardMaterial({ color: 0x2a3542, roughness: 0.9 });
+  const wallMaterial = envMaterial({ color: 0x2a3542, roughness: 0.9 });
   useRampTexture(wallMaterial, 0x2a3542);
 
   const path = computeRampFrames(params, mode);

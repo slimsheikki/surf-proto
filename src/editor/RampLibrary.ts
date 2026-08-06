@@ -11,6 +11,7 @@ import { degToRad, radToDeg } from '../engine/MathUtils';
 import { registerPrism } from '../world/Colliders';
 import { computeRampFrames, RampCurveMode, RampCurveParams, RampFrame } from '../world/RampCurve';
 import { gridCellFor, useRampTexture, uvPerUnit } from '../world/RampTexture';
+import { envMaterial } from '../render/NprMaterials';
 import {
   APPROACH_DESCENT_PITCH_DEG,
   FACE_ANGLE_DEG,
@@ -510,7 +511,7 @@ export interface RampBuildOptions {
 }
 
 function faceMaterial(options: RampBuildOptions): MeshStandardMaterial {
-  const material = new MeshStandardMaterial({
+  const material = envMaterial({
     color: options.color,
     roughness: options.roughness ?? FACE_ROUGHNESS,
     metalness: options.metalness ?? FACE_METALNESS,

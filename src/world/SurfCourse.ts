@@ -1,16 +1,8 @@
-import {
-  BoxGeometry,
-  CylinderGeometry,
-  Group,
-  Matrix4,
-  Mesh,
-  MeshStandardMaterial,
-  Quaternion,
-  Vector3,
-} from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Matrix4, Mesh, Quaternion, Vector3 } from 'three';
 import { degToRad } from '../engine/MathUtils';
 import { getColliders, registerCollider } from './Colliders';
 import { buildRampCurve } from './RampCurve';
+import { envMaterial } from '../render/NprMaterials';
 
 /**
  * Bank of a surfable face, measured from horizontal. This is the *only* angle in
@@ -597,7 +589,7 @@ function buildBox(
 
   const mesh = new Mesh(
     new BoxGeometry(halfExtents.x * 2, halfExtents.y * 2, halfExtents.z * 2),
-    new MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 }),
+    envMaterial({ color, roughness: 0.85, metalness: 0 }),
   );
   mesh.position.copy(center);
   mesh.quaternion.copy(quaternion);
@@ -651,7 +643,7 @@ function buildPlatform(
 function buildIsland(group: Group): void {
   const body = new Mesh(
     new CylinderGeometry(ISLAND_RADIUS, ISLAND_RADIUS, ISLAND_HEIGHT, ISLAND_RADIAL_SEGMENTS),
-    new MeshStandardMaterial({ color: ISLAND_COLOR, roughness: 0.9, metalness: 0 }),
+    envMaterial({ color: ISLAND_COLOR, roughness: 0.9, metalness: 0 }),
   );
   body.position.set(0, ISLAND_TOP_Y - ISLAND_HEIGHT / 2, 0);
   group.add(body);
@@ -663,7 +655,7 @@ function buildIsland(group: Group): void {
       ISLAND_SHELF_HEIGHT,
       ISLAND_RADIAL_SEGMENTS,
     ),
-    new MeshStandardMaterial({ color: ISLAND_SHELF_COLOR, roughness: 0.95, metalness: 0 }),
+    envMaterial({ color: ISLAND_SHELF_COLOR, roughness: 0.95, metalness: 0 }),
   );
   shelf.position.set(0, ISLAND_TOP_Y - ISLAND_HEIGHT + ISLAND_SHELF_HEIGHT / 2, 0);
   group.add(shelf);
