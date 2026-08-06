@@ -281,6 +281,24 @@ function airAccelerate(
  */
 const GLIDE_AIR_CONTROL_FACTOR = 0.5;
 
+/**
+ * The Glider's arming gesture: **tap, release, hold**.
+ *
+ * `GLIDE_TAP_SECONDS` is how long the opening press may last and still count as
+ * a tap; `GLIDE_CHAIN_SECONDS` is how long after releasing it the hold may
+ * begin. Both exist so the gesture is deliberate — without them any two presses
+ * that happened to land near each other would open the canopy.
+ *
+ * Generous rather than tight. This is a rescue input, thrown while falling and
+ * usually in a hurry, so it should forgive a slow hand; the thing it has to
+ * exclude is a *plain hold*, and a plain hold contains no release at all.
+ */
+const GLIDE_TAP_SECONDS = 0.3;
+const GLIDE_CHAIN_SECONDS = 0.45;
+
+/** Sentinel for "no tap has ended recently", kept finite so `+= dt` is safe. */
+const NEVER_TAPPED = 1e6;
+
 export class PlayerController {
   readonly position: Vector3;
   readonly velocity = new Vector3(0, 0, 0);
@@ -289,6 +307,12 @@ export class PlayerController {
   grounded = false;
   groundNormal = new Vector3(0, 1, 0);
   private jumpHeldLastTick = false;
+  /** How long the current jump press has been down. Feeds the Glider gesture. */
+  private jumpHoldSeconds = 0;
+  /** Time since a *short* jump press ended. See `updateGlideArming`. */
+  private sinceTapRelease = NEVER_TAPPED;
+  /** True while the tap-then-hold gesture is holding the canopy open. */
+  glideArmed = false;
   /** True on ticks the Glider is holding the player up. See the note in `tick`. */
   gliding = false;
   private momentumBoostTimer = 0;
@@ -308,6 +332,50 @@ export class PlayerController {
 
   get speed(): number {
     return Math.hypot(this.velocity.x, this.velocity.z);
+  }
+
+  /**
+   * Arms the Glider on **tap, release, hold** — and on nothing else.
+   *
+   * The first version glided on a plain held jump, and that was wrong: with
+   * `AUTO_BHOP` a held Space *is* the ordinary bunnyhop posture, so the canopy
+   * came out on every descent of every normal run. The player never asked for
+   * it and could not switch it off without stopping hopping.
+   *
+   * The gesture is unambiguous because a plain hold never contains a
+   * release-then-press. Both halves are bounded so it stays a deliberate
+   * *gesture* rather than any two presses that ever happen to be near each
+   * other: the tap has to be short, and the hold has to follow it promptly.
+   *
+   * Jump behaviour is untouched — the tap still jumps and so does the hold. The
+   * gesture only decides whether the *fall* is braked, so nothing is taken away
+   * from a player who never learns it.
+   */
+  private updateGlideArming(dt: number, input: InputFrame): void {
+    const held = input.jumpHeld;
+    const wasHeld = this.jumpHeldLastTick;
+
+    if (held && !wasHeld) {
+      // Rising edge: this press glides only if a short tap just ended.
+      this.glideArmed = this.sinceTapRelease <= GLIDE_CHAIN_SECONDS;
+      this.jumpHoldSeconds = 0;
+      return;
+    }
+    if (held) {
+      this.jumpHoldSeconds += dt;
+      return;
+    }
+    if (wasHeld) {
+      // Falling edge: only a *short* press opens the chain window, so
+      // "hold, twitch, hold again" cannot arm it by accident.
+      this.sinceTapRelease =
+        this.jumpHoldSeconds <= GLIDE_TAP_SECONDS ? 0 : NEVER_TAPPED;
+      this.jumpHoldSeconds = 0;
+      // Releasing always stows the canopy; it is held open, never toggled.
+      this.glideArmed = false;
+      return;
+    }
+    this.sinceTapRelease = Math.min(this.sinceTapRelease + dt, NEVER_TAPPED);
   }
 
   /**
@@ -645,6 +713,8 @@ export class PlayerController {
     const wishDir = this.wishDir(input);
     const wishSpeed = wishDir.lengthSq() > 1e-6 ? MovementConfig.MAX_GROUND_SPEED : 0;
 
+    this.updateGlideArming(dt, input);
+
     /*
      * The Glider.
      *
@@ -653,14 +723,15 @@ export class PlayerController {
      * descending and ends rising pay two different gravities, which is exactly
      * the kind of dt-dependent drift the split was introduced to avoid.
      *
-     * Three conditions, all required: airborne, descending, and jump held.
-     * Airborne-and-descending is what keeps it a fall brake rather than a
-     * jetpack. Holding jump costs no new key because `AUTO_BHOP` only reads
-     * `jumpHeld` while *grounded* — a held Space already means "jump the moment
-     * I land", so the two readings never contend for the same tick.
+     * Four conditions, all required: **armed by the tap-then-hold gesture**,
+     * airborne, descending, and jump still held. Airborne-and-descending is
+     * what keeps it a fall brake rather than a jetpack; the gesture is what
+     * keeps it off a player who is simply bunnyhopping. See
+     * `updateGlideArming`.
      */
     this.gliding =
       MovementConfig.GLIDE_GRAVITY_SCALE < 1 &&
+      this.glideArmed &&
       !this.grounded &&
       this.velocity.y < 0 &&
       input.jumpHeld;

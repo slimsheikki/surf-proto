@@ -22,6 +22,43 @@ Open questions I could not settle from here are listed at the bottom.
 
 ---
 
+## v6 — Pull Cord
+
+**The Glider now needs a gesture: tap `Space`, let go, then hold.** A plain held Space no
+longer glides at all.
+
+v5 was wrong, and the note below it argued the wrong thing. It claimed holding jump cost no new
+key because `AUTO_BHOP` only reads `jumpHeld` while grounded, so the two readings never contend
+— true, and beside the point. **With auto-bhop a held Space *is* the ordinary bunnyhop
+posture.** A player holding it to keep hopping was opening the canopy on every descent of every
+normal run, could not turn it off without stopping hopping, and had never asked for it.
+
+The gesture is unambiguous for one reason: a plain hold contains no release-then-press. Both
+halves are bounded so it stays deliberate rather than any two presses that happen to land near
+each other — `GLIDE_TAP_SECONDS` (0.3) caps the opening tap, `GLIDE_CHAIN_SECONDS` (0.45) caps
+the gap before the hold. Both are generous on purpose: this is a rescue input thrown while
+falling, usually in a hurry, so it should forgive a slow hand. The thing it must exclude is a
+plain hold, and a plain hold is excluded by construction rather than by timing.
+
+**Jump behaviour is untouched.** The tap still jumps and so does the hold; the gesture only
+decides whether the *fall* is braked. Nothing is taken away from a player who never learns it.
+
+Everything else from v5 stands: half gravity deepening to a quarter and never zero, air control
+halved while the canopy is out, the glide decision latched once per tick before `StartGravity`
+so both halves of the split gravity agree, and the penalty scaling the wish-speed cap rather
+than `AIR_ACCEL` (which does nothing — see v5).
+
+Probed, and the assertion that matters is the first one: a plain held Space falls **20.0 u in
+1.5 s, bit-identical to not owning the Glider**, while the gesture falls 9.8 u. Also asserted: a
+too-long opening tap and a too-late hold are both refused, releasing stows the canopy
+immediately, more steps deepen it without reaching a float, a rising or grounded player never
+glides, and gliding still cannot out-build a proper strafe (25.9 u/s against 27.7).
+
+**To review:** bunnyhop normally and confirm you never glide by accident. Then miss a ramp on
+purpose and pull the cord.
+
+---
+
 ## v5 — Canopy
 
 **The Glider.** Hold `Space` while airborne and falling and you descend at half gravity,
@@ -32,6 +69,12 @@ that never picks it is bit-identical to v4.
 It costs no new key. `AUTO_BHOP` reads `jumpHeld` **only while grounded**, so a held Space
 already means "jump the moment I land" — the glide only engages airborne and descending, and
 the two readings can never contend for the same tick.
+
+> **This paragraph is wrong and v6 replaces it.** The two readings never contend for a *tick*,
+> which is what it checked, but that was never the conflict: with auto-bhop a held Space is the
+> normal way to keep hopping, so the canopy opened on every descent of every run. v6 requires
+> tap-release-hold. Left here rather than edited, because the mistake was in the reasoning and
+> not in the code.
 
 **It must never be the fast line, and that is the whole design.** Gliding is a recovery: you
 missed the ramp, you are falling into the gap, you buy the seconds to line the next one up.

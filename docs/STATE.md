@@ -1823,7 +1823,7 @@ folded into Cartridges, the eleven named systems became steps, the eleven unique
 fixed tier. Cards are the cartridge art itself now, with both sockets measured off the PNGs.
 
 Shipped alongside it: **Spore** (the volley weapon, one seed per step, `src/combat/Volley.ts`),
-**Photon**, **Glider** (movement v5 "Canopy"), **Solstice** (luck, bends the menu roll and
+**Photon**, **Glider** (movement v6 "Pull Cord"), **Solstice** (luck, bends the menu roll and
 buys gamble stake rows), and the enemy hue fixes (Seeder → magenta, Spitter → amber).
 
 Probes, all green at commit time — rewrite from these specs if needed:
@@ -1835,7 +1835,10 @@ Probes, all green at commit time — rewrite from these specs if needed:
 - **`.probe-volley`** — connects at speed (0.92 enemies per seed at 60 u/s against 1.00 at
   15); the seed ladder is one-per-step; Photon's pierce is worth 2.74/seed slow against
   1.18 fast.
-- **`.probe-glider`** — a perfect strafe is 27.7 u/s free and 25.7 u/s gliding; unowned is
+- **`.probe-glider`** — **a plain held Space falls bit-identically to not owning the Glider**,
+  which is the assertion the whole gesture exists for; the tap-then-hold gesture falls 9.8u
+  against 20.0u in 1.5 s; a too-long opening tap and a too-late hold are both refused; releasing
+  stows the canopy; a perfect strafe is 27.7 u/s free and 25.9 u/s gliding; unowned is
   bit-identical held or not; releasing restores gravity exactly; a rising or grounded player
   is never glided.
 - **`.probe-luck`** (70 green) — base odds, monotonic on every tier, still under a full-stake
