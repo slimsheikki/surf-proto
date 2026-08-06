@@ -203,11 +203,18 @@ do not bank. See `docs/STATE.md`.
 **Tier is magnitude.** Every entry owns one *step*; the tier it rolls says how many you get
 at once — ×1 common, ×2 uncommon, ×3 epic, ×4 legendary. There is no tier at which an
 upgrade is fractionally better. 27 Cartridges roll at any tier, 11 fixed-tier uniques stay
-gamble-only. Epic and legendary can appear on a level-up card but only just (0.9% / 0.1%),
+gamble-only. Epic and legendary can appear on a level-up card but rarely (2.7% / 0.1%),
 against 68% epic-or-better from a full-stake gamble — that gap is what makes banking a
-decision.
+decision, and it is the thing to check whenever the menu row moves. Solstice's uncommon
+step is sized **against that row's base**, so the two are retuned together or a doubled
+base stacks on an unchanged climb and swallows the whole row.
 
-Three things here have already cost time, and **`docs/CARTRIDGES.md` is the full write-up**:
+**The shells for common and uncommon are crossed against their filenames on purpose** —
+green shipped as *common* and frosted white as *uncommon*, which is backwards for every
+loot game there is, and those two tiers are 97% of all cards drawn. Don't tidy the pair
+into matching names without swapping the files.
+
+Three more things have already cost time, and **`docs/CARTRIDGES.md` is the full write-up**:
 
 - **Softcapped steps apply the delta along their curve**, never an absolute write, or they
   eat whatever a unique added to the same field.

@@ -765,12 +765,24 @@ h2,
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
 }
 
-/* The tier is the shell, and only the shell. */
+/*
+ * The tier is the shell, and only the shell.
+ *
+ * **The first two are crossed against the filenames, deliberately.**
+ * `ICON_Upgrade_Common.png` is the acid-green shell and `ICON_Upgrade_Uncommon.png`
+ * is the frosted white one, which is the wrong way round for every loot game a
+ * player has ever touched — white is the floor and green is the first step up,
+ * from Diablo to Borderlands to Destiny. Those two tiers are 97% of all cards
+ * drawn, so getting them backwards is the one ranking mistake that would be made
+ * constantly. The art keeps the names it was exported with; the mapping is what
+ * was wrong, so the mapping is what moved. Do not "tidy" this into matching
+ * pairs without swapping the files themselves.
+ */
 .rarity-common .cart {
-  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Common.png');
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Uncommon.png');
 }
 .rarity-uncommon .cart {
-  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Uncommon.png');
+  background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Common.png');
 }
 .rarity-epic .cart {
   background-image: url('/MEGAFLOW_HP_DASH_UI_ELEMENTS/ICON_Upgrade_Epic.png');
@@ -934,10 +946,14 @@ h2,
  *
  * Common gets none. Three lit tiers and one unlit is what makes the lit ones
  * mean something across a row of four.
+ *
+ * **Each glow is its own shell's colour**, which is what lets the halo confirm
+ * the ranking rather than add a second, competing one. Uncommon's was ice blue
+ * when uncommon was the frosted shell; it is green now that green is the tier.
  */
 .rarity-uncommon .cart {
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5))
-    drop-shadow(0 0 12px rgba(92, 200, 255, 0.5));
+    drop-shadow(0 0 12px rgba(134, 228, 61, 0.55));
 }
 
 .rarity-epic .cart {
@@ -950,9 +966,10 @@ h2,
     drop-shadow(0 0 22px rgba(255, 193, 77, 0.75));
 }
 
+/* Tracks the shell, like the glows above — the reveal names the tier it drew. */
 .rarity-uncommon > #bank-result-title,
 #bank-result-title.rarity-uncommon {
-  color: #5cc8ff;
+  color: #96ec50;
 }
 
 #bank-result-title.rarity-epic {
