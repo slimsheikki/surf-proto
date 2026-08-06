@@ -11,6 +11,7 @@ import {
   Vector3,
 } from 'three';
 import { Health } from '../combat/Health';
+import { characterMaterial } from '../render/NprMaterials';
 import { BossScale } from './Difficulty';
 import { LaserBeam, pointSegmentDistance, rotateToward } from '../combat/LaserBeam';
 
@@ -440,12 +441,13 @@ export class Boss {
     const outwardCullRadius = trackRadius + OUTWARD_CULL_MARGIN;
     this.outwardCullRadiusSq = outwardCullRadius * outwardCullRadius;
 
-    this.bodyMaterial = new MeshStandardMaterial({
+    this.bodyMaterial = characterMaterial({
       color: BODY_COLOR,
       emissive: BODY_EMISSIVE,
       emissiveIntensity: BODY_EMISSIVE_INTENSITY,
       roughness: 0.35,
       metalness: 0.4,
+      // Keep the faceted look — the Monolith is chunks, not a smooth ball.
       flatShading: true,
     });
     this.body = new Mesh(new IcosahedronGeometry(BODY_RADIUS, 0), this.bodyMaterial);

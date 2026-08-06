@@ -31,6 +31,11 @@ export interface NprUniforms {
   uVertexWobble: IUniform<number>;
   /** Screen grid the snapped vertex lands on (higher = finer). */
   uSnap: IUniform<number>;
+  // Inverted-hull outline — shared so all outlines are one program and collapse
+  // to nothing when NPR is toggled off (width is multiplied by uNprEnabled).
+  /** Screen-stable outline width, in NDC half-units (~fraction of screen). */
+  uOutlineWidth: IUniform<number>;
+  uOutlineColor: IUniform<Color>;
 }
 
 export const nprUniforms: NprUniforms = {
@@ -45,4 +50,6 @@ export const nprUniforms: NprUniforms = {
   uAffineAmp: { value: 0.01 },
   uVertexWobble: { value: 0 },
   uSnap: { value: 160 },
+  uOutlineWidth: { value: 0.009 },
+  uOutlineColor: { value: new Color(PALETTE.black) },
 };

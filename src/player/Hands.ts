@@ -1,4 +1,5 @@
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { BoxGeometry, Group, Mesh } from 'three';
+import { characterMaterial } from '../render/NprMaterials';
 
 /**
  * The gloved hands, as geometry — no animation, no scene.
@@ -22,7 +23,7 @@ const CUFF_COLOR = 0x4a515a;
 function box(width: number, height: number, depth: number, color: number): Mesh {
   return new Mesh(
     new BoxGeometry(width, height, depth),
-    new MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.8 }),
+    characterMaterial({ color, metalness: 0.15, roughness: 0.8 }),
   );
 }
 
