@@ -50,11 +50,27 @@ const SKY_COLOR = SKY_HORIZON_COLOR;
 const RELOCK_WINDOW_MS = 3000;
 const RELOCK_RETRY_MS = 120;
 
-/** Menu backdrop orbit: slow enough to read as a held shot rather than a spin. */
-const MENU_ORBIT_RADIUS = 165;
-const MENU_ORBIT_HEIGHT = 95;
+/**
+ * Menu backdrop orbit. Slow enough to read as a held shot rather than a spin.
+ *
+ * **The two framing numbers are multiples of the course's own horizontal
+ * half-extent, not world units.** They used to be constants — 165 out, 95 up,
+ * looking at the origin — which framed the generated ring and only that: its
+ * `TRACK_RADIUS` is 90, and the island it circled sat on the origin. The
+ * default course is an authored free map now, running ±250 wide and centred
+ * nowhere in particular, so those constants put the camera *inside* it and the
+ * menu played over the undersides of ramps.
+ *
+ * The two scales are picked, not derived — the ring's own ratios (1.83 and
+ * 1.06) stand the camera far too far back for a course that is a *ribbon* in
+ * its bounding box rather than a disc filling it, and the map shrank to a
+ * doodle behind the menu. 1.30 out and 0.45 up puts the course across the frame
+ * with the horizon still in it, at every angle of the turn. Checked at six
+ * points around the orbit.
+ */
+const MENU_ORBIT_RADIUS_SCALE = 1.3;
+const MENU_ORBIT_HEIGHT_SCALE = 0.45;
 const MENU_ORBIT_SPEED = 0.06;
-const MENU_LOOK_AT = new Vector3(0, -6, 0);
 
 /**
  * Where the app is. `play` covers both game modes — what differs between them
@@ -161,6 +177,14 @@ export class App {
 
   private lastFrameSeconds: number | null = null;
   private menuElapsed = 0;
+  /**
+   * The backdrop shot, refitted every time a world is loaded — see
+   * `frameMenuOrbit`. Defaults frame nothing in particular and are only ever
+   * seen if a menu somehow opens before a course does.
+   */
+  private readonly menuOrbitCenter = new Vector3();
+  private menuOrbitRadius = 165;
+  private menuOrbitHeight = 95;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new WebGLRenderer({ canvas, antialias: true });
@@ -298,7 +322,30 @@ export class App {
     clearColliders();
     const built = buildFreeWorld(map, true);
     this.setWorld(built.group, this.world !== this.editor?.root);
+    this.frameMenuOrbit(map);
     return built.course;
+  }
+
+  /**
+   * Fits the menu's orbit to a map, off the same `mapFocus` the map tiles are
+   * photographed with — so what the menu flies over and what its thumbnail
+   * shows are framed from one measurement rather than two.
+   *
+   * The *horizontal* half-extent is what the shot is scaled to, not the box's
+   * diagonal: the diagonal carries a course's vertical climb into a number that
+   * only decides how far out the camera stands, and a tall course would push
+   * the camera back until the ramps were specks. Height comes from the same
+   * figure, which is what holds the camera angle constant across maps.
+   */
+  private frameMenuOrbit(map: FreeMap): void {
+    const focus = mapFocus(map);
+    const bounds = focus.bounds;
+    const half = bounds
+      ? Math.max(bounds.max.x - focus.center.x, bounds.max.z - focus.center.z)
+      : focus.radius;
+    this.menuOrbitCenter.copy(focus.center);
+    this.menuOrbitRadius = Math.max(half, 1) * MENU_ORBIT_RADIUS_SCALE;
+    this.menuOrbitHeight = Math.max(half, 1) * MENU_ORBIT_HEIGHT_SCALE;
   }
 
   // -------------------------------------------------------------- mode: menu
@@ -757,10 +804,10 @@ export class App {
     this.menuElapsed += dt;
     const angle = this.menuElapsed * MENU_ORBIT_SPEED;
     this.camera.position.set(
-      Math.sin(angle) * MENU_ORBIT_RADIUS,
-      MENU_ORBIT_HEIGHT,
-      Math.cos(angle) * MENU_ORBIT_RADIUS,
+      this.menuOrbitCenter.x + Math.sin(angle) * this.menuOrbitRadius,
+      this.menuOrbitCenter.y + this.menuOrbitHeight,
+      this.menuOrbitCenter.z + Math.cos(angle) * this.menuOrbitRadius,
     );
-    this.camera.lookAt(MENU_LOOK_AT);
+    this.camera.lookAt(this.menuOrbitCenter);
   }
 }

@@ -922,6 +922,27 @@ storage, each with an aerial thumbnail. Picking a saved map plays it directly,
 without a trip through the editor (`App.startMapRun`, which still hands the map
 to the editor because `M` out of a free run goes *back* there).
 
+**The orbit is fitted to the loaded course, not to fixed world coordinates.**
+`App.frameMenuOrbit` runs on every `loadFreeWorld` and takes the same `mapFocus`
+the tiles are photographed with, so the backdrop and the thumbnail are framed
+off one measurement. It used to be three constants — 165 out, 95 up, looking at
+the origin — which framed the *generated ring*: `TRACK_RADIUS` 90, island on the
+origin. The default course became an authored free map running ±250 wide and
+centred nowhere near the origin, and those constants quietly put the camera
+inside it, so the menu played over the undersides of ramps at close range.
+
+Two details of the fit:
+
+- **Scaled to the horizontal half-extent, never the box diagonal.** The diagonal
+  carries a course's vertical climb into a number that only decides how far back
+  the camera stands, so a tall course would push it out until the ramps were
+  specks. Taking height from the same figure is what holds the camera *angle*
+  constant from map to map.
+- **1.30 out and 0.45 up are picked, not derived.** The ring's own ratios
+  (1.83 / 1.06) stand the camera much too far back here, because this course is
+  a ribbon inside its bounding box rather than a disc filling it, and the map
+  shrank to a doodle behind the menu text. Checked at six points around the turn.
+
 `ui/MapThumbnails.ts` renders the real geometry rather than an authored picture,
 so a tile can never drift from the map it stands for. Three things in it are
 load-bearing:
