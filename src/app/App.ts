@@ -4,6 +4,8 @@ import {
   DirectionalLight,
   Fog,
   Group,
+  HemisphereLight,
+  Mesh,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -31,12 +33,21 @@ import { MOVEMENT_VERSION_LABEL } from '../player/MovementVersion';
 import { buildSkyDome, SKY_HORIZON_COLOR } from '../world/Sky';
 import { defaultCourseMap } from '../world/DefaultCourse';
 import { clearColliders } from '../world/Colliders';
+import { makeAtmosphere, SUN_INTENSITY } from '../render/Atmosphere';
+import { NPR, onNprChanged } from '../render/NprToggle';
 
 /**
  * Fog and clear colour match the painted dome's horizon, so distant geometry
  * fades into the *sky's* colour rather than a mismatched flat blue.
  */
 const SKY_COLOR = SKY_HORIZON_COLOR;
+
+/**
+ * Which banded sky the NPR look wears. `sunset` keeps the game's gold horizon
+ * (so fog and clear colour are unchanged from the painted era) while trading the
+ * photographic cloudscape for a big blue-to-gold gradient. See `SKY_PRESETS`.
+ */
+const SKY_PRESET_NAME = 'sunset' as const;
 
 /**
  * How long a resume keeps asking for the pointer lock back, and how often.
@@ -159,7 +170,16 @@ export class App {
    * the overview would disappear exactly when the player pulled back to see it.
    */
   private readonly playFog = new Fog(SKY_COLOR, 40, 220);
+  /** The painted cloudscape — shown in the classic (NPR-off) look. */
   private readonly skyDome: ReturnType<typeof buildSkyDome>;
+  /** The banded gradient dome — shown in the NPR look. */
+  private readonly skyGradient: Mesh;
+  /** Flat white fill for the classic look. */
+  private readonly ambientLight: AmbientLight;
+  /** Sky/ground fill for the NPR look — the toon shadow floor. */
+  private readonly hemiLight: HemisphereLight;
+  /** Fog + clear colour used in the NPR look (the preset's horizon). */
+  private nprHorizon = SKY_COLOR;
 
   private readonly startOverlay = document.getElementById('start-overlay')!;
   private readonly hudEl = document.getElementById('hud')!;
@@ -195,14 +215,24 @@ export class App {
     this.renderer.autoClear = false;
 
     this.scene.background = new Color(SKY_COLOR);
-    // The painted sky. Mesh-only (no collider), fog-exempt, re-centred on the
-    // camera every frame in `frame()` — a skybox, not a place.
+    // Two skies and two fills, one of each shown at a time so the NPR ↔ classic
+    // toggle is a visibility flip, not a scene rebuild. Both domes are mesh-only
+    // (no collider), fog-exempt, and re-centred on the camera each frame in
+    // `frame()` — skyboxes, not places.
+    const atmosphere = makeAtmosphere(SKY_PRESET_NAME);
     this.skyDome = buildSkyDome();
-    this.scene.add(this.skyDome);
-    this.scene.add(new AmbientLight(0xffffff, 0.55));
-    const sun = new DirectionalLight(0xffffff, 1.1);
+    this.skyGradient = atmosphere.sky;
+    this.scene.add(this.skyDome, this.skyGradient);
+    this.ambientLight = new AmbientLight(0xffffff, 0.55);
+    this.hemiLight = atmosphere.hemisphere;
+    this.nprHorizon = atmosphere.horizon;
+    this.scene.add(this.ambientLight, this.hemiLight);
+    // The sun is shared by both looks; only the fill and the sky swap.
+    const sun = new DirectionalLight(0xffffff, SUN_INTENSITY);
     sun.position.set(40, 60, 20);
     this.scene.add(sun);
+    this.applyNprLook(NPR.enabled);
+    onNprChanged((enabled) => this.applyNprLook(enabled));
 
     // Far plane well past the ring's 220-unit fog wall, because free maps are
     // not bounded by it: a player can lay ramps out over hundreds of units and
@@ -744,6 +774,22 @@ export class App {
     });
   }
 
+  /**
+   * Swap the whole look between the banded NPR sky/fill and the classic painted
+   * sky/flat-ambient. A visibility flip on the two prebuilt domes and fills plus
+   * a colour swap on the fog and clear colour — the toon *shading* itself rides
+   * the shared `uNprEnabled` uniform, flipped in `NprToggle`.
+   */
+  private applyNprLook(enabled: boolean): void {
+    this.hemiLight.visible = enabled;
+    this.ambientLight.visible = !enabled;
+    this.skyGradient.visible = enabled;
+    this.skyDome.visible = !enabled;
+    const color = enabled ? this.nprHorizon : SKY_COLOR;
+    (this.scene.background as Color).set(color);
+    this.playFog.color.set(color);
+  }
+
   // -------------------------------------------------------------- frame loop
 
   private frame(nowMs: number): void {
@@ -785,6 +831,7 @@ export class App {
     // Skybox behaviour: the dome travels with the camera, so it reads as
     // infinitely far and can never be reached, clipped into, or parallaxed.
     this.skyDome.position.copy(this.camera.position);
+    this.skyGradient.position.copy(this.camera.position);
 
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);

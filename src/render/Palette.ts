@@ -34,20 +34,22 @@ export const PALETTE = {
 /** below (also the hemisphere light's floor and the fog colour). */
 export interface SkyPreset {
   readonly top: number;
+  /** Optional mid band — the pink/magenta belt that makes a JSR sunset read. */
+  readonly mid?: number;
   readonly horizon: number;
   readonly ground: number;
-  /** How hard the gradient bands above the horizon (2–5); the horizon itself */
+  /** How hard the gradient bands above the horizon (2–6); the horizon itself */
   /** stays smooth so distant geometry melts in. */
   readonly bands: number;
 }
 
 export const SKY_PRESETS = {
   /** Bright arcade daytime — cyan overhead to a warm horizon. */
-  day: { top: 0x1fb6ff, horizon: 0xbfe9ff, ground: 0x6fb0c8, bands: 4 },
-  /** Purple dusk. */
-  dusk: { top: 0x3a1d8a, horizon: 0xff8bd0, ground: 0x5b3aa0, bands: 5 },
-  /** Orange sunset — the game's default mood, keyed to the old horizon gold. */
-  sunset: { top: 0x2b6fd6, horizon: 0xeab262, ground: 0xb0673a, bands: 4 },
+  day: { top: 0x0aa2ff, mid: 0x5fd6ff, horizon: 0xcdf1ff, ground: 0x6fb0c8, bands: 5 },
+  /** Purple dusk — magenta belt under a deep violet zenith. */
+  dusk: { top: 0x2a1d8f, mid: 0xc23bd0, horizon: 0xff8bd0, ground: 0x4a2f8f, bands: 6 },
+  /** Orange sunset — the game's mood, gold horizon → hot pink → bright blue. */
+  sunset: { top: 0x1f63e0, mid: 0xff5c8a, horizon: 0xe6a24a, ground: 0xb0673a, bands: 5 },
 } as const satisfies Record<string, SkyPreset>;
 
 export type SkyPresetName = keyof typeof SKY_PRESETS;
