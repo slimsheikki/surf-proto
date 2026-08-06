@@ -1,4 +1,12 @@
-import { Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import {
+  Group,
+  Mesh,
+  type MeshBasicMaterial,
+  type MeshStandardMaterial,
+  SphereGeometry,
+  Vector3,
+} from 'three';
+import { pickupMaterial, vfxMaterial } from '../render/NprMaterials';
 import { WeaponTarget } from './Weapon';
 
 /**
@@ -140,7 +148,7 @@ class Seed {
   constructor() {
     this.mesh = new Mesh(
       GEOMETRY,
-      new MeshStandardMaterial({
+      pickupMaterial({
         color: CORE_COLOR,
         emissive: CORE_COLOR,
         emissiveIntensity: 0.9,
@@ -148,7 +156,7 @@ class Seed {
     );
     this.shell = new Mesh(
       SHELL_GEOMETRY,
-      new MeshBasicMaterial({ color: SHELL_COLOR, transparent: true, opacity: 0.28 }),
+      vfxMaterial({ color: SHELL_COLOR, transparent: true, opacity: 0.28 }),
     );
     this.mesh.add(this.shell);
     this.mesh.visible = false;

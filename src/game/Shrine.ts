@@ -1,5 +1,6 @@
 import { BackSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, TorusGeometry, Vector3 } from 'three';
 import type { BlessingAnchor } from '../world/BlessingSpots';
+import { pickupMaterial } from '../render/NprMaterials';
 
 /**
  * The opening the player flies through.
@@ -122,7 +123,7 @@ export class Shrine {
    * course from opening on the same five rings it opened on last time.
    */
   constructor() {
-    this.ringMaterial = new MeshStandardMaterial({
+    this.ringMaterial = pickupMaterial({
       color: SHRINE_COLOR,
       emissive: SHRINE_EMISSIVE,
       emissiveIntensity: 1.1,

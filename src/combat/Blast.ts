@@ -1,4 +1,5 @@
 import { Color, DoubleSide, Group, Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import { vfxMaterial } from '../render/NprMaterials';
 
 /**
  * Radius of the danger volume, and the fuse before it goes off.
@@ -107,7 +108,7 @@ export class Blast {
   ) {
     this.position = position.clone();
 
-    this.shellMaterial = new MeshBasicMaterial({
+    this.shellMaterial = vfxMaterial({
       color: SHELL_COLOR,
       wireframe: true,
       transparent: true,
@@ -117,7 +118,7 @@ export class Blast {
     this.shell = new Mesh(SHELL_GEOMETRY, this.shellMaterial);
     this.shell.scale.setScalar(this.radius);
 
-    this.fillMaterial = new MeshBasicMaterial({
+    this.fillMaterial = vfxMaterial({
       color: FILL_COLOR,
       transparent: true,
       opacity: FILL_OPACITY,

@@ -1,4 +1,5 @@
-import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import { Mesh, SphereGeometry, Vector3 } from 'three';
+import { pickupMaterial } from '../render/NprMaterials';
 
 const GEOMETRY = new SphereGeometry(0.18, 8, 8);
 /**
@@ -9,7 +10,7 @@ const GEOMETRY = new SphereGeometry(0.18, 8, 8);
  * colour itself. Kept a shade cooler and much dimmer overall than a bolt's
  * flare — pickups should be noticeable, not mistaken for incoming fire.
  */
-const MATERIAL = new MeshStandardMaterial({
+const MATERIAL = pickupMaterial({
   color: 0x7fe8ff,
   emissive: 0x5fd4ef,
   emissiveIntensity: 1.9,
