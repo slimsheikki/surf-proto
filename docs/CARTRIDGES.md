@@ -89,11 +89,21 @@ Per level-up card, in permille:
 
 | | Common | Uncommon | Epic | Legendary |
 |---|---|---|---|---|
-| Base | 870 | 120 | **9** | **1** |
+| Base | 732 | 240 | **27** | **1** |
 
-An epic on a level-up should be a story and a legendary a run you remember.
-Across a forty-level run at four cards that is ~1.6 epic-or-better in total,
-against 68% from one full-stake gamble. **That gap is the reason banking is a
+Over a forty-level run at four cards that is ~38 uncommon, ~4.3 epic and ~0.16
+legendary.
+
+**The legendary is the gamble's prize and stays at one in a thousand.**
+Everything under it is looser than the first pass, which had uncommon at 120 and
+epic at 9. That pass was tuned to make an epic a *story* — one a run, if that —
+and overshot into making the level-up itself forgettable: 87 cards in a hundred
+were the floor tier, so a menu paid out a visible step maybe twice an hour. An
+epic three or four times a run is still an event.
+
+**The gap to the gamble is what all of it has to preserve**, and it does: 2.8%
+epic-or-better on a card against 68% from one full-stake roll, and on the
+legendary axis alone 0.1% against 35%. **That gap is the reason banking is a
 decision** rather than a slower way to take the safe thing.
 
 The gamble rows are unchanged from before Cartridges existed. The common row is
@@ -107,9 +117,15 @@ The only Cartridge that never makes you stronger on its own. `.probe-luck`
 asserts exactly that: it writes no stat.
 
 - **On a level-up** the tier odds bend, gently. Measured over 20k menus:
-  87.0/12.0/0.86/0.11 at no luck, 46.9/43.1/9.05/1.01 at twelve steps. Even that
-  deep it stays under a single full-stake gamble's 33% epic, which is the
-  property that matters — luck must improve the menu without becoming the gamble.
+  73.2/23.9/2.74/0.10 at no luck, 28.8/43.5/26.7/1.03 at twelve steps. Even that
+  deep it stays under a single full-stake gamble's 33% epic, and nowhere near its
+  35% legendary — luck must improve the menu without becoming the gamble.
+
+  The uncommon step is **16 permille per luck step, against a base of 240**. It
+  was 26 against a base of 120: leaving it there would have stacked a doubled
+  base on top of an unchanged climb and swallowed the whole row, so twelve steps
+  now lands at the ~43% uncommon it always did. When the base row moves, this
+  moves with it.
 - **On a gamble** it buys *effective stake rows*: every three steps reads one row
   higher, so at nine steps a two-pick gamble reads the top row. The build
   therefore gambles more **often**, not only harder.
@@ -201,7 +217,7 @@ by eye.
   nothing thinner than 2.4 of the 24-unit box. Line art was tried and rejected:
   it reads as clinical sci-fi HUD furniture and it dissolves at menu size.
 - **One ink and one hot accent, never three.** Two is the most that prints
-  legibly across all four shells (acid green, frosted white, hot pink, amber),
+  legibly across all four shells (frosted white, acid green, hot pink, amber),
   which is what lets one drawing serve every tier. The mark never carries the
   tier; the body does.
 - Upgrades carry a short `effect` line for the window *and* a full `description`.
@@ -211,7 +227,23 @@ by eye.
 - Tier glow is a `drop-shadow` on the shell, not a `box-shadow` on the button.
   The button is a cartridge-shaped hole now, and a box-shadow drew a rectangle of
   light around it. Common gets no glow — three lit tiers and one unlit is what
-  makes the lit ones mean anything.
+  makes the lit ones mean anything. **Each glow is its own shell's colour**, so
+  the halo confirms the ranking instead of adding a second one; uncommon's went
+  ice blue → green when green became the tier.
+
+### The two cheap tiers are crossed against their filenames
+
+`.rarity-common` loads `ICON_Upgrade_Uncommon.png` and `.rarity-uncommon` loads
+`ICON_Upgrade_Common.png`, on purpose. The green shell shipped as *common* and
+the frosted white one as *uncommon*, which is backwards for every loot game a
+player has touched — white is the floor and green is the first rung, from Diablo
+to Borderlands to Destiny. Those two tiers are **97% of all cards drawn**, so
+getting them the wrong way round is the one ranking error that would be made
+constantly, and the glow is a weaker signal than hue against a bright sky.
+
+The art keeps the names it was exported with; the mapping was the error, so the
+mapping is what moved. Do not tidy it into matching pairs without swapping the
+files themselves.
 
 ---
 

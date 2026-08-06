@@ -753,16 +753,25 @@ export function luckyStake(picks: number, perks: RunPerks): number {
 /**
  * Tier odds for one level-up card, in permille so a row sums exactly.
  *
- * **An epic in a pick menu should be a story and a legendary a run you
- * remember.** Across a forty-level run at four cards that is ~1.6 epic-or-
- * better in total, against 68% from a single full-stake gamble — and that gap
- * is what keeps banking a real decision rather than a slower way to take the
- * safe thing.
+ * **The legendary is the gamble's prize and stays at one in a thousand.**
+ * Everything below it is looser than it was: uncommon doubled (120 → 240) and
+ * epic tripled (9 → 27), both paid for out of common. Over a forty-level run at
+ * four cards that is ~38 uncommon and ~4.3 epic, against 19 and 1.4 before.
+ *
+ * The first pass was tuned to make an epic a *story* — one per run, if that —
+ * and it overshot into making the level-up itself forgettable: 87 cards in a
+ * hundred were the floor tier, so the menu paid out a visible step maybe twice
+ * an hour. An epic three times a run is still an event; a legendary is still
+ * the thing you bank for.
+ *
+ * **The gap to the gamble is what all of this has to preserve**, and it does:
+ * 2.8% epic-or-better on a card against 68% from one full-stake roll, and on
+ * the legendary axis alone 0.1% against 35%. Banking stays a decision.
  */
 const MENU_TIER_ODDS: Readonly<Record<Rarity, number>> = {
-  common: 870,
-  uncommon: 120,
-  epic: 9,
+  common: 732,
+  uncommon: 240,
+  epic: 27,
   legendary: 1,
 };
 
@@ -770,17 +779,21 @@ const MENU_TIER_ODDS: Readonly<Record<Rarity, number>> = {
  * The menu roll, bent by luck.
  *
  * Gently on purpose. Epic and legendary weights scale, and uncommon grows by a
- * flat 26 permille per step, all of it taken out of common — but even a deep
- * stack leaves a level-up overwhelmingly common, because luck must not turn the
- * pick menu into the gamble. It improves the *tier* you are offered; it can
- * never improve which Cartridge shows up, which is what the four-card menu is
- * for.
+ * flat 16 permille per step, all of it taken out of common — but even a deep
+ * stack keeps the pick menu well short of the gamble, which is the property
+ * that matters. It improves the *tier* you are offered; it can never improve
+ * which Cartridge shows up, which is what the four-card menu is for.
+ *
+ * The uncommon step was 26 when the base was 120. It is 16 against a base of
+ * 240 so that twelve steps of Solstice lands in the same place it used to
+ * (~43% uncommon) rather than stacking a doubled base on top of an unchanged
+ * climb and swallowing the whole row.
  */
 function rollMenuRarity(luck: number): Rarity {
   const scale = 1 + 0.75 * luck;
   const legendary = MENU_TIER_ODDS.legendary * scale;
   const epic = MENU_TIER_ODDS.epic * scale;
-  const uncommon = Math.min(1000 - legendary - epic, MENU_TIER_ODDS.uncommon + 26 * luck);
+  const uncommon = Math.min(1000 - legendary - epic, MENU_TIER_ODDS.uncommon + 16 * luck);
   let roll = Math.random() * 1000;
   if ((roll -= legendary) < 0) return 'legendary';
   if ((roll -= epic) < 0) return 'epic';
