@@ -11,6 +11,7 @@ import {
   Vector3,
 } from 'three';
 import { Health } from '../combat/Health';
+import { characterMaterial, pickupMaterial, vfxMaterial } from '../render/NprMaterials';
 import { BossScale } from './Difficulty';
 import { LaserBeam, pointSegmentDistance, rotateToward } from '../combat/LaserBeam';
 
@@ -259,7 +260,7 @@ const ORB_BASE = 0x2a0424;
  * No hitbox changes here; this makes the existing ones visible.
  */
 const PROJECTILE_GEOMETRY = new SphereGeometry(RING_PROJECTILE_RADIUS, 10, 8);
-const PROJECTILE_MATERIAL = new MeshStandardMaterial({
+const PROJECTILE_MATERIAL = pickupMaterial({
   color: RING_BASE,
   emissive: RING_COLOR,
   emissiveIntensity: RING_EMISSIVE_INTENSITY,
@@ -267,7 +268,9 @@ const PROJECTILE_MATERIAL = new MeshStandardMaterial({
   metalness: 0,
 });
 const PROJECTILE_SHELL_GEOMETRY = new SphereGeometry(RING_HIT_RADIUS, 12, 10);
-const PROJECTILE_SHELL_MATERIAL = new MeshBasicMaterial({
+// Additive is right here — the shell is seen against the dark Monolith, not the
+// bright sky, so it glows instead of washing out.
+const PROJECTILE_SHELL_MATERIAL = vfxMaterial({
   color: RING_SHELL_COLOR,
   transparent: true,
   opacity: PROJECTILE_SHELL_OPACITY,
@@ -275,7 +278,7 @@ const PROJECTILE_SHELL_MATERIAL = new MeshBasicMaterial({
   depthWrite: false,
 });
 const ORB_GEOMETRY = new SphereGeometry(ORB_RADIUS, 10, 8);
-const ORB_MATERIAL = new MeshStandardMaterial({
+const ORB_MATERIAL = pickupMaterial({
   color: ORB_BASE,
   emissive: ORB_COLOR,
   emissiveIntensity: ORB_EMISSIVE_INTENSITY,
@@ -283,7 +286,7 @@ const ORB_MATERIAL = new MeshStandardMaterial({
   metalness: 0,
 });
 const ORB_SHELL_GEOMETRY = new SphereGeometry(ORB_HIT_RADIUS, 12, 10);
-const ORB_SHELL_MATERIAL = new MeshBasicMaterial({
+const ORB_SHELL_MATERIAL = vfxMaterial({
   color: ORB_SHELL_COLOR,
   transparent: true,
   opacity: PROJECTILE_SHELL_OPACITY,
@@ -440,12 +443,13 @@ export class Boss {
     const outwardCullRadius = trackRadius + OUTWARD_CULL_MARGIN;
     this.outwardCullRadiusSq = outwardCullRadius * outwardCullRadius;
 
-    this.bodyMaterial = new MeshStandardMaterial({
+    this.bodyMaterial = characterMaterial({
       color: BODY_COLOR,
       emissive: BODY_EMISSIVE,
       emissiveIntensity: BODY_EMISSIVE_INTENSITY,
       roughness: 0.35,
       metalness: 0.4,
+      // Keep the faceted look — the Monolith is chunks, not a smooth ball.
       flatShading: true,
     });
     this.body = new Mesh(new IcosahedronGeometry(BODY_RADIUS, 0), this.bodyMaterial);

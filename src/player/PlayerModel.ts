@@ -1,7 +1,9 @@
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { BoxGeometry, Group, Mesh } from 'three';
 import { clamp, lerp } from '../engine/MathUtils';
 import { EYE_HEIGHT } from './CameraRig';
 import { buildLeftHand, buildRightHand } from './Hands';
+import { characterMaterial } from '../render/NprMaterials';
+import { addOutline } from '../render/Outline';
 import { PlayerController } from './PlayerController';
 
 /**
@@ -171,7 +173,7 @@ function block(
 ): Mesh {
   return new Mesh(
     new BoxGeometry(px(wPx), px(hPx), px(dPx)),
-    new MeshStandardMaterial({ color, metalness: 0.05, roughness }),
+    characterMaterial({ color, metalness: 0.05, roughness }),
   );
 }
 
@@ -236,6 +238,9 @@ export class PlayerModel {
 
     this.body.add(this.torso, this.legR, this.legL);
     this.root.add(this.body);
+    // Bold black silhouette on the whole block character — built once here, off
+    // the finished body (the hands included). Render-only children; no collider.
+    addOutline(this.root);
     this.root.visible = false;
   }
 

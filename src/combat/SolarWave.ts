@@ -1,4 +1,5 @@
-import { Group, Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import { Group, Mesh, type MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import { vfxMaterial } from '../render/NprMaterials';
 import { WeaponTarget } from './Weapon';
 
 /**
@@ -74,7 +75,7 @@ export class SolarWave {
 
   constructor() {
     for (let i = 0; i < MAX_POINTS; i++) {
-      const material = new MeshBasicMaterial({
+      const material = vfxMaterial({
         color: TRAIL_COLOR,
         transparent: true,
         opacity: 0,

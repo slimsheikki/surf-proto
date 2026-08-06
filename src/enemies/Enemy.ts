@@ -1,4 +1,7 @@
 import { BufferGeometry, Color, Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three';
+import { characterMaterial } from '../render/NprMaterials';
+import { addOutline } from '../render/Outline';
+import { assertNotPlayerHue } from '../render/Palette';
 import { Health } from '../combat/Health';
 
 const GEOMETRY = new SphereGeometry(0.45, 12, 10);
@@ -185,7 +188,10 @@ export class Enemy {
     this.health = new Health(hp);
     this.baseEmissive = visual.emissive;
     this.baseEmissiveIntensity = visual.emissiveIntensity;
-    this.material = new MeshStandardMaterial({
+    // Violet is the player's hue alone — a dev-only guard so no enemy can ship
+    // wearing it (CLAUDE.md "one hue, one owner").
+    assertNotPlayerHue(visual.color);
+    this.material = characterMaterial({
       color: visual.color,
       emissive: visual.emissive,
       emissiveIntensity: visual.emissiveIntensity * MATERIALIZE_EMISSIVE_BOOST,
@@ -193,6 +199,9 @@ export class Enemy {
     this.mesh = new Mesh(visual.geometry, this.material);
     this.mesh.position.copy(this.position);
     this.mesh.scale.setScalar(MATERIALIZE_START_SCALE);
+    // Bold silhouette so a drone reads against the loud sky. Render-only child,
+    // shares the drone geometry, scales with the materialize pop — no collider.
+    addOutline(this.mesh);
     this.aimError = new Vector3(
       Math.random() - 0.5,
       Math.random() - 0.5,

@@ -1,14 +1,6 @@
-import {
-  BoxGeometry,
-  CylinderGeometry,
-  Group,
-  Matrix4,
-  Mesh,
-  MeshStandardMaterial,
-  Quaternion,
-  Vector3,
-} from 'three';
+import { BoxGeometry, CylinderGeometry, Group, Matrix4, Mesh, Quaternion, Vector3 } from 'three';
 import { degToRad } from '../engine/MathUtils';
+import { envMaterial } from '../render/NprMaterials';
 import { GameCourse } from '../game/Game';
 import { blessingAnchorsForMap } from '../world/BlessingSpots';
 import { registerCollider } from '../world/Colliders';
@@ -145,7 +137,7 @@ function buildPad(
 
   const mesh = new Mesh(
     new BoxGeometry(width, PLATFORM_THICKNESS, depth),
-    new MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 }),
+    envMaterial({ color, roughness: 0.85, metalness: 0 }),
   );
   mesh.position.copy(center);
   mesh.quaternion.copy(quaternion);
@@ -244,7 +236,7 @@ function buildBossPillar(group: Group, top: Vector3, withColliders: boolean): vo
 
   const body = new Mesh(
     new CylinderGeometry(BOSS_PILLAR_RADIUS, BOSS_PILLAR_RADIUS, BOSS_PILLAR_HEIGHT, 24),
-    new MeshStandardMaterial({ color: ISLAND_COLOR, roughness: 0.9, metalness: 0 }),
+    envMaterial({ color: ISLAND_COLOR, roughness: 0.9, metalness: 0 }),
   );
   body.position.set(top.x, centerY, top.z);
   group.add(body);
@@ -256,7 +248,7 @@ function buildBossPillar(group: Group, top: Vector3, withColliders: boolean): vo
       BOSS_PILLAR_SHELF_HEIGHT,
       24,
     ),
-    new MeshStandardMaterial({ color: ISLAND_SHELF_COLOR, roughness: 0.95, metalness: 0 }),
+    envMaterial({ color: ISLAND_SHELF_COLOR, roughness: 0.95, metalness: 0 }),
   );
   shelf.position.set(top.x, top.y - BOSS_PILLAR_HEIGHT + BOSS_PILLAR_SHELF_HEIGHT / 2, top.z);
   group.add(shelf);
@@ -266,7 +258,7 @@ function buildBossPillar(group: Group, top: Vector3, withColliders: boolean): vo
   // both already learned the hard way on the slash cone.
   const beacon = new Mesh(
     new CylinderGeometry(BOSS_PILLAR_RADIUS * 0.45, BOSS_PILLAR_RADIUS * 0.45, 0.6, 24),
-    new MeshStandardMaterial({
+    envMaterial({
       color: BOSS_BEACON_COLOR,
       emissive: BOSS_BEACON_COLOR,
       emissiveIntensity: 0.9,

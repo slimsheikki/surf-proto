@@ -1,4 +1,5 @@
 import { Mesh, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import { vfxMaterial } from '../render/NprMaterials';
 import { WeaponTarget } from './Weapon';
 
 /**
@@ -77,7 +78,7 @@ export class SoundBlastFx {
   private targetRadius = SOUND_BLAST_RADIUS;
 
   constructor() {
-    this.material = new MeshBasicMaterial({
+    this.material = vfxMaterial({
       color: BLAST_COLOR,
       transparent: true,
       opacity: BLAST_START_OPACITY,
