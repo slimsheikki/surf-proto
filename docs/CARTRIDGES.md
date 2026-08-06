@@ -163,10 +163,18 @@ so it never asks the player to stop surfing.
 
 ## 6. Glider
 
-Movement **v5 "Canopy"** — `docs/MOVEMENT_VERSIONS.md` has the full entry.
+Movement **v6 "Pull Cord"** — `docs/MOVEMENT_VERSIONS.md` has the full entry.
 
-Hold `Space` airborne and descending: gravity ×0.50, deepening toward ×0.25.
-Never 0 — a true float would let a player park in the air and wait a wave out.
+**Tap `Space`, let go, then hold it**, airborne and descending: gravity ×0.50,
+deepening toward ×0.25. Never 0 — a true float would let a player park in the
+air and wait a wave out.
+
+A plain held Space does **not** glide, and that is the whole reason for the
+gesture: with auto-bhop a held Space is the ordinary bunnyhop posture, so v5's
+hold-to-glide opened the canopy on every descent of every normal run. A plain
+hold contains no release-then-press, so the gesture excludes it by construction
+rather than by timing. The tap still jumps and so does the hold — the gesture
+only decides whether the fall is braked.
 
 **It must never be the fast line.** Air control is halved while the canopy is
 out: 27.7 u/s free against 25.7 u/s gliding, on a probed perfect strafe.

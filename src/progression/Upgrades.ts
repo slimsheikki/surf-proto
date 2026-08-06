@@ -255,7 +255,7 @@ export const CARTRIDGES: Cartridge[] = [
     id: 'glider',
     name: 'Glider',
     icon: 'glider',
-    effect: (s) => `hold space · ${Math.round(gliderScale(s) * 100)}% fall`,
+    effect: (s) => `tap+hold space · ${Math.round(gliderScale(s) * 100)}% fall`,
     // The one field only this Cartridge writes, so it is set absolutely from
     // the total rather than walking a delta.
     step: (_ctx, _added, total) => {
