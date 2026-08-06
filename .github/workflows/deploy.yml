@@ -31,15 +31,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The patch-notes generator reads merge commits out of the checkout,
+          # so it needs history. The default depth of 1 would leave exactly one
+          # commit and therefore at most one merge — the panel would show a
+          # single entry, or none at all when the push is not itself a merge.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       # Writes public/patch-notes.json for the menu's patch-notes chip. Must run
-      # before the build, which is what copies public/ into dist. It never fails
-      # the job: if GitHub refuses, it writes an empty list and the chip does not
-      # render — a changelog is not worth a red deploy.
+      # before the build, which is what copies public/ into dist.
+      #
+      # The list is read from git, so the merge commit that triggered this run
+      # is in it by construction and the panel can never lag a merge behind.
+      # The token is optional: it is used only to pull hand-written
+      # `## Patch Notes` sections, and without it every entry falls back to its
+      # PR title. A changelog is never worth a red deploy.
       - run: npm run notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

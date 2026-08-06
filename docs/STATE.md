@@ -10,13 +10,57 @@ A chip in the bottom-left corner of the root menu page — `LATEST PATCH #39` an
 what changed — opening upward into the last five merges. `src/ui/PatchNotes.ts`, styles under
 the `patch notes` banner in `styles.css`, an empty `#patch-notes` div in `index.html`.
 
-**The text comes from the PR body, under a `## Patch Notes` heading, and from nowhere else.**
-`scripts/patch-notes.mjs` reads it at deploy time and writes `public/patch-notes.json`; a PR
-with no such heading does not appear. There is deliberately **no fallback to the first
-paragraph** — every body in this repo opens on a technical write-up, so a fallback fails on the
-screen instead of in the parser, and it makes the heading optional, which is the same as making
-it stop being written. `BACKFILL` in that script covers #33–#39, which merged before the
-convention existed; nothing new is ever added to it.
+**The list comes from `git log`, not from the API, and that is the whole point.** GitHub writes
+the PR title into the merge commit body:
+
+```
+Merge pull request #43 from slimsheikki/claude/upgrades-...
+Cartridges: tier-scaled upgrades with step-based progression
+```
+
+The merge commit that triggers the deploy *is* `HEAD` of the checkout, so the newest merge is in
+the list **by construction** — it cannot be a request that has not landed, it cannot be rate
+limited, and it needs no token. `.probe-notes` asserts exactly this: the newest merge in the
+repo is the newest entry in the file.
+
+**Why the API version ran a merge behind, every time.** Not because the API lagged — the deploy
+fires within seconds of the merge and the API had it. Because the *note* did not exist yet: a PR
+with no `## Patch Notes` heading was skipped, and adding the heading afterwards **triggers no
+deploy**, so the entry only surfaced when the next merge redeployed. #43 is the worked example
+— merged 15:46:09, `npm run notes` ran at 15:46:33, heading added an hour later.
+
+A hand-written `## Patch Notes` heading is still honoured, as a **pure enrichment**: the network
+is used only to replace the *text* of an entry git already put in the list. Token missing,
+GitHub down, request refused — every entry keeps its PR title and the panel stays correct and
+current. `BACKFILL` still covers #33–#39.
+
+**Both merge styles are read**, and deliberately not via `git log --merges`:
+
+| | commit subject | where the title is |
+|---|---|---|
+| Create a merge commit | `Merge pull request #50 from owner/branch` | first line of the body |
+| Squash and merge | `The PR title (#50)` | the subject itself |
+
+A squash produces an *ordinary* commit, so filtering to merges would find nothing the day that
+button is clicked — the panel would freeze and look exactly like the bug this rewrite was for.
+Scanning all commits means one PR can be reachable twice (a squashed commit plus the merge that
+carried it), so entries are de-duplicated by number, newest kept. **Rebase and merge leaves no
+PR number anywhere in the history and cannot be supported** — that is the one strategy to avoid.
+
+**`actions/checkout` needs `fetch-depth: 0`.** The default depth of 1 leaves exactly one commit
+and therefore at most one merge; verified against a real shallow clone, where the generator
+finds zero merges and writes an empty list rather than failing the deploy.
+
+Two parser bugs found on the way, both of which had reached the screen: a `---` under a note was
+collected and rendered as a trailing rule, and a first pass at stripping reviewer prefixes from
+titles took any word before a colon — turning "Cartridges: tier-scaled upgrades" into
+"Tier-scaled upgrades". Only the conventional-commit set is stripped now.
+
+`PatchNotes.load` fetches with `cache: 'no-cache'`. This is the one file in the build whose name
+never changes — everything else Vite emits carries a content hash, so a new deploy is a new URL
+— and it is copied out of `public/` verbatim, so a returning player could hold a cached copy and
+read the previous deploy's notes. That reads as the same one-merge-behind symptom from a
+completely different cause.
 
 **Generated at deploy, not fetched in the browser.** One workflow step between `npm ci` and
 `npm run build`. A runtime fetch of api.github.com costs a loading state, a failure state, a

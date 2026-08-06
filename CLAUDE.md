@@ -295,11 +295,18 @@ overwrites the recipient's own map of that name), and the hash is cleared after 
 
 ## Patch notes
 
-The front menu's bottom-left chip shows the last five merges, one line each. **Every PR from
-now on carries a `## Patch Notes` heading in its body** — one sentence for the core change, more
-sentences (never bigger words) if it did more than one thing. A PR without the heading does not
-appear on the menu at all; there is no fallback to the first paragraph, on purpose, because
-every body in this repo opens on a technical write-up and a fallback would put one on screen.
+The front menu's bottom-left chip shows the last five merges, one line each, and **it is built
+from `git log` at deploy time** — GitHub puts the PR title in the merge commit body, so the
+merge that triggers the deploy is in the list by construction and the panel can never lag a
+merge behind. No token, no API, no timing window.
+
+**Writing a `## Patch Notes` heading is optional.** With one, that text is used; without one,
+the PR title is. The heading is a network-only enrichment, so if GitHub is unreachable every
+entry simply keeps its title. It used to be mandatory, and that is exactly why the panel ran one
+merge behind forever: a PR without the heading was skipped, and adding it afterwards triggers no
+deploy, so it only appeared when the *next* merge redeployed.
+
+`actions/checkout` must keep `fetch-depth: 0` or there is no history to read.
 
 The voice is blunt and non-technical, near caveman: *"XP bar sits ON the HP frame now. Before it
 floated. Looked wrong."* Not the mechanism, not the file, not the constant — what is different

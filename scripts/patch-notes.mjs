@@ -2,21 +2,43 @@
  * Builds `public/patch-notes.json` — the five most recent merged PRs, each
  * reduced to one line a player can read.
  *
- * This runs at *deploy* time, not in the browser. The alternative was fetching
- * api.github.com from the menu, which costs a loading state, a failure state,
- * a markdown parser in the bundle, and a 60-request-per-hour unauthenticated
- * limit shared by everyone behind one NAT — all to render text that cannot
- * change between two deploys anyway, since a deploy is what publishes the build
- * the notes describe.
+ * **The list comes from `git log`, not from the API, and that is the whole
+ * point.** GitHub writes the PR title into the merge commit body:
+ *
+ *     Merge pull request #43 from slimsheikki/claude/upgrades-...
+ *     Cartridges: tier-scaled upgrades with step-based progression
+ *
+ * The merge commit that triggers the deploy *is* `HEAD` of the checkout, so the
+ * newest merge is in the list by construction. It cannot be a request that has
+ * not landed yet, it cannot be rate-limited, and it needs no token.
+ *
+ * This replaced an API-driven version that ran a merge behind, every time. Not
+ * because the API lagged — the deploy fires within seconds of the merge and the
+ * API had it — but because the *note* did not exist yet. A PR with no
+ * `## Patch Notes` heading was skipped, adding the heading afterwards triggers
+ * no deploy, and the entry only appeared when the *next* merge redeployed. One
+ * behind, permanently.
+ *
+ * A hand-written `## Patch Notes` heading is still honoured when the API is
+ * reachable, as a pure enrichment: it can only ever replace the *text* of an
+ * entry that git already put in the list. If GitHub is unreachable, the token
+ * is missing or the request is refused, every entry keeps its title and the
+ * panel is still correct and still current.
+ *
+ * This runs at *deploy* time, not in the browser. Fetching api.github.com from
+ * the menu would cost a loading state, a failure state, a markdown parser in
+ * the bundle and a 60-request-per-hour shared limit — to render text that
+ * cannot change between two deploys anyway.
  *
  * The output is a build artifact and is gitignored. `npm run dev` therefore has
  * no file, the fetch 404s, and the chip does not render — which is also what a
  * fresh clone looks like, so that path is the one exercised most.
  *
- *   node scripts/patch-notes.mjs            # anonymous, fine for a public repo
+ *   node scripts/patch-notes.mjs            # git only; no network needed
  *   GITHUB_TOKEN=… node scripts/patch-notes.mjs
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,10 +88,11 @@ const BACKFILL = {
  * Pulls the text under a `## Patch Notes` heading, stopping at the next heading
  * of the same level or higher.
  *
- * Returns null when there is no such heading — deliberately, rather than
- * falling back to the first paragraph of the body. A fallback fails on the
- * screen instead of in this function, and it makes the heading optional, which
- * is the same as making it stop getting written.
+ * Returns null when there is no such heading, and `fromTitle` picks it up from
+ * there. **This never falls back to the body**, which is the distinction that
+ * matters: every body in this repo opens on a technical write-up, so a body
+ * fallback fails on the screen instead of in a function. A title is a different
+ * thing — short, always present, and already written for a person.
  */
 function extractNote(body) {
   if (!body) return null;
@@ -79,7 +102,11 @@ function extractNote(body) {
 
   const collected = [];
   for (const line of lines.slice(start + 1)) {
+    // A heading ends the note, and so does a thematic break — bodies in this
+    // repo routinely close a section with `---` before the footer, and it was
+    // being collected and rendered on the menu as a trailing "---".
     if (/^\s{0,3}#{1,3}\s/.test(line)) break;
+    if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) break;
     collected.push(line);
   }
 
@@ -96,17 +123,130 @@ function extractNote(body) {
   return note.length > 0 ? note : null;
 }
 
+/**
+ * The note for a PR that carries no heading: its own title.
+ *
+ * **The heading used to be mandatory and that is why the panel kept going
+ * stale.** Of the four PRs that merged after the convention landed, two had no
+ * heading (#41, #43) and both were silently skipped — so the chip sat on an
+ * older merge and read exactly like a changelog that had stopped updating. A
+ * convention that has to be remembered on every single PR, including the ones
+ * opened from a UI that has never heard of it, is a convention that will be
+ * missed about half the time.
+ *
+ * So the heading is now an **override, not a requirement**. Write one when a
+ * change deserves the blunt player-facing voice; skip it and the title shows
+ * up, which is worse copy than a hand-written note and far better than nothing.
+ *
+ * Titles are only lightly cleaned: a conventional-commit prefix goes, since it
+ * is addressed to reviewers rather than players, and the first letter is
+ * raised. **Only that fixed set** — an earlier version stripped any word before
+ * a colon and turned "Cartridges: tier-scaled upgrades" into "Tier-scaled
+ * upgrades", eating the subject of the sentence.
+ */
+const REVIEWER_PREFIX = /^\s*(?:fix|feat|feature|chore|docs?|refactor|test|ci|build|perf|style|revert)(?:\([^)]*\))?!?:\s+/i;
+
+function fromTitle(title) {
+  if (!title) return null;
+  const cleaned = title
+    .replace(REVIEWER_PREFIX, '')
+    .replace(/[`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  return cleaned[0].toUpperCase() + cleaned.slice(1);
+}
+
 /** "5 Aug" — short enough to sit opposite the PR number in a 280px column. */
 function shortDate(iso) {
   const d = new Date(iso);
   return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })}`;
 }
 
-async function listMergedPulls() {
-  const url =
-    `https://api.github.com/repos/${OWNER}/${REPO}/pulls` +
-    `?state=closed&per_page=${FETCH}&sort=updated&direction=desc`;
+/**
+ * Merged PRs, read out of the repository itself.
+ *
+ * `%x00`-delimited so a subject or body containing the delimiter is impossible
+ * — commit messages can contain anything, and splitting on a printable
+ * character would eventually eat a note.
+ *
+ * Needs real history: `actions/checkout` clones at depth 1 by default, which
+ * would leave exactly one commit and therefore at most one merge. The workflow
+ * sets `fetch-depth: 0` for this reason.
+ */
+function mergedPullsFromGit() {
+  // Git's own hex escapes, so the *argument* stays plain text — Node refuses to
+  // spawn a process with a null byte in argv, which the obvious `\u0000` hits.
+  // 0x1f and 0x1e are the unit and record separators and cannot appear in a
+  // commit message typed by a human or written by GitHub.
+  const SEP = '\u001f';
+  const REC = '\u001e';
+  let out;
+  try {
+    // Deliberately **not** `--merges`. A "Squash and merge" produces an
+    // ordinary commit, not a merge commit, so filtering to merges would find
+    // nothing the day the button is clicked — the panel would silently freeze
+    // and look exactly like the bug this whole rewrite was for.
+    out = execFileSync(
+      'git',
+      ['log', '--format=%H%x1f%cI%x1f%s%x1f%b%x1e', '-n', '400'],
+      { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+    );
+  } catch (error) {
+    console.warn(`[patch-notes] git log failed: ${error.message}`);
+    return [];
+  }
 
+  const pulls = [];
+  for (const record of out.split(REC)) {
+    const [, iso, subject, body] = record.split(SEP);
+    if (!subject) continue;
+    const line = subject.trim();
+    const firstBodyLine = (body ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+
+    // Both ways GitHub can land a PR:
+    //
+    //   merge commit   subject "Merge pull request #50 from owner/branch"
+    //                  body    "The PR title"
+    //   squash merge   subject "The PR title (#50)"
+    //                  body    the squashed commit messages
+    //
+    // Rebase-and-merge leaves no PR number anywhere and cannot be detected;
+    // it is the one strategy this cannot support, and it is noted in STATE.md.
+    const asMerge = /^Merge pull request #(\d+) /.exec(line);
+    const asSquash = /^(.*?)\s*\(#(\d+)\)$/.exec(line);
+    if (!asMerge && !asSquash) continue;
+
+    pulls.push({
+      number: Number(asMerge ? asMerge[1] : asSquash[2]),
+      mergedAt: iso.trim(),
+      title: asMerge ? firstBodyLine : asSquash[1],
+    });
+  }
+  // Already newest-first out of git log, but sorted explicitly so a rebase or a
+  // hand-written merge cannot quietly reorder the panel.
+  pulls.sort((a, b) => new Date(b.mergedAt) - new Date(a.mergedAt));
+
+  // One PR, one entry. Scanning every commit rather than only merges means a
+  // squashed PR commit can also be reachable through the merge that carried it,
+  // and the panel must never list the same number twice.
+  const seen = new Set();
+  return pulls.filter((pull) => {
+    if (seen.has(pull.number)) return false;
+    seen.add(pull.number);
+    return true;
+  });
+}
+
+/**
+ * Hand-written notes, keyed by PR number — best effort, never required.
+ *
+ * This is the *only* thing the network is used for, and a failure costs nothing
+ * but the custom wording: every entry already has a title from git. So no
+ * try/catch drama and no empty-list fallback; on any problem this returns an
+ * empty map and the panel renders titles.
+ */
+async function fetchAuthoredNotes(numbers) {
   const headers = {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
@@ -114,45 +254,49 @@ async function listMergedPulls() {
   };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`GitHub said ${res.status} ${res.statusText}`);
-
-  // `sort=updated` orders by last touch, not by merge, so the order the API
-  // hands back is not the order the panel wants. Sorted here instead.
-  return (await res.json())
-    .filter((pr) => pr.merged_at)
-    .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at));
+  const notes = new Map();
+  await Promise.all(
+    numbers.map(async (number) => {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${OWNER}/${REPO}/pulls/${number}`,
+          { headers },
+        );
+        if (!res.ok) return;
+        const note = extractNote((await res.json()).body);
+        if (note) notes.set(number, note);
+      } catch {
+        /* titles are already correct; a missing override is not an error */
+      }
+    }),
+  );
+  return notes;
 }
 
 async function main() {
-  let pulls;
-  try {
-    pulls = await listMergedPulls();
-  } catch (error) {
-    // A failed generate must not fail the build: the site is perfectly usable
-    // with no chip on the menu, and a red deploy over a changelog is a bad
-    // trade. Written as an empty list so a stale file cannot survive either.
-    console.warn(`[patch-notes] ${error.message} — writing an empty list`);
+  const pulls = mergedPullsFromGit().slice(0, SHOWN);
+  if (pulls.length === 0) {
+    console.warn('[patch-notes] no merge commits found — writing an empty list');
     await mkdir(dirname(OUT), { recursive: true });
     await writeFile(OUT, '[]\n');
     return;
   }
 
-  const entries = [];
-  for (const pr of pulls) {
-    if (entries.length >= SHOWN) break;
-    const note = extractNote(pr.body) ?? BACKFILL[pr.number] ?? null;
-    if (!note) continue;
-    entries.push({ number: pr.number, date: shortDate(pr.merged_at), note });
-  }
+  const authored = await fetchAuthoredNotes(pulls.map((p) => p.number));
+
+  const entries = pulls.map((pull) => ({
+    number: pull.number,
+    date: shortDate(pull.mergedAt),
+    note: authored.get(pull.number) ?? BACKFILL[pull.number] ?? fromTitle(pull.title),
+  }));
 
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, `${JSON.stringify(entries, null, 2)}\n`);
 
-  const skipped = pulls.length - entries.length;
+  const custom = entries.filter((e) => authored.has(e.number) || BACKFILL[e.number]).length;
   console.log(
-    `[patch-notes] ${entries.length} note${entries.length === 1 ? '' : 's'} written` +
-      (skipped > 0 ? ` (${skipped} merged PRs had none)` : ''),
+    `[patch-notes] ${entries.length} written, newest #${entries[0].number}` +
+      ` (${custom} hand-written, ${entries.length - custom} from the PR title)`,
   );
 }
 
