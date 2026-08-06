@@ -96,7 +96,8 @@ HP, XP and the dash charges left the bottom HUD column and are now the art panel
 top-left corner — `src/ui/MegaflowHud.ts`, styles under the `#mf-hud` banner in
 `styles.css`, assets in `public/MEGAFLOW_HP_DASH_UI_ELEMENTS/` (owner-supplied, including
 `ui-elements-placement-reference.png`, which is what the layout is held against). The bottom
-column keeps what has no art: banked picks, level, clock/wave, speed, felled.
+column keeps what has no art: clock/wave, speed, felled, and the `F` prompt — which is a
+*prompt*, not a readout, and stays because it carries the 2.5 s hold meter.
 
 Four things worth knowing before touching it:
 
@@ -125,6 +126,21 @@ Four things worth knowing before touching it:
 - **The HP bar is a fraction and must stay one.** Growing the pool moves the bar less per
   hit, which is both the requested behaviour and the reason it can never spill out of the
   frame. Verified at 220 max HP.
+- **The banked badge is the second drawn element, for the same reason as the pips.** `+1`
+  and `+10` are different widths, so a sprite would stretch its rim and flatten its lean.
+  Its greens are sampled out of `UI_XP_XPBar_BackgroundElement.png` and its blue out of
+  `UI_HP_XPBar_Full.png`, and it carries the XP bar's own 6.65° lean (28 px over 240) with
+  the count counter-skewed back upright. One `--bank-t` (banked / `BANK_INTENSITY_CAP`, 4)
+  drives glow strength, bounce height and bounce rate together so they cannot disagree
+  about how loud the badge currently is. At `PICK_CAP` the ring goes red: past there
+  level-ups are being discarded, so the invitation is a warning.
+
+The badge hangs off the *right end of the XP bar* — outside `#mf-hud`'s box, which is why
+that element may never clip. That put it on top of `#boss-bar`, which is centred and 720
+wide and so reaches back to 28vw at every common width; "THE MONOLITH" had in fact been
+printing over the XP plate since the panel landed. The boss bar now hangs below the panel
+(`--mf-w` and `--mf-top` moved to `:root` so it can be laid out against them; the panel's
+drawn height is a fixed 0.293 of its width). Checked at 1280, 1440 and 1920.
 
 A level-up runs the XP bar *out to full* before dropping it to the new level (`flushing` in
 `updateXp`) and lights the frame for half a second. A drop with no level-up behind it is a
@@ -905,6 +921,27 @@ orbiting backdrop never cuts — listing the built-in course plus every map in
 storage, each with an aerial thumbnail. Picking a saved map plays it directly,
 without a trip through the editor (`App.startMapRun`, which still hands the map
 to the editor because `M` out of a free run goes *back* there).
+
+**The orbit is fitted to the loaded course, not to fixed world coordinates.**
+`App.frameMenuOrbit` runs on every `loadFreeWorld` and takes the same `mapFocus`
+the tiles are photographed with, so the backdrop and the thumbnail are framed
+off one measurement. It used to be three constants — 165 out, 95 up, looking at
+the origin — which framed the *generated ring*: `TRACK_RADIUS` 90, island on the
+origin. The default course became an authored free map running ±250 wide and
+centred nowhere near the origin, and those constants quietly put the camera
+inside it, so the menu played over the undersides of ramps at close range.
+
+Two details of the fit:
+
+- **Scaled to the horizontal half-extent, never the box diagonal.** The diagonal
+  carries a course's vertical climb into a number that only decides how far back
+  the camera stands, so a tall course would push it out until the ramps were
+  specks. Taking height from the same figure is what holds the camera *angle*
+  constant from map to map.
+- **1.30 out and 0.45 up are picked, not derived.** The ring's own ratios
+  (1.83 / 1.06) stand the camera much too far back here, because this course is
+  a ribbon inside its bounding box rather than a disc filling it, and the map
+  shrank to a doodle behind the menu text. Checked at six points around the turn.
 
 `ui/MapThumbnails.ts` renders the real geometry rather than an authored picture,
 so a tile can never drift from the map it stands for. Three things in it are

@@ -17,13 +17,15 @@
          `ui/MegaflowHud.ts`. What is left is the text that has no art. -->
     <div id="hud" class="hidden">
       <div id="hud-readouts">
-        <!-- Banked powers lead the row: it is the only readout here that is
-             asking the player to do something. Hidden at zero, like the felled
-             counter, so the F hint is only ever on screen while F does something. -->
+        <!-- The F prompt leads the row: it is the only thing here asking the
+             player to do something. Hidden at zero, like the felled counter, so
+             it is only ever on screen while F does something. The *count* is
+             not here any more — the banked badge on the vitals panel owns it,
+             and so does the level. What is left down here is the prompt and its
+             hold meter. -->
         <span id="picks-readout" class="hidden"
-          ><span id="picks-count"></span><span id="picks-hint"></span
+          ><span id="picks-hint"></span
         ></span>
-        <span id="level-readout">Lv 1</span>
         <span id="wave-readout">0:00</span>
         <span id="speed-readout">0 u/s</span>
         <span id="felled-readout" class="hidden"></span>

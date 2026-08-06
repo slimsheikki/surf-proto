@@ -77,6 +77,33 @@ const XP_PLACEMENT = { left: 52.95, top: 6.72, width: 46.24 };
 const DASH_PLACEMENT = { left: 8, top: 118, width: 55 };
 
 /**
+ * The banked-level badge, and the level readout above it.
+ *
+ * Both hang off the *right end of the XP bar*, which is where a player already
+ * looks to see the bar fill — the reward lands where the progress was.
+ * `XP_PLACEMENT` ends at 99.2% of the HP content box, so there is no room
+ * inside the panel and the column deliberately sits outside it. That is why
+ * `#mf-hud` may not clip.
+ *
+ * **Drawn in CSS rather than cut from a sprite**, for exactly the reason the
+ * dash pips are: this is the other element whose *width* changes at runtime,
+ * since `+1` and `+10` are different lengths. A stretched sprite stretches its
+ * rim and flattens its lean. Colours below are sampled out of
+ * `UI_XP_XPBar_BackgroundElement.png` and `UI_HP_XPBar_Full.png` rather than
+ * picked, so it sits in the same set as the art it stands next to.
+ */
+const BANK_PLACEMENT = { left: 100.6, top: 3, width: 26 };
+
+/**
+ * Banked picks at which the badge is as loud as it ever gets.
+ *
+ * The bank caps well above this; the *attention* does not need to. Past a few
+ * unspent levels the message is already "go spend these", and a badge that
+ * kept escalating would end up competing with the run.
+ */
+const BANK_INTENSITY_CAP = 4;
+
+/**
  * Bar easing, in e-folds per second. HP is the slower of the two on purpose:
  * a hit is worth watching land, whereas XP trickles in continuously and a lazy
  * XP bar just reads as lag.
@@ -98,6 +125,10 @@ export interface MegaflowHudState {
   dashMaxCharges: number;
   /** 0..1 of the *whole* meter: whole charges plus progress toward the next. */
   dashFraction: number;
+  /** Unspent level-ups. Drives the badge, and how hard it asks to be noticed. */
+  bankedPicks: number;
+  /** At the cap, so further level-ups are being thrown away. */
+  picksAtCap: boolean;
 }
 
 function clamp01(v: number): number {
@@ -143,6 +174,12 @@ export class MegaflowHud {
   private readonly xpFrame: HTMLDivElement;
   private readonly xpFill: HTMLDivElement;
   private readonly pipRow: HTMLDivElement;
+  private readonly levelEl: HTMLDivElement;
+  private readonly bankEl: HTMLDivElement;
+  private readonly bankCountEl: HTMLDivElement;
+  /** Last values written, so the DOM is only touched when they change. */
+  private lastLevel = -1;
+  private lastBanked = -1;
   private pips: HTMLDivElement[] = [];
 
   /** Displayed values, chasing the real ones. See `update`. */
@@ -201,6 +238,18 @@ export class MegaflowHud {
     // what keeps the end pips parallel to the track's own ends.
     this.pipRow.style.transform = `skewX(${-PIP_SKEW_DEG}deg)`;
 
+    // The level readout and the banked badge share a column off the right end
+    // of the XP bar. Parented to `vitals` rather than to the XP frame so they
+    // scale with the panel as a whole and not with the bar's own aspect ratio.
+    const bankCol = div('mf-bank-col', vitals);
+    bankCol.style.left = `${BANK_PLACEMENT.left}%`;
+    bankCol.style.top = `${BANK_PLACEMENT.top}%`;
+    bankCol.style.width = `${BANK_PLACEMENT.width}%`;
+
+    this.levelEl = div('mf-level', bankCol);
+    this.bankEl = div('mf-bank', bankCol);
+    this.bankCountEl = div('mf-bank-count', this.bankEl);
+
     document.body.append(this.root);
   }
 
@@ -212,6 +261,43 @@ export class MegaflowHud {
     this.updateHp(state, dt);
     this.updateXp(state, dt);
     this.updateDash(state);
+    this.updateBank(state);
+  }
+
+  /**
+   * The level readout and the banked badge.
+   *
+   * Both are pure text swaps, so they are gated on change: this runs at 128 Hz
+   * and writing the same string back every tick is layout the browser does not
+   * need to do.
+   *
+   * The badge is hidden at zero rather than shown as `+0`, the same rule the
+   * bottom HUD's pick counter and the felled counter follow — an element that
+   * is only on screen while it means something is its own affordance.
+   */
+  private updateBank(state: MegaflowHudState): void {
+    if (state.level !== this.lastLevel) {
+      this.lastLevel = state.level;
+      this.levelEl.textContent = `LVL ${state.level}`;
+    }
+
+    const banked = state.bankedPicks;
+    if (banked === this.lastBanked) return;
+    this.lastBanked = banked;
+
+    this.bankEl.classList.toggle('hidden', banked === 0);
+    // At the cap the badge stops being an invitation and becomes a warning:
+    // every level from here is discarded. The blue goes red for it, since the
+    // badge is where the number is read now.
+    this.bankEl.classList.toggle('at-cap', state.picksAtCap);
+    if (banked === 0) return;
+
+    this.bankCountEl.textContent = `+${banked}`;
+    // 0..1, saturating at the cap. Drives glow, bounce height and bounce rate
+    // together from one number, so they can never disagree about how urgent
+    // the badge currently is.
+    const intensity = Math.min(banked, BANK_INTENSITY_CAP) / BANK_INTENSITY_CAP;
+    this.bankEl.style.setProperty('--bank-t', intensity.toFixed(3));
   }
 
   private updateHp(state: MegaflowHudState, dt: number): void {
@@ -302,6 +388,8 @@ export class MegaflowHud {
    * sweeping in from the last one's.
    */
   reset(): void {
+    this.lastLevel = -1;
+    this.lastBanked = -1;
     this.hpShown = 1;
     this.xpShown = 0;
     this.level = 0;

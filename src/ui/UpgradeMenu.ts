@@ -153,6 +153,10 @@ export class UpgradeMenu {
       button.className = `upgrade-choice rarity-${choice.rarity}`;
       button.innerHTML =
         `<span class="upgrade-key">${i + 1}</span>` + cartridgeMarkup(choice);
+      // Each cartridge floats on its own phase so the row breathes rather than
+      // marching in step. Negative, so a card opens already inside the cycle
+      // instead of every card starting at the bottom of its bob together.
+      button.style.setProperty('--float-delay', `${-0.9 * i}s`);
       button.addEventListener('click', () => this.choose(choice));
       this.choicesEl.appendChild(button);
     });
